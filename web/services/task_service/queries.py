@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from shared.enumerations import RoleEnum
 from shared.services.lock_service import LockClient, get_locks
@@ -47,6 +48,41 @@ async def get_task(
     result = await session.execute(
         select(Task)
         .outerjoin(Problem, Task.problem_id == Problem.id)
+        .where(
+            Task.id == task_id,
+            or_(
+                Problem.contest_id == contest.id,
+                and_(Task.problem_id.is_(None), task_belongs_to_contest_via_team(contest, Task)),
+            ),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_task_with_details(
+    session: AsyncSession,
+    contest: Contest,
+    task_id: str,
+) -> Task | None:
+    """Fetch a contest-scoped task with printout relationships loaded.
+
+    Args:
+        session: Active database session.
+        contest: Contest that must own the task.
+        task_id: Task identifier.
+
+    Returns:
+        The task with its team, site, problem, and finished-task staff member,
+        or ``None`` when the task does not belong to the contest.
+    """
+    result = await session.execute(
+        select(Task)
+        .outerjoin(Problem, Task.problem_id == Problem.id)
+        .options(
+            joinedload(Task.team).joinedload(User.site),
+            joinedload(Task.problem),
+            joinedload(Task.staff),
+        )
         .where(
             Task.id == task_id,
             or_(

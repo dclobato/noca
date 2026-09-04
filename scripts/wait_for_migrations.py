@@ -6,7 +6,7 @@
 
 """Block until the database schema is migrated to the latest Alembic head.
 
-Worker processes (``autojudge``, ``rating``, ``aiassistant``) consume the shared
+Worker processes (``autojudge``, ``rating``, ``aiassistant``, ``mailer``) consume the shared
 schema but do not own it. Rather than running ``alembic upgrade head`` from a
 worker -- which would let a mismatched worker image drive the schema during a
 rolling deploy -- each worker calls this helper to wait until an HTTP steward

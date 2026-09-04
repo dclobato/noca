@@ -23,6 +23,7 @@ from shared.queue_schema import (
     ContestQueueMetrics,
     CustomValidatorValidationJob,
     JudgeJob,
+    MailJob,
     ProfilingJob,
     SolutionTestJob,
     SubmissionEvent,
@@ -37,6 +38,10 @@ from shared.services.valkey_service.constants import (
     QUEUE_INFLIGHT_KEY,
     QUEUE_INFLIGHT_TIMES_KEY,
     QUEUE_JOB_HASH_PREFIX,
+    QUEUE_MAIL_INFLIGHT_KEY,
+    QUEUE_MAIL_INFLIGHT_TIMES_KEY,
+    QUEUE_MAIL_JOB_HASH_PREFIX,
+    QUEUE_MAIL_PENDING_KEY,
     QUEUE_PENDING_KEY,
     QUEUE_PRIORITY_KEY,
     QUEUE_PROFILING_KEY,
@@ -516,3 +521,231 @@ async def get_all_contest_queue_metrics(
     if isinstance(client_or_runtime, ValkeyRuntime):
         return await client_or_runtime.get_all_contest_queue_metrics()
     return await _get_all_contest_queue_metrics_with_client(cast(aivalkey.Valkey, client_or_runtime))
+
+
+# ---------------------------------------------------------------------------
+# Outbound email queue (drained by the mailer worker)
+# ---------------------------------------------------------------------------
+
+_DEQUEUE_MAIL_JOB_SCRIPT = """
+local job_id = redis.call("RPOP", KEYS[1])
+if job_id then
+    redis.call("LPUSH", KEYS[2], job_id)
+    redis.call("ZADD", KEYS[3], ARGV[1], job_id)
+    return job_id
+end
+return nil
+"""
+
+# Requeue-or-drop for one stale inflight job, in one atomic step so a crash
+# between "remove from inflight" and "push to pending" can never lose the job,
+# and a completion racing with the reaper can never resurrect a delivered
+# message: the job is only touched while it is still inflight and its hash
+# still exists. The hash keeps its original TTL -- a retry must not extend
+# the credential-at-rest bound.
+_REQUEUE_STALE_MAIL_JOB_SCRIPT = """
+local jid = ARGV[1]
+local max_requeues = tonumber(ARGV[2])
+if not redis.call("LPOS", KEYS[2], jid) then
+    redis.call("ZREM", KEYS[3], jid)
+    return "not_inflight"
+end
+if redis.call("EXISTS", KEYS[4]) == 0 then
+    redis.call("LREM", KEYS[2], 0, jid)
+    redis.call("ZREM", KEYS[3], jid)
+    return "expired"
+end
+local requeue_count = tonumber(redis.call("HGET", KEYS[4], "requeue_count") or "0") or 0
+if requeue_count >= max_requeues then
+    redis.call("DEL", KEYS[4])
+    redis.call("LREM", KEYS[2], 0, jid)
+    redis.call("ZREM", KEYS[3], jid)
+    return "dropped"
+end
+redis.call("HSET", KEYS[4], "requeue_count", requeue_count + 1)
+redis.call("LREM", KEYS[2], 0, jid)
+redis.call("ZREM", KEYS[3], jid)
+redis.call("LPUSH", KEYS[1], jid)
+return "requeued"
+"""
+
+
+async def enqueue_mail_job_with_client(client: aivalkey.Valkey, job: MailJob, *, ttl_seconds: int) -> None:
+    """Store a MailJob hash (with a TTL) and push its job_id onto the mail pending queue.
+
+    The TTL is the credential-at-rest bound: a rendered password that nobody
+    delivered within ``ttl_seconds`` disappears from Valkey on its own, and the
+    worker drops a list entry whose hash is gone.
+    """
+    job_key = f"{QUEUE_MAIL_JOB_HASH_PREFIX}:{job.job_id}"
+    job_mapping = {
+        key: str(value).lower() if isinstance(value, bool) else str(value)
+        for key, value in job.model_dump(mode="python", exclude_none=True).items()
+    }
+    pipe = client.pipeline()
+    pipe.hset(job_key, mapping=job_mapping)
+    pipe.expire(job_key, ttl_seconds)
+    pipe.lpush(QUEUE_MAIL_PENDING_KEY, job.job_id)
+    await pipe.execute()
+
+
+async def dequeue_mail_job_id_with_client(client: aivalkey.Valkey) -> str | None:
+    """Move one job_id from pending to inflight and record its dispatch timestamp.
+
+    The move and the timestamp are one Lua script: a crash between them would
+    otherwise leave a job inflight that the reaper can never see.
+    """
+    import time
+
+    result = client.eval(
+        _DEQUEUE_MAIL_JOB_SCRIPT,
+        3,
+        QUEUE_MAIL_PENDING_KEY,
+        QUEUE_MAIL_INFLIGHT_KEY,
+        QUEUE_MAIL_INFLIGHT_TIMES_KEY,
+        str(time.time()),
+    )
+    if asyncio.iscoroutine(result):
+        result = await result
+    if result is not None:
+        return result.decode() if isinstance(result, bytes) else cast(str, result)
+    return None
+
+
+async def requeue_stale_mail_job_with_client(client: aivalkey.Valkey, job_id: str, *, max_requeue_count: int) -> str:
+    """Atomically requeue one stale inflight job, or drop it past the requeue cap.
+
+    Returns one of ``"requeued"``, ``"dropped"`` (cap reached; the hash is
+    deleted), ``"expired"`` (the hash TTL already removed the payload; only
+    the inflight entry is cleaned) or ``"not_inflight"`` (completed by the
+    worker in the meantime; nothing to do). The hash keeps its TTL.
+    """
+    result = client.eval(
+        _REQUEUE_STALE_MAIL_JOB_SCRIPT,
+        4,
+        QUEUE_MAIL_PENDING_KEY,
+        QUEUE_MAIL_INFLIGHT_KEY,
+        QUEUE_MAIL_INFLIGHT_TIMES_KEY,
+        f"{QUEUE_MAIL_JOB_HASH_PREFIX}:{job_id}",
+        job_id,
+        str(max_requeue_count),
+    )
+    if asyncio.iscoroutine(result):
+        result = await result
+    return result.decode() if isinstance(result, bytes) else cast(str, result)
+
+
+async def remove_from_mail_inflight_with_client(client: aivalkey.Valkey, job_id: str) -> None:
+    """Remove a job_id from the mail inflight list and dispatch-time sorted set."""
+    pipe = client.pipeline()
+    pipe.lrem(QUEUE_MAIL_INFLIGHT_KEY, 1, job_id)
+    pipe.zrem(QUEUE_MAIL_INFLIGHT_TIMES_KEY, job_id)
+    await pipe.execute()
+
+
+async def complete_mail_job_with_client(client: aivalkey.Valkey, job_id: str) -> None:
+    """Atomically remove all Valkey state for a terminal mail job."""
+    job_key = f"{QUEUE_MAIL_JOB_HASH_PREFIX}:{job_id}"
+    pipe = client.pipeline(transaction=True)
+    pipe.lrem(QUEUE_MAIL_PENDING_KEY, 0, job_id)
+    pipe.lrem(QUEUE_MAIL_INFLIGHT_KEY, 0, job_id)
+    pipe.zrem(QUEUE_MAIL_INFLIGHT_TIMES_KEY, job_id)
+    pipe.delete(job_key)
+    await pipe.execute()
+
+
+async def get_stale_mail_job_ids_with_client(client: aivalkey.Valkey, stale_threshold_s: float) -> list[str]:
+    """Return job_ids inflight longer than ``stale_threshold_s`` seconds."""
+    import time
+
+    cutoff = time.time() - stale_threshold_s
+    raw_ids = await client.zrangebyscore(QUEUE_MAIL_INFLIGHT_TIMES_KEY, min=0, max=cutoff)
+    return [r.decode() if isinstance(r, bytes) else cast(str, r) for r in raw_ids]
+
+
+async def get_mail_job_hash_with_client(client: aivalkey.Valkey, job_id: str) -> dict[str, str] | None:
+    """Return the job hash stored at ``mail:job:<job_id>``, or None when expired/absent."""
+    raw = client.hgetall(f"{QUEUE_MAIL_JOB_HASH_PREFIX}:{job_id}")
+    data: dict[object, object] = await raw if asyncio.iscoroutine(raw) else await raw  # type: ignore[misc]
+    if not data:
+        return None
+    return {
+        (k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v))
+        for k, v in data.items()
+    }
+
+
+async def enqueue_mail_job(client_or_runtime: aivalkey.Valkey | object, job: MailJob, *, ttl_seconds: int) -> None:
+    """Enqueue one rendered email for the mailer worker."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.enqueue_mail_job(job, ttl_seconds=ttl_seconds)
+        return
+    await enqueue_mail_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job, ttl_seconds=ttl_seconds)
+
+
+async def dequeue_mail_job_id(client_or_runtime: aivalkey.Valkey | object) -> str | None:
+    """Dequeue the next mail job_id from the pending queue."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        return await client_or_runtime.dequeue_mail_job_id()
+    return await dequeue_mail_job_id_with_client(cast(aivalkey.Valkey, client_or_runtime))
+
+
+async def requeue_stale_mail_job(
+    client_or_runtime: aivalkey.Valkey | object, job_id: str, *, max_requeue_count: int
+) -> str:
+    """Atomically requeue or drop one stale mail job; see the ``_with_client`` variant."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        return await client_or_runtime.requeue_stale_mail_job(job_id, max_requeue_count=max_requeue_count)
+    return await requeue_stale_mail_job_with_client(
+        cast(aivalkey.Valkey, client_or_runtime), job_id, max_requeue_count=max_requeue_count
+    )
+
+
+async def remove_from_mail_inflight(client_or_runtime: aivalkey.Valkey | object, job_id: str) -> None:
+    """Remove a job_id from the mail inflight list."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.remove_from_mail_inflight(job_id)
+        return
+    try:
+        await remove_from_mail_inflight_with_client(cast(aivalkey.Valkey, client_or_runtime), job_id)
+    except Exception as exc:
+        logger.error(f"Failed to remove mail job '{job_id}' from inflight list: {str(exc)}")
+
+
+async def complete_mail_job(client_or_runtime: aivalkey.Valkey | object, job_id: str) -> None:
+    """Remove all Valkey state for a terminal mail job."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.complete_mail_job(job_id)
+        return
+    try:
+        await complete_mail_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job_id)
+    except Exception as exc:
+        logger.error(f"Failed to complete mail job '{job_id}': {str(exc)}")
+
+
+async def get_stale_mail_job_ids(client_or_runtime: aivalkey.Valkey | object, stale_threshold_s: float) -> list[str]:
+    """Return mail job_ids inflight longer than stale_threshold_s seconds."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        return await client_or_runtime.get_stale_mail_job_ids(stale_threshold_s)
+    return await get_stale_mail_job_ids_with_client(cast(aivalkey.Valkey, client_or_runtime), stale_threshold_s)
+
+
+async def get_mail_job_hash(client_or_runtime: aivalkey.Valkey | object, job_id: str) -> dict[str, str] | None:
+    """Return the mail job hash for the given job_id, or None."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        return await client_or_runtime.get_mail_job_hash(job_id)
+    return await get_mail_job_hash_with_client(cast(aivalkey.Valkey, client_or_runtime), job_id)

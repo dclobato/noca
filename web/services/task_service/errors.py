@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -53,3 +53,33 @@ class DuplicatePrintTaskError(TaskError):
 
 class PrintRequestsDisabledError(TaskError):
     """Raised when the contest has disabled team-created PRINT requests."""
+
+
+class TaskRateLimitError(TaskError):
+    """Raised when a team exceeds the per-window SOS or PRINT task budget."""
+
+    def __init__(self, message: str, *, next_allowed_at: datetime.datetime) -> None:
+        """Initialize with the earliest time the team may create another task.
+
+        Args:
+            message: Human-readable reason.
+            next_allowed_at: When the oldest in-window task leaves the window.
+        """
+        super().__init__(message)
+        self.next_allowed_at = next_allowed_at
+
+
+class OpenSosTaskLimitError(TaskError):
+    """Raised when a team already holds the maximum number of unfinished SOS tasks."""
+
+    def __init__(self, message: str, *, open_count: int, limit: int) -> None:
+        """Initialize with the team's open SOS count and the configured ceiling.
+
+        Args:
+            message: Human-readable reason.
+            open_count: Unfinished SOS tasks the team currently holds.
+            limit: Configured maximum.
+        """
+        super().__init__(message)
+        self.open_count = open_count
+        self.limit = limit

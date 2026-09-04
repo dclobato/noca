@@ -74,8 +74,12 @@ function fakeEventSourceClass() {
     addEventListener(name, cb) {
       (this.listeners[name] = this.listeners[name] || []).push(cb);
     }
-    emit(name) {
-      (this.listeners[name] || []).forEach((cb) => cb({}));
+    emit(name, data) {
+      const event = data === undefined ? {} : { data: JSON.stringify(data) };
+      (this.listeners[name] || []).forEach((cb) => cb(event));
+    }
+    emitRaw(name, data) {
+      (this.listeners[name] || []).forEach((cb) => cb({ data }));
     }
     close() {
       this.closed = true;
@@ -164,6 +168,65 @@ async function testNudgeTriggersRefetch() {
   await flush();
   assert.strictEqual(states.length, 2);
   assert.strictEqual(states[1].projection.revealed_count, 1, "the refetched state is applied, not the event payload");
+}
+
+// ── A media cue is delivered, and deliberately refetches nothing ────────────
+async function testMediaCueDoesNotRefetch() {
+  const fetcher = deferredFetcher();
+  const FakeEventSource = fakeEventSourceClass();
+  const cues = [];
+  const transport = transportApi.createRevealTransport({
+    fetchState: fetcher.fetchState,
+    EventSourceCtor: FakeEventSource,
+    eventsUrl: "/reveal/events",
+    onMediaCue: (cue) => cues.push(cue),
+  });
+
+  const started = transport.start();
+  await flush();
+  fetcher.calls[0].resolve({ has_session: true });
+  await started;
+
+  const source = FakeEventSource.instances[0];
+  source.emit(transportApi.EVENT_MEDIA_CUE, { action: "show", team_id: "t7" });
+  await flush();
+
+  // The cue carries its whole payload and moves no ceremony state, so refetching
+  // would buy a round trip per button press and return what is already on screen.
+  assert.strictEqual(fetcher.calls.length, 1, "a media cue must not refetch state");
+  assert.deepStrictEqual(cues, [{ action: "show", team_id: "t7" }]);
+
+  source.emit(transportApi.EVENT_MEDIA_CUE, { action: "hide", team_id: null });
+  await flush();
+  assert.strictEqual(cues.length, 2);
+  assert.strictEqual(cues[1].action, "hide");
+}
+
+// ── A malformed or unknown cue is dropped, never thrown ─────────────────────
+async function testMalformedMediaCueIsIgnored() {
+  const fetcher = deferredFetcher();
+  const FakeEventSource = fakeEventSourceClass();
+  const cues = [];
+  const transport = transportApi.createRevealTransport({
+    fetchState: fetcher.fetchState,
+    EventSourceCtor: FakeEventSource,
+    eventsUrl: "/reveal/events",
+    onMediaCue: (cue) => cues.push(cue),
+  });
+
+  const started = transport.start();
+  await flush();
+  fetcher.calls[0].resolve({ has_session: true });
+  await started;
+
+  const source = FakeEventSource.instances[0];
+  // One bad publish must not tear down a projector's stream mid-ceremony.
+  source.emitRaw(transportApi.EVENT_MEDIA_CUE, "not json at all");
+  source.emit(transportApi.EVENT_MEDIA_CUE, { action: "sideways" });
+  await flush();
+
+  assert.deepStrictEqual(cues, [], "neither a malformed frame nor an unknown action is delivered");
+  assert.strictEqual(fetcher.calls.length, 1);
 }
 
 // ── A burst of nudges collapses to one in-flight plus one follow-up ──────────
@@ -509,6 +572,8 @@ async function main() {
   await testFetchBeforeSubscribe();
   await testFailedInitialFetchDoesNotSubscribe();
   await testNudgeTriggersRefetch();
+  await testMediaCueDoesNotRefetch();
+  await testMalformedMediaCueIsIgnored();
   await testNudgeBurstCoalesces();
   await testReopenRefetches();
   await testStreamErrorExplicitlyReconnects();

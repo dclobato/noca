@@ -6,20 +6,20 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon %}
-{% block title_suffix %}&mdash; {{ profile_user.nome }}{% endblock %}
+{% from "_macros.html" import render_icon, render_location %}
+{% block title_suffix %}&mdash; {{ profile_user.public_display_name }}{% endblock %}
 {% block content %}
     <div class="arena-public-profile container-fluid px-3">
         <section class="arena-card arena-public-profile-header">
             <div class="arena-public-profile-identity">
                 <span class="avatar-wrapper avatar-wrapper--lg"
                       data-user-id="{{ profile_user.id }}">
-                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=profile_user.id) }}?v={{ (profile_user.dta_foto.timestamp() | int) if profile_user.dta_foto else 0 }}"
-                         alt="{{ profile_user.nome }}"
+                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=profile_user.id) }}?v={{ profile_user.avatar_revision }}"
+                         alt="{{ profile_user.public_display_name }}"
                          class="arena-avatar arena-profile-avatar arena-public-profile-avatar">
                 </span>
                 <div class="arena-public-profile-heading">
-                    <h1 class="arena-profile-name">{{ profile_user.nome }}</h1>
+                    <h1 class="arena-profile-name">{{ profile_user.public_display_name }}</h1>
                     <div class="arena-public-profile-affiliation">
                         {% if profile_user.affiliation_name %}
                             {{ profile_user.affiliation_name }}
@@ -28,15 +28,7 @@
                         {% endif %}
                     </div>
                     <div class="arena-public-profile-location">
-                        {% if profile_user.country_code %}
-                            <img src="{{ request.url_for('static_vendor', path='img/flags/' + profile_user.country_code.lower() + '.svg') }}"
-                                 class="arena-country-flag"
-                                 alt="">
-                            {{ profile_user.country_name }}
-                            {% if profile_user.subdivision_name %}, {{ profile_user.subdivision_name }}{% endif %}
-                        {% else %}
-                            Location not set
-                        {% endif %}
+                        {{ render_location(request, profile_user, empty_label="Location not set") }}
                     </div>
                     {% if profile_user.last_ac_date %}
                         <div class="arena-public-profile-last-accepted">

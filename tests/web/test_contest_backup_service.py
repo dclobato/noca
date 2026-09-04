@@ -57,11 +57,6 @@ from web.services.contest_backup_service import (
     import_contest_backup,
 )
 from web.services.contest_backup_service.export import _append_problem_folder
-from web.services.contest_backup_service.models import (
-    EDITORIAL_FORMAT_VERSION,
-    LEGACY_FORMAT_VERSION,
-    PREVIOUS_FORMAT_VERSION,
-)
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 
 LANGUAGE_ID = "python3"
@@ -781,158 +776,6 @@ async def test_solution_test_runs_are_excluded_from_the_archive(
 
 
 @pytest.mark.asyncio
-async def test_legacy_backup_with_a_null_output_limit_is_still_restorable(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
-) -> None:
-    """``problems.output_limit_in_bytes`` used to be nullable; NULL meant "no limit".
-
-    The column is now NOT NULL and row validation rejects NULL for a non-nullable
-    column, so an older backup would otherwise be unrestorable. The value is
-    normalized to the documented default instead.
-    """
-    contest = await _seed_contest(session, uberadmin)
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-
-    legacy_path = tmp_path / "legacy-backup.zip"
-    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(legacy_path, "w") as target:
-        for info in source.infolist():
-            data = source.read(info.filename)
-            if info.filename.endswith("problems.json"):
-                payload = json.loads(data)
-                for entry in payload if isinstance(payload, list) else payload.get("rows", []):
-                    entry["problem"]["output_limit_in_bytes"] = None
-                data = json.dumps(payload).encode("utf-8")
-            target.writestr(info.filename, data)
-
-    restored = await _restore(session, legacy_path, uberadmin, slug="legacy", name="Legacy")
-
-    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
-    problems = result.scalars().all()
-    assert [problem.output_limit_in_bytes for problem in problems] == [65536]
-
-
-@pytest.mark.asyncio
-async def test_legacy_backup_without_a_stored_strategy_is_still_restorable(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
-) -> None:
-    """An archive captured before ``problems.validator_type`` existed still restores.
-
-    Strict row validation compares each row against the *live* table, so adding a
-    NOT NULL column would otherwise break every existing archive on the day it
-    lands. The v1 branch treats the new columns as optional and fills the strategy
-    by the same inference the archive was captured under -- the last place that
-    inference is still correct, because it is all such an archive carries.
-    """
-    contest = await _seed_contest(session, uberadmin)
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-
-    legacy_path = _downgrade_to_v1(zip_path, tmp_path / "legacy-backup.zip", strip_strategy=True)
-
-    restored = await _restore(session, legacy_path, uberadmin, slug="legacy", name="Legacy")
-
-    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
-    problems = result.scalars().all()
-    # The seeded problem carries an active validator, which is the only signal a
-    # pre-strategy archive holds; the fence starts from its server default.
-    assert [problem.validator_type for problem in problems] == [ProblemValidatorType.INTERACTIVE]
-    assert [problem.artifact_generation for problem in problems] == [0]
-
-
-def _downgrade_to_v1(source_path: Path, destination: Path, *, strip_strategy: bool) -> Path:
-    """Rewrite a current archive as a faithful version-1 one.
-
-    Every versioned component is downgraded, not just the one under test: the
-    manifest, the payload rows, and each embedded ``problem.json``. Leaving any
-    of them at version 2 would produce an archive no release ever wrote, so the
-    test would pass or fail for a reason unrelated to v1 compatibility.
-
-    Args:
-        source_path: The current-format archive to downgrade.
-        destination: Where to write the downgraded archive.
-        strip_strategy: Whether to also remove the columns version 1 predates,
-            producing a *pre*-strategy archive rather than an interim one.
-
-    Returns:
-        Path: ``destination``.
-    """
-    with zipfile.ZipFile(source_path) as source, zipfile.ZipFile(destination, "w") as target:
-        for info in source.infolist():
-            data = source.read(info.filename)
-            if info.filename == "manifest.json":
-                manifest = json.loads(data)
-                manifest["format_version"] = LEGACY_FORMAT_VERSION
-                data = json.dumps(manifest).encode("utf-8")
-            elif info.filename.endswith("problems.json"):
-                payload = json.loads(data)
-                for entry in payload:
-                    if strip_strategy:
-                        entry["problem"].pop("validator_type", None)
-                        entry["problem"].pop("artifact_generation", None)
-                    entry["problem"].pop("editorial", None)
-                data = json.dumps(payload).encode("utf-8")
-            elif info.filename.endswith("problem.json"):
-                embedded = json.loads(data)
-                embedded["format_version"] = 1
-                embedded.pop("validator_type", None)
-                embedded.pop("editorial", None)
-                data = json.dumps(embedded).encode("utf-8")
-            elif info.filename.endswith("editorial.md"):
-                continue
-            target.writestr(info.filename, data)
-    return destination
-
-
-@pytest.mark.asyncio
-async def test_an_interim_v1_backup_keeps_its_explicit_strategy(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
-) -> None:
-    """A v1-labelled archive that *does* carry the strategy is not re-inferred.
-
-    Between the strategy column landing and this format bump, the exporter wrote
-    ``validator_type`` into archives still labelled version 1. Treating "version
-    1" as "infer" would corrupt exactly those archives, so the rule is *explicit
-    wins, infer only on absence*. The standard problem here carries a validator
-    row, which is precisely what inference would get wrong.
-    """
-    contest = await _seed_contest(session, uberadmin)
-    standard = Problem(
-        contest_id=contest.id,
-        title="Standard with a stale validator",
-        ordinal=2,
-        color="#00ff00",
-        validator_type=ProblemValidatorType.STANDARD,
-    )
-    session.add(standard)
-    await session.flush()
-    save_md_statement(standard.id, "# Standard\n", settings.PROBLEM_STATEMENT_DIR)
-    await session.execute(
-        insert(validators_t).values(
-            problem_id=standard.id,
-            active_language_id=LANGUAGE_ID,
-            active_source="print('stale')",
-            active_state=CustomValidatorActiveState.VALID,
-            active_validated_at=datetime.now(UTC),
-        )
-    )
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-
-    interim_path = _downgrade_to_v1(zip_path, tmp_path / "interim-backup.zip", strip_strategy=False)
-
-    restored = await _restore(session, interim_path, uberadmin, slug="interim", name="Interim")
-
-    ordered = select(Problem).where(Problem.contest_id == restored.id).order_by(Problem.ordinal)
-    restored_problems = (await session.execute(ordered)).scalars().all()
-    assert [p.validator_type for p in restored_problems] == [
-        ProblemValidatorType.INTERACTIVE,
-        # Inference would have called this interactive; the stored value wins.
-        ProblemValidatorType.STANDARD,
-    ]
-
-
-@pytest.mark.asyncio
 async def test_a_v2_backup_omitting_the_strategy_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
 ) -> None:
@@ -957,7 +800,7 @@ async def test_a_v2_backup_omitting_the_strategy_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", [0, 5, 99])
+@pytest.mark.parametrize("version", [0, 4, 6, 99])
 async def test_an_unknown_backup_version_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
 ) -> None:
@@ -980,39 +823,10 @@ async def test_an_unknown_backup_version_is_refused(
 
 
 @pytest.mark.asyncio
-async def test_version_two_backup_without_editorial_restores_null(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
-) -> None:
-    """Version 2 predates the problem-row editorial column."""
-    contest = await _seed_contest(session, uberadmin)
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-    previous_path = tmp_path / "version-two.zip"
-
-    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(previous_path, "w") as target:
-        for info in source.infolist():
-            data = source.read(info.filename)
-            if info.filename == "manifest.json":
-                manifest = json.loads(data)
-                manifest["format_version"] = PREVIOUS_FORMAT_VERSION
-                data = json.dumps(manifest).encode("utf-8")
-            elif info.filename.endswith("problems.json"):
-                payload = json.loads(data)
-                for entry in payload:
-                    entry["problem"].pop("editorial", None)
-                data = json.dumps(payload).encode("utf-8")
-            target.writestr(info.filename, data)
-
-    restored = await _restore(session, previous_path, uberadmin, slug="version-two", name="Version Two")
-    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
-    assert [problem.editorial for problem in result.scalars()] == [None]
-
-
-@pytest.mark.asyncio
 async def test_current_backup_round_trips_editorial(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
 ) -> None:
-    """Version 3 makes the nullable editorial column part of the strict row shape."""
+    """The current format makes the nullable editorial column part of the strict row shape."""
     contest = await _seed_contest(session, uberadmin)
     problem = await session.scalar(select(Problem).where(Problem.contest_id == contest.id))
     assert problem is not None
@@ -1159,7 +973,7 @@ async def _restored_announcement_flags(session: AsyncSession, contest: Contest) 
 async def test_current_backup_round_trips_the_announcement_flag(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
 ) -> None:
-    """Version 4 carries `clarifications.is_announcement` explicitly."""
+    """The current format carries `clarifications.is_announcement` explicitly."""
     contest = await _seed_contest(session, uberadmin)
     await _seed_clarifications(session, contest)
     await session.commit()
@@ -1179,88 +993,10 @@ async def test_current_backup_round_trips_the_announcement_flag(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", [LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION, EDITORIAL_FORMAT_VERSION])
-async def test_an_older_backup_infers_the_flag_from_the_archived_author_role(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
-) -> None:
-    """Versions 1-3 predate the column; the archived author's role is all they carry."""
-    contest = await _seed_contest(session, uberadmin)
-    await _seed_clarifications(session, contest)
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-
-    older_path = tmp_path / f"version-{version}-clarifications.zip"
-    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(older_path, "w") as target:
-        for info in source.infolist():
-            data = source.read(info.filename)
-            if info.filename == "manifest.json":
-                manifest = json.loads(data)
-                manifest["format_version"] = version
-                data = json.dumps(manifest).encode("utf-8")
-            elif info.filename == "clarifications.json":
-                payload = json.loads(data)
-                for row in payload:
-                    row.pop("is_announcement", None)
-                data = json.dumps(payload).encode("utf-8")
-            elif info.filename.endswith("problems.json") and version < EDITORIAL_FORMAT_VERSION:
-                payload = json.loads(data)
-                for entry in payload:
-                    entry["problem"].pop("editorial", None)
-                    if version == LEGACY_FORMAT_VERSION:
-                        entry["problem"].pop("validator_type", None)
-                        entry["problem"].pop("artifact_generation", None)
-                data = json.dumps(payload).encode("utf-8")
-            target.writestr(info.filename, data)
-
-    restored = await _restore(session, older_path, uberadmin, slug=f"older-{version}", name=f"Older {version}")
-    assert await _restored_announcement_flags(session, restored) == {
-        _SEEDED_QUESTION: False,
-        _SEEDED_ANNOUNCEMENT: True,
-    }
-
-
-@pytest.mark.asyncio
-async def test_an_interim_backup_keeps_its_explicit_announcement_flag(
-    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
-) -> None:
-    """An archive labelled version 3 that already carries the flag keeps what it states.
-
-    Explicit wins, infer only on absence: an archive captured after the column landed but
-    before this bump must not have its stated flag re-derived from the author's role.
-    """
-    contest = await _seed_contest(session, uberadmin)
-    await _seed_clarifications(session, contest)
-    await session.commit()
-    zip_path = await _export(session, contest, tmp_path)
-
-    interim_path = tmp_path / "interim.zip"
-    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(interim_path, "w") as target:
-        for info in source.infolist():
-            data = source.read(info.filename)
-            if info.filename == "manifest.json":
-                manifest = json.loads(data)
-                manifest["format_version"] = EDITORIAL_FORMAT_VERSION
-                data = json.dumps(manifest).encode("utf-8")
-            elif info.filename == "clarifications.json":
-                payload = json.loads(data)
-                # A judge-authored row the archive explicitly calls an ordinary question.
-                for row in payload:
-                    row["is_announcement"] = False
-                data = json.dumps(payload).encode("utf-8")
-            target.writestr(info.filename, data)
-
-    restored = await _restore(session, interim_path, uberadmin, slug="interim", name="Interim")
-    assert await _restored_announcement_flags(session, restored) == {
-        _SEEDED_QUESTION: False,
-        _SEEDED_ANNOUNCEMENT: False,
-    }
-
-
-@pytest.mark.asyncio
 async def test_a_current_backup_missing_the_announcement_flag_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
 ) -> None:
-    """A version-4 archive omitting the column is malformed, not quietly defaulted."""
+    """A current archive omitting the column is malformed, not quietly defaulted."""
     contest = await _seed_contest(session, uberadmin)
     await _seed_clarifications(session, contest)
     await session.commit()

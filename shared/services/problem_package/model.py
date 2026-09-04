@@ -76,6 +76,10 @@ class PackageMetadata:
     ``custom_validator`` presence by the parser. Consumers therefore never branch
     on the version to learn the strategy.
 
+    ``expected_difficulty`` is the author's declared difficulty on the internal
+    ``[1, 100]`` rating scale, or ``None`` for no estimate. Arena-only and
+    additive within version 2: absent means no estimate.
+
     ``editorial_release_policy`` is flat here while the JSON nests it inside the
     ``editorial`` object. The nesting is a wire-format choice -- the policy only
     means anything when an editorial exists -- but ``EditorialSpec`` is the
@@ -106,6 +110,7 @@ class PackageMetadata:
     sha256: Mapping[str, str]
     editorial: EditorialSpec | None = None
     editorial_release_policy: ArenaEditorialReleasePolicy | None = None
+    expected_difficulty: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

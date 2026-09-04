@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,6 +29,7 @@
         'confirmChangeRoleModal',
         'confirmToggleCanEditModal',
         'confirmDisable2FAProfileModal',
+        'confirmUnlockModal',
     ];
     confirmModals.forEach(function (id) {
         const modal = document.getElementById(id);
@@ -37,6 +38,12 @@
             modal.querySelectorAll('input[type="password"]').forEach(function (input) {
                 input.value = '';
             });
+        });
+        // Bootstrap focuses the dialog itself, which leaves the one field these
+        // modals actually ask for a Tab away. Put the caret in it instead.
+        modal.addEventListener('shown.bs.modal', function () {
+            const password = modal.querySelector('input[type="password"]');
+            if (password) password.focus();
         });
     });
 })();

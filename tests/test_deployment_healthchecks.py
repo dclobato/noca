@@ -34,6 +34,7 @@ NOCA_SERVICES = (
     "autojudge",
     "rating",
     "aiassistant",
+    "mailer",
     "healthmonitor",
     "animator",
 )
@@ -43,6 +44,7 @@ WORKER_PROBES = {
     "autojudge": "autojudge.healthcheck",
     "rating": "rating.healthcheck",
     "aiassistant": "aiassistant.healthcheck",
+    "mailer": "mailer.healthcheck",
 }
 
 

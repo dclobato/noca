@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,22 +10,48 @@ Provides paginated user listing with filtering, role and status mutation
 helpers, and other administrative operations on ArenaUser records.  All
 database operations accept an ``AsyncSession`` so the caller controls the
 transaction boundary.
+
+One boundary is worth stating up front: **an admin may not override the age
+shield.** Publishing a 13-17 year-old's legal name or profile page is refused
+here exactly as it is on the user's own path, because that gate is a legal
+control rather than a moderation control. For the same reason there is no admin
+toggle for ``full_name_public`` at all -- it is an adult's own opt-in to publish
+their own name, and an administrator making that choice on someone's behalf is
+not an administrative act. What an admin *can* do is rename an account, which
+bypasses the change cooldown and is audited.
 """
 
 import logging
-from datetime import UTC, datetime
+from dataclasses import dataclass
 
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from arena.models.arena_ai_credit_transactions import ArenaAiCreditTransaction
+from arena.models.arena_user_google_identity import ArenaUserGoogleIdentity
 from arena.models.arena_users import ArenaUser
-from arena.services import user_2fa_service, user_service
+from arena.services import google_identity_service, user_2fa_service, user_service, username_service
 from arena.services.pagination_service import Pagination, PaginationParams, clamp_page
+from arena.services.user_visibility_service import may_have_public_profile
 from shared.enumerations import ArenaRole
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ConsentToggleOutcome:
+    """Result of an admin parental-consent toggle.
+
+    Attributes:
+        granted: ``True`` when the toggle granted consent, ``False`` when it withdrew it.
+        activated: ``True`` only when the grant moved the account from inactive to
+            active, so the caller does not record an activation that did not happen.
+    """
+
+    granted: bool
+    activated: bool
+
 
 ARENA_ROLE_DISPLAY: dict[ArenaRole, str] = {
     ArenaRole.ARENA_ADMIN: "Arena Admin",
@@ -49,7 +75,8 @@ async def list_users_paginated(
         session: Active async database session.
         page: Requested page number (one-based).
         per_page: Number of items per page.
-        search: Optional search string matched against name and email fields.
+        search: Optional search string matched against the legal name, the public
+            handle, the account email, and the guardian email.
         role_filter: When set, restricts results to users with this role.
         can_edit_only: When ``True``, restricts results to users with problem-edit
             permission — ``ARENA_ADMIN`` (always allowed) or ``can_edit=True``.
@@ -62,9 +89,15 @@ async def list_users_paginated(
     conditions: list[ColumnElement[bool]] = []
     if search.strip():
         term = f"%{search.strip()}%"
+        # The handle is searchable here on purpose. The age shield is a *public*
+        # read-path rule -- it governs what anonymous and peer surfaces publish --
+        # and this is the admin console, where an operator acting on a report
+        # only ever has the handle to go on, since the handle is the only name
+        # the reporter could have seen.
         conditions.append(
             or_(
                 ArenaUser.nome.ilike(term),
+                ArenaUser.username.ilike(term),
                 ArenaUser.email_normalizado.ilike(term),
                 ArenaUser.email_responsavel_legal.ilike(term),
             )
@@ -207,9 +240,20 @@ async def toggle_ranking_visible(usuario: ArenaUser, session: AsyncSession) -> b
 async def toggle_public_profile(usuario: ArenaUser, session: AsyncSession) -> str | None:
     """Toggle the public-profile opt-in flag for an Arena user.
 
-    Enabling ``public_profile`` is only allowed when ``ranking_visible`` is True;
-    otherwise the toggle is blocked and a human-readable reason is returned so
-    the caller can flash it to the admin.
+    Enabling ``public_profile`` is refused on two independent grounds, each
+    returning a human-readable reason for the caller to flash:
+
+    - ``ranking_visible`` is False -- a public profile page is meaningless when
+      the user does not appear in the ranking at all.
+    - the account is **age-shielded** (13-17, or an unrecorded date of birth,
+      which fails closed). An administrator may not override this. It is not a
+      moderation decision they are entitled to make differently from the user:
+      it is the same legal control the user's own path enforces, and an admin
+      route weaker than the user route it mirrors is simply a way around the
+      shield.
+
+    Disabling is never refused on either ground, so an account that became
+    shielded while its flag was set can always be brought back into line.
 
     Args:
         usuario: Arena user to toggle.
@@ -220,6 +264,12 @@ async def toggle_public_profile(usuario: ArenaUser, session: AsyncSession) -> st
     """
     if not usuario.public_profile and not usuario.ranking_visible:
         return "Public profile requires ranking visibility to be enabled first."
+    if not usuario.public_profile and not may_have_public_profile(usuario):
+        return (
+            "This account is age-shielded (under 18, or no date of birth on record), "
+            "so its profile cannot be made public. This is a legal control and cannot "
+            "be overridden by an administrator."
+        )
     usuario.public_profile = not usuario.public_profile
     await session.flush()
     logger.info("Set public_profile=%s for %s", usuario.public_profile, usuario.email)
@@ -252,6 +302,32 @@ async def admin_disable_2fa(usuario: ArenaUser, session: AsyncSession) -> None:
     logger.warning("Admin disabled 2FA and invalidated sessions for %s", usuario.email)
 
 
+async def admin_unlink_google(usuario: ArenaUser, identity: ArenaUserGoogleIdentity, session: AsyncSession) -> None:
+    """Detach a Google identity from an Arena user on an administrator's behalf.
+
+    Deliberately **not** subject to the last-method guard the self-service
+    unlink applies. That guard protects a user from locking *themselves* out
+    by accident; an administrator detaching a credential -- because the Google
+    account was lost, compromised, or attached to the wrong person -- is doing
+    it on purpose, and the account keeps its ordinary recovery path: the
+    password reset flow, which sets a real password over the placeholder. The
+    caller is responsible for telling the user so.
+
+    Existing sessions are invalidated, as ``admin_disable_2fa`` does: a
+    credential an administrator strips may be one an attacker is sitting on.
+
+    Args:
+        usuario: Arena user whose Google identity should be removed.
+        identity: That user's linked Google identity row.
+        session: Active async database session.
+    """
+    if identity.use_google_avatar:
+        usuario.bump_avatar_revision()
+    await google_identity_service.unlink_identity(session, identity)
+    await user_service.invalidate_sessions(usuario, session)
+    logger.warning("Admin unlinked the Google account and invalidated sessions for %s", usuario.email)
+
+
 async def admin_change_name(usuario: ArenaUser, new_name: str, session: AsyncSession) -> None:
     """Update the display name of an Arena user.
 
@@ -269,6 +345,67 @@ async def admin_change_name(usuario: ArenaUser, new_name: str, session: AsyncSes
     usuario.nome = stripped
     await session.flush()
     logger.info("Changed name of %s to %r", usuario.email, stripped)
+
+
+async def admin_change_username(
+    usuario: ArenaUser,
+    new_username: str,
+    session: AsyncSession,
+    *,
+    allow_immediate_change: bool = False,
+) -> str:
+    """Rename an Arena user's public handle, bypassing the change cooldown.
+
+    The cooldown protects a shielded user's pseudonymity from *their own* churn;
+    an administrator acting on a report (an offensive or impersonating handle)
+    is the case it was never meant to block, so it is bypassed here. The route
+    that calls this re-confirms the admin's password and writes both an
+    ``admin_action`` audit row and a ``username_changed`` security event.
+
+    **What happens to the user's own cooldown afterwards is the admin's call.**
+    By default the rename starts a fresh window, which is right for a moderation
+    rename: a handle taken down after a report must not be restored a moment
+    later. ``allow_immediate_change`` inverts that for the benign cases -- a
+    typo, or a rename the user asked for -- where the default would instead lock
+    someone out of choosing their own name for a full window over something they
+    did not do. Only the administrator knows which situation this is, so only the
+    administrator can say.
+
+    The previous handle is returned rather than discarded so the caller can put
+    both names in that audit metadata. Linking the old handle to the new one is
+    exactly what the cooldown denies an outside observer, which is why it belongs
+    in the admin-only audit log and nowhere else -- a trail that cannot connect
+    the two names records nothing useful.
+
+    Args:
+        usuario: Arena user being renamed.
+        new_username: The handle as submitted by the administrator.
+        session: Active async database session.
+        allow_immediate_change: True to leave the user free to rename again at
+            once, instead of starting a fresh cooldown window.
+
+    Returns:
+        str: The handle the user held **before** this change.
+
+    Raises:
+        UsernameError: If the handle is malformed, reserved, or already taken.
+    """
+    previous = usuario.username
+    await username_service.change_username(
+        session,
+        usuario,
+        new_username,
+        bypass_cooldown=True,
+        clear_cooldown=allow_immediate_change,
+    )
+    logger.warning(
+        "Admin changed username of %s from %r to %r (allow_immediate_change=%s)",
+        usuario.email,
+        previous,
+        usuario.username,
+        allow_immediate_change,
+    )
+    return previous
 
 
 async def admin_remove_location(usuario: ArenaUser, session: AsyncSession) -> None:
@@ -328,26 +465,35 @@ async def admin_toggle_email_confirmed(usuario: ArenaUser, session: AsyncSession
         logger.warning("Admin cleared email confirmation for %s", usuario.email)
 
 
-async def admin_toggle_parental_consent(usuario: ArenaUser, session: AsyncSession) -> None:
+async def admin_toggle_parental_consent(usuario: ArenaUser, session: AsyncSession) -> ConsentToggleOutcome:
     """Toggle the parental-consent flag for an Arena user.
 
-    Granting sets the flag and records the current timestamp.  Revoking clears
-    both the flag and its timestamp.
+    Both branches route through the same ``user_service`` write paths the guardian's own
+    link uses, so the two can never drift: an admin revocation deactivates the account and
+    kills live sessions exactly as a guardian revocation does, rather than flipping a flag
+    and leaving a suspended minor with a working JWT. Granting likewise re-activates the
+    account when the remaining gates are clear, which is what makes an admin toggle a real
+    recovery from a revocation rather than half of one.
+
+    Both branches bump ``consent_generation``, so any revocation link outstanding in a
+    guardian's mailbox becomes inert the moment an admin touches the consent state.
 
     Args:
         usuario: Arena user whose parental consent state will be toggled.
         session: Active async database session.
+
+    Returns:
+        ConsentToggleOutcome: What the toggle did, for the route to audit and report.
     """
     if not usuario.consentimento_responsavel:
-        usuario.consentimento_responsavel = True
-        usuario.dta_consentimento_responsavel = datetime.now(UTC)
-        await session.flush()
+        was_active = usuario.ativo
+        await user_service.grant_parental_consent(usuario, session)
+        activated = await user_service.ativar_conta_se_pronta(usuario, session) and not was_active
         logger.warning("Admin granted parental consent for %s", usuario.email)
-    else:
-        usuario.consentimento_responsavel = False
-        usuario.dta_consentimento_responsavel = None
-        await session.flush()
-        logger.warning("Admin revoked parental consent for %s", usuario.email)
+        return ConsentToggleOutcome(granted=True, activated=activated)
+    await user_service.revoke_parental_consent(usuario, session)
+    logger.warning("Admin revoked parental consent for %s", usuario.email)
+    return ConsentToggleOutcome(granted=False, activated=False)
 
 
 async def get_credit_transactions_paginated(

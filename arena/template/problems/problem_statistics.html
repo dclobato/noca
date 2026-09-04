@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -67,22 +67,91 @@
                 </div>
             </div>
         </div>
+        {# ── Solvers and attempts to solve ────────────────────────────── #}
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <div class="arena-card h-100">
+                    <h2 class="arena-card-title">
+                        {{ render_icon(icon="emoji_events") }}
+                        Solvers
+                    </h2>
+                    <dl class="arena-problem-stats-facts">
+                        <div>
+                            <dt>First solver</dt>
+                            <dd data-stats-first-solver>
+                                Loading…
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Latest solver</dt>
+                            <dd data-stats-last-solver>
+                                Loading…
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="arena-card h-100">
+                    <h2 class="arena-card-title">
+                        {{ render_icon(icon="replay") }}
+                        Submissions until first accepted
+                    </h2>
+                    <div id="problem-stats-attempts"
+                         class="arena-stats-chart arena-stats-chart--attempts"
+                         role="img"
+                         aria-labelledby="problem-stats-attempts-status"></div>
+                    <p id="problem-stats-attempts-status"
+                       class="arena-problem-stats-status"
+                       aria-live="polite"
+                       aria-atomic="true"
+                       data-stats-attempts-status>Loading…</p>
+                </div>
+            </div>
+        </div>
+        {# ── Submission heatmap (every submission, including pending) ─── #}
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="calendar_month") }}
+                Submissions over time
+            </h2>
+            <div class="arena-problem-stats-heatmap-toolbar"
+                 role="group"
+                 aria-label="Heatmap year"
+                 data-stats-heatmap-years
+                 hidden></div>
+            <div class="arena-heatmap-scroll"
+                 role="region"
+                 tabindex="0"
+                 aria-label="Submission activity heatmap, horizontally scrollable">
+                <div id="problem-stats-heatmap"
+                     class="arena-submission-heatmap-container"
+                     role="img"
+                     aria-labelledby="problem-stats-heatmap-status"></div>
+            </div>
+            <p id="problem-stats-heatmap-status"
+               class="arena-problem-stats-status"
+               aria-live="polite"
+               aria-atomic="true"
+               data-stats-heatmap-status>Loading…</p>
+        </div>
         {# ── Per-language tables (AC only) ────────────────────────────── #}
         <div class="row g-3 mb-3">
             <div class="col-md-6">
                 <div class="arena-card h-100">
                     <h2 class="arena-card-title">
                         {{ render_icon(icon="timer") }}
-                        Average wall time per language <span class="text-muted small">(accepted)</span>
+                        Average wall time per language <span class="arena-card-title-meta">(accepted)</span>
                     </h2>
                     <div class="table-responsive">
                         <table class="arena-table mb-0">
+                            <caption class="visually-hidden">Average wall time of accepted solutions per language</caption>
                             <thead>
                                 <tr>
-                                    <th>Language</th>
-                                    <th class="text-end">Solutions</th>
-                                    <th class="text-end">Avg (ms)</th>
-                                    <th class="text-end">Std dev (ms)</th>
+                                    <th scope="col">Language</th>
+                                    <th scope="col" class="text-end">Solutions</th>
+                                    <th scope="col" class="text-end">Avg (ms)</th>
+                                    <th scope="col" class="text-end">Std dev (ms)</th>
                                 </tr>
                             </thead>
                             <tbody data-stats-time-table>
@@ -95,16 +164,17 @@
                 <div class="arena-card h-100">
                     <h2 class="arena-card-title">
                         {{ render_icon(icon="memory") }}
-                        Average peak memory per language <span class="text-muted small">(accepted)</span>
+                        Average peak memory per language <span class="arena-card-title-meta">(accepted)</span>
                     </h2>
                     <div class="table-responsive">
                         <table class="arena-table mb-0">
+                            <caption class="visually-hidden">Average peak memory of accepted solutions per language</caption>
                             <thead>
                                 <tr>
-                                    <th>Language</th>
-                                    <th class="text-end">Solutions</th>
-                                    <th class="text-end">Avg (KB)</th>
-                                    <th class="text-end">Std dev (KB)</th>
+                                    <th scope="col">Language</th>
+                                    <th scope="col" class="text-end">Solutions</th>
+                                    <th scope="col" class="text-end">Avg (KB)</th>
+                                    <th scope="col" class="text-end">Std dev (KB)</th>
                                 </tr>
                             </thead>
                             <tbody data-stats-memory-table>
@@ -118,7 +188,7 @@
         <div class="arena-card mb-3">
             <h2 class="arena-card-title">
                 {{ render_icon(icon="bar_chart") }}
-                Solution running time distribution <span class="text-muted small">(accepted)</span>
+                Solution running time distribution <span class="arena-card-title-meta">(accepted)</span>
             </h2>
             <div id="problem-stats-histogram"
                  class="arena-stats-chart arena-stats-chart--bar"></div>
@@ -129,5 +199,7 @@
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-problem-solver-stats.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-problem-statistics.js') }}?v={{ app_version }}"></script>
 {% endblock %}

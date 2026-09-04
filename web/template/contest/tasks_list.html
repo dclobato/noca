@@ -20,6 +20,7 @@
             data-problem-title="{{ problem_map.get(t.problem_id, {}).get('title', '') | e if t.problem_id else '' }}"
             data-problem-color="{{ problem_map.get(t.problem_id, {}).get('color', '') | e if t.problem_id else '' }}"
             data-source-url="{{ request.url_for('contest_tasks_source', slug=contest.login_slug, task_id=t.id) }}"
+            data-printout-url="{{ request.url_for('contest_tasks_printout', slug=contest.login_slug, task_id=t.id) }}"
             {% if not finished %}data-finish-url="{{ finish_url }}" data-release-url="{{ release_url }}"{% endif %}
             title="{{ 'View task details' if finished else 'Open task' }}">
         {{ render_icon(icon='visibility' if finished else 'folder_open', classes="me-1") }}{{ 'View' if finished else 'Open' }}

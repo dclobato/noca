@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
@@ -32,6 +33,7 @@ from healthmonitor.error_handlers import register_error_handlers
 from healthmonitor.routes.dashboard import router as dashboard_router
 from healthmonitor.routes.health import router as health_router
 from healthmonitor.services.loops import run_prober_loop, run_reaper_loop
+from healthmonitor.services.uptime_cache import UptimeHistoryCache
 from shared.app_logging import configure_logging
 from shared.enumerations import Environment
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
@@ -89,6 +91,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.templates = templates
     logger.info("- Jinja2 templates initialised (directory=%s)", _HEALTHMON_DIR / "template")
 
+    uptime_cache: UptimeHistoryCache[Any] = UptimeHistoryCache(ttl_seconds=settings.PROBE_INTERVAL)
+    app.state.uptime_cache = uptime_cache
+    logger.info("- Uptime history cache initialised (ttl=%ss)", settings.PROBE_INTERVAL)
+
     stop_event = asyncio.Event()
     app.state.loops_stop = stop_event
     app.state.prober_task = asyncio.create_task(
@@ -97,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             stop_event,
             interval_seconds=settings.PROBE_INTERVAL,
             retention_days=settings.RETENTION_DAYS,
+            uptime_cache=uptime_cache,
         ),
         name="healthmon-prober",
     )

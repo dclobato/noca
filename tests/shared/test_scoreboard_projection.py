@@ -22,11 +22,13 @@ from uuid import uuid4
 from shared.enumerations import JudgmentStatus, Verdict
 from shared.services.scoreboard_projection import (
     ScoreboardSnapshot,
+    TeamStanding,
     compute_icpc,
     ordinal_to_label,
     penalizing_verdicts,
     snapshot_from_dict,
     snapshot_to_dict,
+    standing_score_key,
 )
 
 # ---------------------------------------------------------------------------
@@ -385,6 +387,153 @@ def test_icpc_shared_rank() -> None:
     assert ranks == [1, 1, 3]  # tied at 1, next is 3 (position-based)
 
 
+def _standing(solved: int, total_time: int, last_accepted: int | None) -> TeamStanding:
+    return TeamStanding(
+        rank=0,
+        team_id="t",
+        team_name="T",
+        team_fullname="T",
+        problems_solved=solved,
+        total_time=total_time,
+        problems={},
+        last_accepted_minutes=last_accepted,
+    )
+
+
+def test_score_key_orders_by_solves_then_time_then_last_accepted() -> None:
+    """The key is the single definition of both rank order and rank equality."""
+    # More solves beats fewer, whatever the times.
+    assert standing_score_key(_standing(2, 500, 400)) < standing_score_key(_standing(1, 1, 1))
+    # Equal solves: less total time wins.
+    assert standing_score_key(_standing(2, 60, 50)) < standing_score_key(_standing(2, 61, 10))
+    # Equal solves and time: the earlier last accepted wins.
+    assert standing_score_key(_standing(2, 60, 50)) < standing_score_key(_standing(2, 60, 55))
+    # Equal on all three: the same key, which is what makes them share a rank.
+    assert standing_score_key(_standing(2, 60, 50)) == standing_score_key(_standing(2, 60, 50))
+
+
+def test_score_key_sorts_a_team_with_no_solves_last_in_its_group() -> None:
+    """A missing last-accepted minute never orders a team ahead of a scoring one."""
+    assert standing_score_key(_standing(0, 0, None)) > standing_score_key(_standing(0, 0, 0))
+    assert standing_score_key(_standing(0, 0, None)) == standing_score_key(_standing(0, 0, None))
+
+
+def test_icpc_tiebreak_by_last_accepted_when_time_equal() -> None:
+    """Equal solved count and total_time → the earlier last AC ranks higher."""
+    team_early = _team(username="Early")
+    team_late = _team(username="Late")
+    problem_one = _problem(ordinal=1)
+    problem_two = _problem(ordinal=2)
+
+    # Both teams total 60 penalty minutes over two solves with no failed
+    # attempts, but Early finishes at minute 50 and Late at minute 55.
+    early_one = _submission(team_early.id, problem_one.id, timestamp_minutes=10)
+    early_two = _submission(team_early.id, problem_two.id, timestamp_minutes=50)
+    late_one = _submission(team_late.id, problem_one.id, timestamp_minutes=5)
+    late_two = _submission(team_late.id, problem_two.id, timestamp_minutes=55)
+
+    standings = _compute(
+        contest=_contest(wa_penalty=20),
+        teams=[team_early, team_late],
+        problems=[problem_one, problem_two],
+        submissions=[early_one, early_two, late_one, late_two],
+        judgments={
+            early_one.id: _judgment(Verdict.AC),
+            early_two.id: _judgment(Verdict.AC),
+            late_one.id: _judgment(Verdict.AC),
+            late_two.id: _judgment(Verdict.AC),
+        },
+    )
+
+    by_name = {s.team_name: s for s in standings}
+    assert by_name["Early"].total_time == by_name["Late"].total_time == 60
+    assert by_name["Early"].last_accepted_minutes == 50
+    assert by_name["Late"].last_accepted_minutes == 55
+    assert by_name["Early"].rank == 1
+    assert by_name["Late"].rank == 2
+
+
+def test_icpc_shared_rank_when_last_accepted_also_ties() -> None:
+    """Teams equal on all three keys still share a rank."""
+    team_a = _team(username="A")
+    team_b = _team(username="B")
+    problem_one = _problem(ordinal=1)
+    problem_two = _problem(ordinal=2)
+
+    a_one = _submission(team_a.id, problem_one.id, timestamp_minutes=10)
+    a_two = _submission(team_a.id, problem_two.id, timestamp_minutes=50)
+    b_one = _submission(team_b.id, problem_one.id, timestamp_minutes=10)
+    b_two = _submission(team_b.id, problem_two.id, timestamp_minutes=50)
+
+    standings = _compute(
+        contest=_contest(wa_penalty=20),
+        teams=[team_a, team_b],
+        problems=[problem_one, problem_two],
+        submissions=[a_one, a_two, b_one, b_two],
+        judgments={
+            a_one.id: _judgment(Verdict.AC),
+            a_two.id: _judgment(Verdict.AC),
+            b_one.id: _judgment(Verdict.AC),
+            b_two.id: _judgment(Verdict.AC),
+        },
+    )
+
+    assert [s.rank for s in standings] == [1, 1]
+    assert {s.last_accepted_minutes for s in standings} == {50}
+
+
+def test_icpc_teams_without_solves_carry_no_last_accepted() -> None:
+    """A team that solved nothing has no last AC and still ranks, tied, at the bottom."""
+    team_solver = _team(username="Solver")
+    team_none_a = _team(username="NoneA")
+    team_none_b = _team(username="NoneB")
+    problem = _problem(ordinal=1)
+
+    solved = _submission(team_solver.id, problem.id, timestamp_minutes=30)
+    failed = _submission(team_none_a.id, problem.id, timestamp_minutes=10)
+
+    standings = _compute(
+        contest=_contest(wa_penalty=20),
+        teams=[team_solver, team_none_a, team_none_b],
+        problems=[problem],
+        submissions=[solved, failed],
+        judgments={
+            solved.id: _judgment(Verdict.AC),
+            failed.id: _judgment(Verdict.WA),
+        },
+    )
+
+    by_name = {s.team_name: s for s in standings}
+    assert by_name["Solver"].rank == 1
+    assert by_name["Solver"].last_accepted_minutes == 30
+    assert by_name["NoneA"].last_accepted_minutes is None
+    assert by_name["NoneB"].last_accepted_minutes is None
+    assert by_name["NoneA"].rank == by_name["NoneB"].rank == 2
+
+
+def test_icpc_last_accepted_is_the_latest_solve_not_the_first() -> None:
+    """The tie-break key tracks the team's final solve, whatever order it arrived in."""
+    team = _team(username="Solo")
+    problem_one = _problem(ordinal=1)
+    problem_two = _problem(ordinal=2)
+
+    late_solve = _submission(team.id, problem_one.id, timestamp_minutes=80)
+    early_solve = _submission(team.id, problem_two.id, timestamp_minutes=20)
+
+    standings = _compute(
+        contest=_contest(wa_penalty=20),
+        teams=[team],
+        problems=[problem_one, problem_two],
+        submissions=[late_solve, early_solve],
+        judgments={
+            late_solve.id: _judgment(Verdict.AC),
+            early_solve.id: _judgment(Verdict.AC),
+        },
+    )
+
+    assert standings[0].last_accepted_minutes == 80
+
+
 # ---------------------------------------------------------------------------
 # Freeze visibility and pending cells
 # ---------------------------------------------------------------------------
@@ -732,7 +881,7 @@ def test_snapshot_serialization_round_trip() -> None:
 
 
 def test_snapshot_from_dict_tolerates_missing_optional_fields() -> None:
-    """Legacy cache payloads without team_fullname/is_first_balloon still deserialize."""
+    """Legacy cache payloads missing the newer optional fields still deserialize."""
     data = {
         "contest_id": "c1",
         "generated_at": "2026-01-01T12:00:00Z",
@@ -766,3 +915,4 @@ def test_snapshot_from_dict_tolerates_missing_optional_fields() -> None:
     standing = snapshot.standings[0]
     assert standing.team_fullname == "Alpha"  # falls back to team_name
     assert standing.problems["A"].is_first_balloon is False
+    assert standing.last_accepted_minutes is None

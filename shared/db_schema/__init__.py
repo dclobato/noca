@@ -14,6 +14,7 @@ tables directly via SQLAlchemy Core.
 """
 
 from ._base import metadata
+from .announcement import announcements, arena_announcement_acknowledgments
 from .arena import (
     arena_affiliation_rating_history,
     arena_ai_batch_jobs,
@@ -38,6 +39,7 @@ from .arena import (
     arena_submissions,
     arena_test_cases,
     arena_user_badges,
+    arena_user_google_identities,
     arena_user_rating_history,
     arena_user_reputation,
     arena_users,
@@ -101,11 +103,14 @@ __all__ = [
     "arena_submissions",
     "arena_test_cases",
     "arena_user_badges",
+    "arena_user_google_identities",
     "arena_user_rating_history",
     "arena_user_reputation",
     "arena_users",
     "arena_worker_command_audit",
     "arena_worker_pause_state",
+    "announcements",
+    "arena_announcement_acknowledgments",
     "clarification_reads",
     "clarifications",
     "contest_languages",

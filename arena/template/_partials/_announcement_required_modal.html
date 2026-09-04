@@ -1,0 +1,92 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  The mandatory-announcement pop-up. `_base.html` includes it on every page a
+  logged-in user loads while an acknowledgment is pending, one announcement at a
+  time (the oldest first); acknowledging reloads the page, which shows the next.
+
+  The modal has a static backdrop, no keyboard dismissal and no close button, so
+  the UI offers no way past it but the checkbox; the server never relies on
+  that, since an un-acknowledged announcement simply comes back on the next
+  page. The body goes through the single Markdown pipeline, whose vendor
+  libraries `_base.html` does not load, so they are included here -- only while
+  a pop-up is pending, which is why the KaTeX stylesheet is linked from the body.
+
+  Required context:
+    pending  shared.services.announcement_acknowledgment_service.PendingRequiredAnnouncement
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set announcement = pending.announcement %}
+<link href="{{ request.url_for('static_vendor', path='katex.min.css') }}"
+      rel="stylesheet">
+<div class="modal fade"
+     id="announcement-required-modal"
+     tabindex="-1"
+     data-bs-backdrop="static"
+     data-bs-keyboard="false"
+     aria-labelledby="announcement-required-title"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <p class="text-muted small text-uppercase mb-1">
+                        {{ render_icon(icon="campaign") }}
+                        Mandatory announcement
+                        {% if pending.pending_total > 1 %}
+                            <span class="badge text-bg-secondary ms-1"
+                                  aria-label="Announcement 1 of {{ pending.pending_total }} to acknowledge">1 of {{ pending.pending_total }}</span>
+                        {% endif %}
+                    </p>
+                    <h2 class="modal-title fs-5" id="announcement-required-title">{{ announcement.title }}</h2>
+                    <p class="text-muted small mb-0">
+                        Published by {{ announcement.published_by_label }}
+                        on {{ announcement.published_at.strftime("%Y-%m-%d %H:%M") }} UTC
+                    </p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="noca-markdown" data-noca-markdown="announcement-required-src"></div>
+                <script id="announcement-required-src" type="text/plain">{{ announcement.body | e }}</script>
+            </div>
+            <form method="post"
+                  action="{{ request.url_for('arena_announcement_acknowledge', announcement_id=announcement.id) }}"
+                  id="announcement-required-form">
+                <div class="modal-footer justify-content-between">
+                    <div class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               id="announcement-acknowledge"
+                               name="acknowledge"
+                               value="on"
+                               required>
+                        <label class="form-check-label" for="announcement-acknowledge">I have read and understood this announcement</label>
+                    </div>
+                    <button type="submit"
+                            class="btn btn-primary"
+                            id="announcement-acknowledge-submit"
+                            disabled>
+                        {{ render_icon(icon="check") }}
+                        Acknowledge
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+        defer></script>
+<script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+        defer></script>
+<script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+        defer></script>
+<script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+        defer></script>
+<script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+        defer></script>
+<script src="{{ request.url_for('arena_static_js', path='arena-announcement-required.js') }}?v={{ app_version }}"
+        defer></script>

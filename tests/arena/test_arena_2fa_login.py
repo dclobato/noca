@@ -103,11 +103,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         """Stub dashboard endpoint."""
         return HTMLResponse("dashboard")
 
-    @stubs.get("/user/profile/complete", name="arena_user_profile_completion")
-    async def _stub_profile_completion(request: Request) -> HTMLResponse:
-        """Stub profile completion endpoint."""
-        return HTMLResponse("profile completion")
-
     @stubs.get("/live", name="arena_live")
     @stubs.get("/status", name="arena_status")
     async def _stub_status(request: Request) -> HTMLResponse:
@@ -153,7 +148,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     return app
 
 
-async def _create_user_with_2fa(session: AsyncSession, *, complete_profile: bool = True) -> ArenaUser:
+async def _create_user_with_2fa(session: AsyncSession) -> ArenaUser:
     """Create an active Arena user with ``usa_2fa=True``.
 
     The OTP secret is not set here because tests that validate the code
@@ -179,50 +174,15 @@ async def _create_user_with_2fa(session: AsyncSession, *, complete_profile: bool
         usa_2fa=True,
         precisa_trocar_senha=False,
         session_version=1,
-        affiliation_id="test-affiliation" if complete_profile else None,
-        preferred_language_id="python" if complete_profile else None,
-        country_code="BR" if complete_profile else None,
+        affiliation_id="test-affiliation",
+        preferred_language_id="python",
+        country_code="BR",
         prefered_language="en-US",
     )
     user.password = "StrongPass1!"
     session.add(user)
     await session.flush()
     return user
-
-
-@pytest.mark.asyncio
-async def test_2fa_incomplete_profile_overrides_safe_next(session: AsyncSession) -> None:
-    """Completed 2FA login prioritizes the profile completion notice."""
-    app = _build_arena_app(session)
-    user = await _create_user_with_2fa(session, complete_profile=False)
-    await session.commit()
-    pending_token = set_pending_2fa_token(
-        user,
-        app.state.jwt_service,
-        remember_me=False,
-        next_page="/submissions/sub-1",
-    )
-    success_result = TwoFAValidationResult(
-        success=True,
-        method_used=Autenticacao2FA.TOTP,
-        remaining_backup_codes=5,
-    )
-
-    @app.post("/test-set-2fa-token-incomplete")
-    async def _set_token(request: Request) -> HTMLResponse:
-        request.session["pending_2fa_token"] = pending_token
-        return HTMLResponse("ok")
-
-    with patch(
-        "arena.routes.auth_2fa.user_2fa_service.validar_codigo_2fa",
-        new=AsyncMock(return_value=success_result),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-            await client.post("/test-set-2fa-token-incomplete")
-            response = await client.post("/auth/2fa", data={"full_code": "123456"}, follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/user/profile/complete")
 
 
 async def _login_history_modes(session: AsyncSession, user_id: str) -> list[str | None]:
@@ -411,6 +371,40 @@ async def test_2fa_submit_with_valid_code_sets_cookie_and_redirects_to_dashboard
     assert "arena_access_token" in response.cookies
     assert await _login_history_modes(session, user.id) == ["2fa"]
     assert await _login_history_source_ports(session, user.id) == [54322]
+
+
+@pytest.mark.asyncio
+async def test_2fa_success_preserves_the_ip_spray_bucket(session: AsyncSession) -> None:
+    """A controlled successful account cannot erase failures against other accounts."""
+    app = _build_arena_app(session)
+    user = await _create_user_with_2fa(session)
+    await session.commit()
+    valid_pending_token = set_pending_2fa_token(user, app.state.jwt_service, remember_me=False)
+    success_result = TwoFAValidationResult(
+        success=True,
+        method_used=Autenticacao2FA.TOTP,
+        remaining_backup_codes=5,
+    )
+
+    @app.post("/test-set-2fa-token-preserve-ip")
+    async def _set_token(request: Request) -> HTMLResponse:
+        request.session["pending_2fa_token"] = valid_pending_token
+        return HTMLResponse("ok")
+
+    reset = AsyncMock()
+    with (
+        patch(
+            "arena.routes.auth_2fa.user_2fa_service.validar_codigo_2fa",
+            new=AsyncMock(return_value=success_result),
+        ),
+        patch("arena.routes.auth_2fa.reset_auth_throttle", new=reset),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            await client.post("/test-set-2fa-token-preserve-ip")
+            response = await client.post("/auth/2fa", data={"full_code": "123456"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert reset.await_args.kwargs["include_ip"] is False
 
 
 @pytest.mark.asyncio

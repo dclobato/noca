@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,28 +26,76 @@ from web.models._base import _utcnow
 from web.models.contest import Contest, Task
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
+from web.services.rate_limit_service import (
+    check_open_sos_task_limit,
+    check_print_task_rate_limit,
+    check_sos_task_rate_limit,
+)
 
 from .errors import (
     ContestNotRunningError,
     DuplicatePrintTaskError,
     ForbiddenTaskActionError,
+    OpenSosTaskLimitError,
     PrintRequestsDisabledError,
     TaskAlreadyAcquiredError,
     TaskAlreadyFinishedError,
     TaskLockUnavailableError,
     TaskNotAcquiredByActorError,
+    TaskRateLimitError,
 )
 from .permissions import can_force_release_tasks, can_handle_tasks
 
 _EMPTY_SOURCE_HASH = hashlib.sha256(b"").hexdigest()
 
 
-async def create_sos_task(session: AsyncSession, contest: Contest, actor: User) -> Task:
-    """Create a new SOS task on behalf of a team."""
+async def create_sos_task(
+    session: AsyncSession,
+    contest: Contest,
+    actor: User,
+    *,
+    rate_limit_window_seconds: int = 600,
+    rate_limit_max_tasks: int = 5,
+    max_open_tasks: int = 3,
+) -> Task:
+    """Create a new SOS task on behalf of a team.
+
+    The two throttles run after the role gate, so staff, judges, and admins never
+    reach them: they cannot create SOS tasks at all.
+
+    Args:
+        session: Active database session.
+        contest: Contest the task belongs to.
+        actor: Team requesting help.
+        rate_limit_window_seconds: Rolling window for the per-team SOS budget.
+        rate_limit_max_tasks: SOS tasks allowed in that window; 0 disables the rule.
+        max_open_tasks: Unfinished SOS tasks the team may hold; 0 disables the rule.
+
+    Returns:
+        The created task.
+
+    Raises:
+        ContestNotRunningError: If the contest is not running.
+        ForbiddenTaskActionError: If the actor is not a team.
+        OpenSosTaskLimitError: If the team already holds ``max_open_tasks`` open SOS tasks.
+        TaskRateLimitError: If the team exceeded ``rate_limit_max_tasks`` in the window.
+    """
     if not contest.is_running:
         raise ContestNotRunningError("Tasks can only be created while the contest is running.")
     if actor.role != RoleEnum.TEAM:
         raise ForbiddenTaskActionError("Only team members may create SOS tasks.")
+
+    # The open-count rule comes first: waiting does not release it, so it is the
+    # more actionable of the two refusals when a team trips both.
+    open_allowed, open_count = await check_open_sos_task_limit(session, actor.id, max_open_tasks)
+    if not open_allowed:
+        raise OpenSosTaskLimitError("Too many open SOS requests.", open_count=open_count, limit=max_open_tasks)
+    allowed, next_allowed_at = await check_sos_task_rate_limit(
+        session, actor.id, rate_limit_window_seconds, rate_limit_max_tasks
+    )
+    if not allowed:
+        assert next_allowed_at is not None
+        raise TaskRateLimitError("SOS request limit reached.", next_allowed_at=next_allowed_at)
 
     now = _utcnow()
     task = Task(
@@ -72,8 +120,31 @@ async def create_print_task(
     *,
     problem_id: str,
     source_code: str,
+    rate_limit_window_seconds: int = 600,
+    rate_limit_max_tasks: int = 10,
 ) -> Task:
-    """Create a PRINT task for a team."""
+    """Create a PRINT task for a team.
+
+    Args:
+        session: Active database session.
+        contest: Contest the task belongs to.
+        actor: Team requesting the printout.
+        problem_id: Problem whose source is printed.
+        source_code: The source to print.
+        rate_limit_window_seconds: Rolling window for the per-team print budget.
+        rate_limit_max_tasks: Print tasks allowed in that window; 0 disables the rule.
+
+    Returns:
+        The created task.
+
+    Raises:
+        ContestNotRunningError: If the contest is not running.
+        ForbiddenTaskActionError: If the actor is not a team.
+        PrintRequestsDisabledError: If the contest disabled print requests.
+        DuplicatePrintTaskError: If an identical unfinished print task exists.
+        TaskRateLimitError: If the team exceeded ``rate_limit_max_tasks`` in the window.
+        ValueError: If the problem is not in the contest or the source is too large.
+    """
     if not contest.is_running:
         raise ContestNotRunningError("Tasks can only be created while the contest is running.")
     if actor.role != RoleEnum.TEAM:
@@ -104,6 +175,15 @@ async def create_print_task(
     )
     if duplicate.scalar_one_or_none() is not None:
         raise DuplicatePrintTaskError("A pending print task for this source code already exists.")
+
+    # After the dedup check: a duplicate writes nothing and carries its own,
+    # more specific message, so it must not be masked by the throttle.
+    allowed, next_allowed_at = await check_print_task_rate_limit(
+        session, actor.id, rate_limit_window_seconds, rate_limit_max_tasks
+    )
+    if not allowed:
+        assert next_allowed_at is not None
+        raise TaskRateLimitError("Print request limit reached.", next_allowed_at=next_allowed_at)
 
     now = _utcnow()
     task = Task(

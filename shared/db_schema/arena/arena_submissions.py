@@ -342,7 +342,7 @@ arena_problem_solvers = Table(
         "solved_at",
         DateTime(timezone=True),
         nullable=False,
-        comment="Timestamp of the first accepted submission for this (user, problem) pair.",
+        comment="Timestamp when the first AC judgment completed for this (user, problem) pair.",
     ),
 )
 

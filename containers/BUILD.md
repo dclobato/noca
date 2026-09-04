@@ -6,6 +6,7 @@ This repository provides:
 - an `autojudge` worker image under `containers/autojudge/`
 - a `rating` worker image under `containers/rating/`
 - an `aiassistant` worker image under `containers/aiassistant/`
+- a `mailer` worker image under `containers/mailer/`
 - a `healthmonitor` server image under `containers/healthmonitor/`
 - an `animator` presentation image under `containers/animator/`
 - a standalone `landingpage` image under `containers/landingpage/`
@@ -26,12 +27,15 @@ not runtime contract images** — nothing in the application references them at 
 ### `noca/app-base`
 
 Shared base for `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`,
-`healthmonitor`, and `animator`. Holds the Python + uv
+`mailer`, `healthmonitor`, and `animator`. Holds the Python + uv
 install, the common ENV block, and the workspace `pyproject.toml` copies that drive
 `uv sync`. Each service image inherits this base and adds only its own
 `uv sync --package` and source COPY steps.
 
-Built from the repo root as context (`containers/app-base/Dockerfile`).
+Built from the repo root as context (`containers/app-base/Dockerfile`) on
+`python:3.14-slim-trixie`, digest-pinned (`@sha256:cad9a2c8...`) for reproducible builds.
+The Python version comes from that upstream tag, not from Debian: trixie's own `python3`
+is 3.13, which is irrelevant here since these images never use the distro interpreter.
 
 ### `noca/assets-base`
 
@@ -65,17 +69,22 @@ Shared base for the native-toolchain compile images (`gcc-c17`, `gcc-cpp23`, `fp
 Encodes the `judge` system user and `/sandbox` ownership/permissions boilerplate. Each consumer
 installs its own toolchain on top via `USER root` → apt-get → `USER judge`.
 
-Digest-pinned (`debian:bookworm-slim@sha256:f065...`) for reproducible builds.
+Digest-pinned (`debian:trixie-slim@sha256:d7e1...`) for reproducible builds.
 
 Built from `containers/judge-compile-base/` as context.
 
 ### Build order
 
-In non-push modes, `build.sh` automatically detects which base
+`build.sh` has two build paths. The default is a **serial** loop that builds one image at a
+time; `--push` and `--parallel` both delegate to **Buildx Bake**, which builds the whole graph
+concurrently. Before `--parallel` existed, concurrency was reachable only by also publishing to
+a registry, so a local full build was necessarily serial.
+
+In the serial path, `build.sh` automatically detects which base
 images are needed and builds them as prerequisites **before** the target loop:
 
 1. `app-base` — when any of `webapp`, `arena`, `autojudge`, `rating`,
-   `aiassistant`, `healthmonitor`, or `animator` is selected
+   `aiassistant`, `mailer`, `healthmonitor`, or `animator` is selected
 2. `assets-base` — when `webapp`, `arena`, `healthmonitor`, or `animator` is
    selected
 3. `isolate-base` — when any language with a `run/` directory is selected
@@ -85,6 +94,17 @@ In script `--push` mode, `build.sh` delegates to
 `containers/docker-bake.hcl`. Bake resolves `app-base`, `assets-base`, `isolate-base`, and
 `judge-compile-base` through `target:` contexts inside one BuildKit graph and keeps them at
 `type=cacheonly`, so only the final publishable images are pushed to the registry.
+
+`--parallel` uses that same Bake graph but exports into the local Docker daemon instead of a
+registry. It sets `output=type=docker` **per requested target** rather than passing `--load`:
+`--load` expands to `--set *.output=type=docker`, which would also flip the four internal base
+targets off `type=cacheonly` and leave dangling untagged base images locally. Selecting the
+targets explicitly keeps the internal-base policy above intact in this mode too.
+
+Because the local daemon stores one image per tag and cannot hold a manifest list, `--parallel`
+is single-platform. It narrows the default platform pair to the host platform automatically and
+refuses an explicit multi-platform `--platforms`, which would be a contradiction. Combine
+`--push` with `--platforms` for multi-arch manifest lists.
 
 The tag-driven GitHub Actions release workflow uses the same Bake file and the same internal-target
 policy.
@@ -112,9 +132,9 @@ Rationale:
 - keep the judge environment closer to what contestants and administrators usually expect
 
 In practice this means:
-- generic judge images use `debian:bookworm-slim`
-- Python uses `python:...-slim-bookworm`
-- Node.js uses `node:...-bookworm-slim`
+- generic judge images use `debian:trixie-slim`
+- Python uses `python:...-slim-trixie`
+- Node.js uses `node:...-trixie-slim`
 - Java and Kotlin use the official Temurin images
 - C# uses the official .NET SDK/runtime images
 
@@ -138,6 +158,10 @@ The aiassistant worker image is tagged as:
 - path naming: `<prefix>/aiassistant`
 - flat naming: `<prefix>-aiassistant`
 
+The mailer worker image is tagged as:
+- path naming: `<prefix>/mailer`
+- flat naming: `<prefix>-mailer`
+
 The healthmonitor server image is tagged as:
 - path naming: `<prefix>/healthmonitor`
 - flat naming: `<prefix>-healthmonitor`
@@ -152,7 +176,7 @@ The standalone landing-page image is tagged as:
 
 ## Runtime UID/GID
 
-The `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
+The `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, `mailer`,
 `healthmonitor`, and `animator` images honor these runtime environment
 variables:
 - `PUID` (default: `1000`)
@@ -172,6 +196,7 @@ The script supports the following targets:
 - `autojudge`
 - `rating`
 - `aiassistant`
+- `mailer`
 - `healthmonitor`
 - `animator`
 - `landingpage`
@@ -209,6 +234,8 @@ The script also accepts the following flags:
 | `--alt-naming <path\|flat>` | Alternate tag naming style for push builds (default: `path`) |
 | `--platforms <list>` | Target platform(s) for buildx, e.g. `linux/amd64,linux/arm64` |
 | `--push` | Push images to the registry (requires buildx) |
+| `--parallel`, `-j` | Build concurrently via Buildx Bake and load into the local daemon (requires buildx; single-platform) |
+| `--cache-repo <ref>` | Registry build cache repository (default: `$NOCA_BUILD_CACHE_REPO`; empty disables it) |
 | `--no-cache` | Force a full rebuild with no layer cache |
 | `--all-languages` | Add all known judge language targets |
 | `--version <tag>` | Apply a version tag to every built image (see [Version Tagging](#version-tagging)) |
@@ -372,7 +399,7 @@ judge set — each of which has to round-trip on every push. That is precisely t
 object that went missing in the `v15.0.1` failure above, where the lost
 attestation manifest took the whole Bake down with it.
 
-App images keep their attestations. There are only eight of them, they are what
+App images keep their attestations. There are only nine of them, they are what
 operators actually deploy, and their push is small enough that the extra
 manifests are not a risk.
 
@@ -558,11 +585,11 @@ docker buildx inspect noca-builder   # Platforms line should list linux/arm64, e
 
 Images are tagged as:
 - path naming: `<prefix>/webapp`, `<prefix>/arena`, `<prefix>/autojudge`,
-  `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/healthmonitor`,
+  `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/mailer`, `<prefix>/healthmonitor`,
   `<prefix>/animator`, `<prefix>/landingpage`,
   `<prefix>/judge-<language>:compile`, `<prefix>/judge-<language>:run`
 - flat naming: `<prefix>-webapp`, `<prefix>-arena`, `<prefix>-autojudge`,
-  `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-healthmonitor`,
+  `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-mailer`, `<prefix>-healthmonitor`,
   `<prefix>-animator`, `<prefix>-landingpage`,
   `<prefix>-judge-<language>:compile`, `<prefix>-judge-<language>:run`
 
@@ -588,25 +615,105 @@ Docker Hub as the primary flat tag set and GHCR as the alternate path tag set.
 
 `isolate` is compiled **once** in the `noca/isolate-base` internal base image and then copied
 into every `judge-<language>:run` image. The release tag is controlled by the `JUDGE_ISOLATE_TAG`
-environment variable (default: `v2.6`).
+environment variable (default: `v2.7`).
 
 Override at build time:
 
 ```bash
-JUDGE_ISOLATE_TAG=v2.6 ./containers/build.sh
+JUDGE_ISOLATE_TAG=v2.6 ./containers/build.sh   # e.g. to pin an older release
 ```
 
 The tag maps to a GitHub release at `https://github.com/ioi/isolate/releases/tag/<tag>`.
 Pinning ensures reproducible images regardless of upstream branch changes.
 
 Building any language `:run` target also triggers an `isolate-base` build as a prerequisite.
-To upgrade isolate across all run images, bump `JUDGE_ISOLATE_TAG` and rebuild. Isolate
-2.6 links against libseccomp, so `isolate-base` installs `libseccomp-dev` for compilation
+To upgrade isolate across all run images, bump `JUDGE_ISOLATE_TAG` and rebuild. Note that
+the default lives in three places that must agree: the `ARG` in
+`containers/isolate-base/Dockerfile`, `JUDGE_ISOLATE_TAG` in `containers/build.sh`, and the
+`JUDGE_ISOLATE_TAG` variable in `containers/docker-bake.hcl`. `build.sh` does not read
+`.env`, so editing `.env` alone does not change what gets built. Isolate
+2.7 links against libseccomp, so `isolate-base` installs `libseccomp-dev` for compilation
 and every run image that copies the binary installs `libseccomp2` at runtime.
 
 Examples:
 - Docker Hub namespace: `docker.io/myuser/noca`
 - GHCR namespace: `ghcr.io/myorg/noca`
+
+## Language Registry Rows
+
+Rebuilding the judge images is only half of a toolchain change. `shared/language_configs.py` is
+a **seed source**, not the runtime configuration: `shared/language_registry.py` builds each
+`LanguageConfig` from a row in the `languages` table, and `compile_cmd`, `run_cmd`, `version`,
+`compile_image`, and `run_image` are persisted columns. `default_language_seed_rows()` is
+consulted at seed time and never again.
+
+So on an existing install, editing the file changes nothing until the rows are updated:
+
+```bash
+uv run python scripts/bootstrap_languages.py
+```
+
+The script upserts every seeded row with a full column update, inserts languages that are new,
+and deactivates rows that no longer have a seed entry. Run it as part of any deploy that changes
+a compiler path, a command, or a version string. Registry row changes are made **only** through
+this script -- do not write an Alembic data migration to re-seed them.
+
+Skipping it is not a cosmetic drift. The Debian 13 migration moved OCaml from a source build
+under `/usr/local` to the `ocaml-nox` package under `/usr`; a deployment that pulled the new
+images without re-running the script would keep invoking `/usr/local/bin/ocamlopt` from its
+stored `compile_cmd` and fail **every** OCaml submission at exec, with nothing in the compile
+log pointing at the cause.
+
+Two related steps belong to the same deploy:
+
+- The autojudge resolves image refs through `NOCA_JUDGE_IMAGE_REGISTRY` / `_NAMING` / `_TAG`
+  when those are set, which overrides the refs stored in the rows. Publishing rebuilt images
+  under a new tag therefore also requires moving `NOCA_JUDGE_IMAGE_TAG`, or the workers keep
+  pulling the previous release.
+- Toolchain upgrades change generated-code performance, so Auto-Limit profiling should be re-run
+  for the affected compiled languages.
+
+## Registry Build Cache
+
+Bake builds carry no layer cache between dispatches by default, so every run of
+`Publish language images` rebuilds all 42 judge images from scratch -- including compiling
+`isolate` from source and installing GHC. `--cache-repo` (or `NOCA_BUILD_CACHE_REPO`) points the
+build at a registry cache:
+
+```bash
+./containers/build.sh --cache-repo ghcr.io/acme/noca/buildcache --push --all-languages
+```
+
+Empty by default, so a developer with no registry credentials is unaffected.
+
+**One cache tag per target.** A single shared ref cannot work: the targets in one Bake run
+concurrently, and each `cache-to` export would overwrite the others' manifest. Every target
+therefore gets `<cache-repo>:<target-name>`.
+
+**The internal bases are cached too**, and explicitly rather than incidentally. `app-base`,
+`assets-base`, `isolate-base`, and `judge-compile-base` are `type=cacheonly` dependencies rather
+than requested targets, so nothing would give them cache entries otherwise -- and they hold the
+most expensive layers in the graph (`isolate` is compiled from source; `judge-compile-base` is
+shared by eight compile images). Without them, every run would rebuild the bases before it could
+reuse anything downstream.
+
+**Reads always, writes only with `--push`.** `cache-to` needs push access to the cache repository,
+and `--push` is the only mode guaranteed to be authenticated against a registry. A local
+`--parallel` build still *reads* the cache, which is the useful half for a developer.
+
+The cache is written with `mode=max`, so intermediate stages are kept -- that is what makes the
+multi-stage builders (`isolate`, the Lua source build) reusable rather than only their final
+layer. It also sets `image-manifest=true,oci-mediatypes=true`, because buildx's default cache
+manifest type is rejected by Docker Hub and ECR; GHCR accepts either, so this is unconditional
+rather than branched per registry.
+
+In the publish workflows the cache repository is **the registry that pass is already logged in
+to** (`docker.io/dclobato/noca-buildcache` or `ghcr.io/dclobato/noca/buildcache`), so publishing
+to one registry never requires credentials for the other.
+
+Note for [Registry retention cleanup](#registry-retention-cleanup): these cache tags accumulate in
+the cache repository the same way image tags do, and are not covered by the retention rules
+written for the image repositories.
 
 ## Registry Login
 
@@ -645,6 +752,11 @@ Build only rating worker:
 Build only aiassistant worker:
 ```bash
 ./containers/build.sh aiassistant
+```
+
+Build only the mailer worker:
+```bash
+./containers/build.sh mailer
 ```
 
 Build only Animator:
@@ -803,6 +915,9 @@ docker buildx imagetools inspect <prefix>-judge-gcc-c17:run
 - The `aiassistant` image is built from `containers/aiassistant/Dockerfile`. It owns
   the Arena AI review pipeline (OpenAI Responses API and Batch API). Run one replica
   only to avoid duplicate batch submissions.
+- The `mailer` image is built from `containers/mailer/Dockerfile`. It owns outbound
+  email delivery from the Valkey mail queue. Run one replica only: the sending pace
+  (`NOCA_MAILER_MAX_PER_MINUTE`) is per process.
 - The `healthmonitor` image is built from `containers/healthmonitor/Dockerfile`.
   It serves the public uptime dashboard and uses Valkey only.
 - The `animator` image is built from `containers/animator/Dockerfile`. It serves

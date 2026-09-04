@@ -125,6 +125,8 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
         color="#4287f5",
         hide_author_show_source=False,
         statement_language="en",
+        # Arena-only author estimate ("Easy"); Contest parses it and exports null.
+        expected_difficulty=30,
         time_limit_ms=1000,
         memory_limit_kb=262144,
         pids_limit=64,

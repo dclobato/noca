@@ -39,7 +39,7 @@ arena_worker_pause_state = Table(
         "worker_class",
         String(32),
         nullable=False,
-        comment="WorkerClass value (autojudge or aiassistant).",
+        comment="WorkerClass value (autojudge, aiassistant or mailer).",
     ),
     Column(
         "worker_id",

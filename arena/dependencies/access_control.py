@@ -39,7 +39,12 @@ _PUBLIC_EXACT: frozenset[str] = frozenset(
 
 #: Public path prefixes. A path is public when it equals the prefix or begins
 #: with ``"<prefix>/"`` (so ``/legalish`` is *not* matched by ``/legal``).
-_PUBLIC_PREFIXES: tuple[str, ...] = ("/legal", "/help", "/auth", "/assets/medal")
+#: ``/announcements`` is the public announcement board (list and every detail page),
+#: readable anonymously by decision (#138); its management lives under
+#: ``/admin/announcements``, a different prefix that stays gated. The one write
+#: under the public prefix, ``POST /announcements/{id}/acknowledge``, requires the
+#: user itself (``require_arena_user``) precisely because this gate lets it through.
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/legal", "/help", "/auth", "/assets/medal", "/announcements")
 
 
 def _is_public_arena_path(path: str) -> bool:

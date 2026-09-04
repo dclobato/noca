@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,10 +13,12 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.security_events import record_request_security_event
 from shared.timezone import Timezone
 from web.config import settings
+from web.database import get_db
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
 from web.services.assorted_utils import slugfy
@@ -34,6 +36,7 @@ from web.services.uberadmin_service import create_uberadmin_account
 from web.services.user_credentials_email_service import (
     build_uberadmin_credentials_email_content,
     build_user_credentials_email_content,
+    email_actor_key,
     send_credentials_email,
 )
 
@@ -76,23 +79,29 @@ async def _record_credential_email_event(
     scope: str,
     target_username: str,
     contest_slug: str | None = None,
+    session: AsyncSession,
 ) -> None:
-    """Record a Web credential-email audit event without storing secrets."""
+    """Record a Web credential-email audit event without storing secrets.
+
+    Writes through the caller's request-scoped session rather than opening one
+    of its own: the route already holds a connection for its dependency, and a
+    second one here made the credential-email routes hold two -- three, when
+    the route had opened its own as well (#198).
+    """
     metadata = {"scope": scope, "target_username": target_username}
     if contest_slug is not None:
         metadata["contest_slug"] = contest_slug
-    async with request.app.state.db_session() as session:
-        await record_request_security_event(
-            session,
-            request,
-            module="web",
-            event_type=event_type,
-            severity="info" if event_type == "credential_email_sent" else "warning",
-            actor_user_id=actor_user_id,
-            actor_label=actor_label,
-            metadata=metadata,
-        )
-        await session.commit()
+    await record_request_security_event(
+        session,
+        request,
+        module="web",
+        event_type=event_type,
+        severity="info" if event_type == "credential_email_sent" else "warning",
+        actor_user_id=actor_user_id,
+        actor_label=actor_label,
+        metadata=metadata,
+    )
+    await session.commit()
 
 
 def _contest_creation_context(
@@ -120,9 +129,9 @@ def _contest_creation_context(
 async def dashboard(
     request: Request,
     uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    async with request.app.state.db_session() as session:
-        contests = await get_active_contests_grouped(session)
+    contests = await get_active_contests_grouped(session)
 
     return _templates(request).TemplateResponse(
         request,
@@ -140,9 +149,9 @@ async def dashboard(
 async def inactive_contests(
     request: Request,
     uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    async with request.app.state.db_session() as session:
-        contests = await get_inactive_contests(session)
+    contests = await get_inactive_contests(session)
 
     return _templates(request).TemplateResponse(
         request,
@@ -159,9 +168,9 @@ async def deactivate_contest(
     request: Request,
     contest_id: str,
     _uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    async with request.app.state.db_session() as session:
-        await deactivate_past_contest(session, contest_id)
+    await deactivate_past_contest(session, contest_id)
     return RedirectResponse(url=str(request.url_for("uberadmin_dashboard")), status_code=303)
 
 
@@ -206,15 +215,15 @@ async def add_uberadmin_submit(
     email: str = Form(""),
     username: str = Form(""),
     uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    async with request.app.state.db_session() as session:
-        result = await create_uberadmin_account(
-            session,
-            creator_username=uberadmin.username,
-            fullname=fullname,
-            email=email,
-            username=username,
-        )
+    result = await create_uberadmin_account(
+        session,
+        creator_username=uberadmin.username,
+        fullname=fullname,
+        email=email,
+        username=username,
+    )
 
     return _templates(request).TemplateResponse(
         request,
@@ -236,6 +245,7 @@ async def send_uberadmin_credentials_email_route(
     username: str = Form(...),
     password: str = Form(...),
     _uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     credentials = {
         "username": username,
@@ -246,6 +256,7 @@ async def send_uberadmin_credentials_email_route(
     if not email.strip():
         await _record_credential_email_event(
             request,
+            session=session,
             actor_user_id=_uberadmin.id,
             actor_label=_uberadmin.username,
             event_type="credential_email_skipped",
@@ -266,7 +277,7 @@ async def send_uberadmin_credentials_email_route(
         )
 
     email_service = request.app.state.email_service
-    delivery = send_credentials_email(
+    delivery = await send_credentials_email(
         email_service,
         to_email=email.strip(),
         fullname=fullname,
@@ -277,9 +288,11 @@ async def send_uberadmin_credentials_email_route(
             password=password,
             sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
+        actor_key=email_actor_key(_uberadmin),
     )
     await _record_credential_email_event(
         request,
+        session=session,
         actor_user_id=_uberadmin.id,
         actor_label=_uberadmin.username,
         event_type="credential_email_sent" if delivery.success else "credential_email_failed",
@@ -321,10 +334,10 @@ async def download_uberadmin_credentials_json(
 async def add_contest(
     request: Request,
     _uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     form_data = build_blank_contest_form(_five_days_ahead_at_0900())
-    async with request.app.state.db_session() as session:
-        languages = await get_active_languages(session)
+    languages = await get_active_languages(session)
     return _templates(request).TemplateResponse(
         request,
         "uberadmin/add_contest.html",
@@ -365,9 +378,9 @@ async def add_contest_submit(
     owner_password: str = Form(""),
     language_ids: list[str] = Form(default_factory=list),
     uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    async with request.app.state.db_session() as _lang_session:
-        languages = await get_active_languages(_lang_session)
+    languages = await get_active_languages(session)
 
     try:
         metadata = ContestMetadataInput.model_validate(
@@ -429,19 +442,18 @@ async def add_contest_submit(
             status_code=422,
         )
 
-    async with request.app.state.db_session() as session:
-        result = await create_contest_with_owner(
-            session,
-            creator_username=uberadmin.username,
-            contest_name=contest_name,
-            login_slug=login_slug,
-            metadata=metadata,
-            owner_username=owner_username,
-            owner_fullname=owner_fullname,
-            owner_email=owner_email,
-            owner_password=owner_password,
-            language_ids=language_ids,
-        )
+    result = await create_contest_with_owner(
+        session,
+        creator_username=uberadmin.username,
+        contest_name=contest_name,
+        login_slug=login_slug,
+        metadata=metadata,
+        owner_username=owner_username,
+        owner_fullname=owner_fullname,
+        owner_email=owner_email,
+        owner_password=owner_password,
+        language_ids=language_ids,
+    )
 
     success_form = build_blank_contest_form(_five_days_ahead_at_0900())
     return _templates(request).TemplateResponse(
@@ -486,9 +498,9 @@ async def send_contest_credentials_email(
     password: str = Form(...),
     email: str = Form(""),
     _uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    async with request.app.state.db_session() as session:
-        languages = await get_active_languages(session)
+    languages = await get_active_languages(session)
 
     credentials = {
         "contest_slug": contest_slug,
@@ -501,6 +513,7 @@ async def send_contest_credentials_email(
     if not email.strip():
         await _record_credential_email_event(
             request,
+            session=session,
             actor_user_id=_uberadmin.id,
             actor_label=_uberadmin.username,
             event_type="credential_email_skipped",
@@ -523,7 +536,7 @@ async def send_contest_credentials_email(
         )
 
     email_service = request.app.state.email_service
-    delivery = send_credentials_email(
+    delivery = await send_credentials_email(
         email_service,
         to_email=email.strip(),
         fullname=fullname,
@@ -535,9 +548,11 @@ async def send_contest_credentials_email(
             password=password,
             sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
+        actor_key=email_actor_key(_uberadmin),
     )
     await _record_credential_email_event(
         request,
+        session=session,
         actor_user_id=_uberadmin.id,
         actor_label=_uberadmin.username,
         event_type="credential_email_sent" if delivery.success else "credential_email_failed",

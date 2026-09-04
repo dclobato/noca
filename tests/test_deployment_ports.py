@@ -30,7 +30,13 @@ from web.config import Settings as WebSettings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml.sample"
 CADDYFILE = REPO_ROOT / "containers" / "Caddyfile"
-ENV_FULL = REPO_ROOT / ".env.full"
+#: Each HTTP module keeps its bind settings in its own layer template.
+ENV_TEMPLATES = {
+    "web": REPO_ROOT / ".env.web.full",
+    "arena": REPO_ROOT / ".env.arena.full",
+    "healthmonitor": REPO_ROOT / ".env.healthmonitor.full",
+    "animator": REPO_ROOT / ".env.animator.full",
+}
 CONFIG_DOC = REPO_ROOT / "docs" / "CONFIG.md"
 ARENA_DOCKERFILE = REPO_ROOT / "containers" / "arena" / "Dockerfile"
 
@@ -108,15 +114,23 @@ def test_settings_expose_host_and_port(binding: ServiceBinding) -> None:
 
 
 @pytest.mark.parametrize("binding", BINDINGS, ids=_IDS)
-def test_compose_declares_host_and_port_with_settings_defaults(
-    binding: ServiceBinding, compose: dict[str, Any]
-) -> None:
-    """Compose passes both variables through, defaulting to the settings values."""
+def test_compose_pins_host_and_port_to_the_settings_defaults(binding: ServiceBinding, compose: dict[str, Any]) -> None:
+    """The stack pins both, and the port literal matches the settings default.
+
+    Neither can be interpolated: Compose resolves ``${...}`` from the project-root
+    ``.env``, never from the ``.env.*.full`` layer the service loads, so
+    ``${NOCA_WEB_PORT:-8000}`` would yield 8000 whatever the layer says -- and,
+    since ``environment:`` outranks every ``env_file``, would then override the
+    layer's real value on the way in. In this stack the four services are private
+    behind Caddy, so the port is a property of the stack: it is pinned here and
+    held equal to the settings default, to the Caddy upstream, and to the
+    loopback healthcheck by the tests below.
+    """
     environment = compose["services"][binding.service]["environment"]
     default_port = binding.settings.model_fields["PORT"].default
 
-    assert environment[binding.host_var] == f"${{{binding.host_var}:-0.0.0.0}}"
-    assert environment[binding.port_var] == f"${{{binding.port_var}:-{default_port}}}"
+    assert environment[binding.host_var] == "0.0.0.0"
+    assert str(environment[binding.port_var]) == str(default_port)
 
 
 @pytest.mark.parametrize("binding", BINDINGS, ids=_IDS)
@@ -130,13 +144,13 @@ def test_caddy_upstream_follows_the_same_port_variable(binding: ServiceBinding, 
 def test_caddy_receives_the_port_variables_it_substitutes(binding: ServiceBinding, compose: dict[str, Any]) -> None:
     """Caddy reads {$VAR:default} from its own environment, so compose must pass it.
 
-    Without this the proxy would silently fall back to the default port while the
-    service listens elsewhere.
+    Without this the proxy would silently fall back to the Caddyfile default while
+    the service listens elsewhere.
     """
     default_port = binding.settings.model_fields["PORT"].default
     caddy_environment = compose["services"]["caddy"]["environment"]
 
-    assert caddy_environment[binding.port_var] == f"${{{binding.port_var}:-{default_port}}}"
+    assert str(caddy_environment[binding.port_var]) == str(default_port)
 
 
 @pytest.mark.parametrize("binding", BINDINGS, ids=_IDS)
@@ -149,18 +163,18 @@ def test_expose_matches_the_default_port(binding: ServiceBinding) -> None:
 @pytest.mark.parametrize(
     "binding", [b for b in BINDINGS if b.loopback_probe], ids=[b.service for b in BINDINGS if b.loopback_probe]
 )
-def test_loopback_healthcheck_follows_the_port_variable(binding: ServiceBinding, compose: dict[str, Any]) -> None:
-    """A reconfigured port must not leave the container probing the old one."""
+def test_loopback_healthcheck_probes_the_pinned_port(binding: ServiceBinding, compose: dict[str, Any]) -> None:
+    """A container must not probe a port it does not listen on."""
     default_port = binding.settings.model_fields["PORT"].default
     probe = " ".join(compose["services"][binding.service]["healthcheck"]["test"])
 
-    assert f"localhost:${{{binding.port_var}:-{default_port}}}/health" in probe
+    assert f"localhost:{default_port}/health" in probe
 
 
 @pytest.mark.parametrize("binding", BINDINGS, ids=_IDS)
 def test_variables_are_documented(binding: ServiceBinding) -> None:
-    """Both variables appear in .env.full and docs/CONFIG.md."""
-    env_full = ENV_FULL.read_text(encoding="utf-8")
+    """Both variables appear in the module's env template and docs/CONFIG.md."""
+    env_full = ENV_TEMPLATES[binding.service].read_text(encoding="utf-8")
     config_doc = CONFIG_DOC.read_text(encoding="utf-8")
     default_port = binding.settings.model_fields["PORT"].default
 

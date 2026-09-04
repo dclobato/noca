@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -385,7 +385,9 @@ async def test_batch_feedback_data_includes_judgment_context(session: AsyncSessi
     assert entry.compile_log == "warning: unused variable"
     assert entry.test_result is not None
     assert entry.test_result.stdout_excerpt == "0\n"
-    assert entry.test_result.expected_output == "1\n"
+    assert entry.test_result.output_diff is not None
+    assert [row.kind for row in entry.test_result.output_diff.rows] == ["changed"]
+    assert entry.test_result.output_diff.rows[0].right == "1"
     assert entry.test_result.test_case_ordinal == 1
     assert entry.test_result.is_sample is False
     assert entry.test_result.stderr_excerpt == "traceback\n"

@@ -57,3 +57,28 @@ def test_problem_pack_path_rejects_existing_regular_file(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_production_refuses_to_start_without_a_cache_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The failure belongs at deploy time, not mid-contest.
+
+    One of the two caches this setting backs is the contestant-facing per-problem
+    export. Without it that route answers `503`, and a team clicking Download
+    during a live contest is the worst possible place to learn the deployment was
+    misconfigured. Startup refuses instead, before any database or Valkey work.
+    """
+    from fastapi import FastAPI
+
+    from shared.enumerations import Environment
+    from web.config import settings as config
+    from web.main import lifespan
+
+    monkeypatch.setattr(config, "PUBLIC_PROBLEM_PACK_PATH", None)
+    monkeypatch.setattr(config, "ENVIRONMENT", Environment.PRODUCTION)
+
+    with pytest.raises(RuntimeError, match="NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH must be set in production"):
+        async with lifespan(FastAPI()):
+            pass

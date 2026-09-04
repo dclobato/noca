@@ -17,6 +17,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.deployment_env import effective_env_keys
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LANDINGPAGE_DIR = REPO_ROOT / "landingpage"
 ENTRYPOINT = REPO_ROOT / "containers" / "landingpage" / "entrypoint.sh"
@@ -27,7 +29,7 @@ BAKE_FILE = REPO_ROOT / "containers" / "docker-bake.hcl"
 PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-images.yml"
 SINGLE_PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-single-image.yml"
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_published_images.py"
-ENV_FULL = REPO_ROOT / ".env.full"
+ENV_FULL = REPO_ROOT / ".env.landingpage.full"
 CONFIG_DOC = REPO_ROOT / "docs" / "CONFIG.md"
 
 URL_VARIABLES = (
@@ -248,12 +250,19 @@ def test_module_portraits_come_from_the_modules_that_own_them() -> None:
 
 
 def test_compose_wires_urls_port_and_healthcheck(compose: dict[str, Any]) -> None:
-    """The sample deployment passes the complete runtime contract."""
+    """The sample deployment passes the complete runtime contract.
+
+    The page has no application behind it to fall back on, so every variable the
+    Caddy template renders must reach the container -- here from its own
+    ``.env.landingpage.full`` layer rather than from an ``environment:`` block.
+    """
     service = compose["services"]["landingpage"]
-    environment = service["environment"]
-    assert environment["NOCA_LANDINGPAGE_PORT"] == "${NOCA_LANDINGPAGE_PORT:-8080}"
-    assert set(TEMPLATE_VARIABLES) <= set(environment)
-    assert service["ports"] == ["84:${NOCA_LANDINGPAGE_PORT:-8080}"]
+    supplied = effective_env_keys(service)
+    assert service["environment"]["NOCA_LANDINGPAGE_PORT"] == "8080"
+    assert set(TEMPLATE_VARIABLES) <= supplied
+    # Pinned, not interpolated: Compose cannot read a ${...} out of an env_file,
+    # so a published port derived that way would ignore the layer's value.
+    assert service["ports"] == ["84:8080"]
     assert "/health" in " ".join(service["healthcheck"]["test"])
     assert "depends_on" not in service
 

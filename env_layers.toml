@@ -1,0 +1,63 @@
+# NOCA environment-file layer map.
+#
+# `.env.full` was one 946-line file holding all 322 variables. It is now split into
+# layers: each `.env.<layer>.full` is a template for one coherent group of settings,
+# and each service composes the layers it actually reads.
+#
+# This file is the single source of truth for that composition. It is enforced by
+# tests/test_env_layers.py, which checks that
+#
+#   * every variable of a module's `Settings` class is defined by exactly one layer
+#     in that module's stack (so a new setting cannot be added without a home),
+#   * no variable is defined by two layers (so shared values cannot drift), and
+#   * `docker-compose.yml.sample` lists exactly these files, in this order, in each
+#     service's `env_file:`, and no `${...}` in that file names a variable a layer
+#     owns -- Compose resolves interpolation from the project-root `.env` and the
+#     shell, never from an `env_file`, so such a reference silently yields the
+#     interpolation default while the layer's real value goes unread.
+#
+# Order matters: Compose applies `env_file` entries in order, later files winning,
+# and an explicit `environment:` entry beats all of them. Stacks are therefore
+# written broad-to-narrow.
+#
+# See docs/ENV_LAYERS.md for the operator-facing description.
+
+[layers]
+common = "Environment, log level, Valkey connection, startup wait"
+database = "PostgreSQL connection"
+http = "Reverse-proxy trust, security headers, /health limit, status-page link"
+webarena = "Cookies, JWT, auth throttling, password policy, images, API keys"
+email = "Sender identity, queue TTL, per-actor budget"
+storage = "Shared problem test-case directory"
+workers = "Worker pause/resume HMAC secret"
+aireview = "The two settings Arena and the AI review worker must agree on"
+web = "Web module only"
+arena = "Arena module only"
+autojudge = "Autojudge worker only"
+rating = "Rating worker only"
+aiassistant = "AI assistant worker only"
+mailer = "Mailer worker only"
+healthmonitor = "Health monitor only"
+animator = "Animator only"
+landingpage = "Landing page only"
+postgres = "The bundled PostgreSQL server, in POSTGRES_* names"
+
+# Templates that are NOT env_file layers. They belong in the project-root `.env`:
+# Compose interpolation, the build script, and development tooling read them from
+# there, and no container should receive them.
+[standalone]
+compose = "Compose interpolation and container/entrypoint knobs"
+build = "Consumed by containers/build.sh; never loaded at runtime"
+devtools = "Backlog index generator and Playwright UI checks"
+
+[stacks]
+web = ["common", "database", "http", "webarena", "email", "storage", "web"]
+arena = ["common", "database", "http", "webarena", "email", "storage", "aireview", "workers", "arena"]
+autojudge = ["common", "database", "storage", "workers", "autojudge"]
+rating = ["common", "database", "rating"]
+aiassistant = ["common", "database", "aireview", "workers", "aiassistant"]
+mailer = ["common", "database", "email", "workers", "mailer"]
+healthmonitor = ["common", "http", "healthmonitor"]
+animator = ["common", "database", "http", "animator"]
+landingpage = ["landingpage"]
+postgres = ["postgres"]

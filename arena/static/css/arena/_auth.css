@@ -26,22 +26,6 @@
     box-shadow: var(--arena-card-shadow);
 }
 
-.arena-auth-logo {
-    font-family: 'Public Sans', sans-serif;
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--arena-primary);
-    margin-bottom: 0.25rem;
-    letter-spacing: -0.02em;
-}
-
-.arena-auth-tagline {
-    font-size: 0.875rem;
-    color: var(--arena-on-surface-variant);
-    font-family: 'Inter', sans-serif;
-    margin-bottom: 0;
-}
-
 .arena-auth-title {
     font-family: 'Public Sans', sans-serif;
     font-size: 1.25rem;
@@ -59,14 +43,6 @@
 .arena-auth-link {
     font-size: 0.875rem;
     font-weight: 500;
-}
-
-.arena-auth-section-label {
-    font-family: 'Inter', sans-serif;
-    font-size: var(--noca-type-micro);
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: var(--arena-outline);
 }
 
 .arena-auth-card .form-label {

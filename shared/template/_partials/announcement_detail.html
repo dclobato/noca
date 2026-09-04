@@ -1,0 +1,35 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  One announcement, shared by the Web and Arena surfaces. The body is rendered
+  by the single Markdown pipeline (`noca-markdown.js`) from the entity-escaped
+  `text/plain` source blob below; the wrapping page loads the vendor libraries
+  (Marked, DOMPurify, KaTeX, Mermaid) it needs. Back returns to the list page
+  the reader came from, with the row's fragment so it stays highlighted.
+
+  Required context:
+    announcement  shared.services.announcement_service.AnnouncementRow
+    back_url      list URL carrying `?page=<N>#announcement-<id>`
+#}
+{% from "_macros.html" import render_icon with context %}
+<article aria-labelledby="announcement-title">
+    <header class="mb-3">
+        <h1 class="h3 mb-1" id="announcement-title">{{ announcement.title }}</h1>
+        <p class="text-muted small mb-0">
+            Published by {{ announcement.published_by_label }}
+            on {{ announcement.published_at.strftime("%Y-%m-%d %H:%M") }} UTC
+        </p>
+    </header>
+    <div class="noca-markdown" data-noca-markdown="announcement-body-src"></div>
+    <script id="announcement-body-src" type="text/plain">{{ announcement.body | e }}</script>
+    <div class="mt-4">
+        <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+            {{ render_icon(icon="arrow_back") }}
+            Back
+        </a>
+    </div>
+</article>

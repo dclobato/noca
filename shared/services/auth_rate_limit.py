@@ -24,6 +24,7 @@ __all__ = [
     "AuthRateLimitSettings",
     "AuthThrottleCheck",
     "AuthThrottleIdentity",
+    "DISTINCT_SET_MAX_MEMBERS",
     "InMemoryAuthRateLimiter",
     "build_auth_throttle_identity",
     "check_auth_throttle",
@@ -47,9 +48,34 @@ local ttl = redis.call("TTL", KEYS[2])
 return {count, ttl}
 """
 
+_FAIL_DISTINCT_SCRIPT = """
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+if ARGV[4] ~= "" and redis.call("SCARD", KEYS[3]) < tonumber(ARGV[5]) then
+  redis.call("SADD", KEYS[3], ARGV[4])
+end
+redis.call("EXPIRE", KEYS[3], ARGV[1])
+local distinct = redis.call("SCARD", KEYS[3])
+if count >= tonumber(ARGV[2]) and distinct >= tonumber(ARGV[6]) then
+  redis.call("SET", KEYS[2], "1", "EX", ARGV[3])
+end
+local ttl = redis.call("TTL", KEYS[2])
+return {count, ttl}
+"""
+
 _TTL_SCRIPT = """
 local ttl = redis.call("TTL", KEYS[1])
 return ttl
+"""
+
+DISTINCT_SET_MAX_MEMBERS = 64
+"""Ceiling on the per-IP set of recently-failed identifier hashes.
+
+The set answers one bounded question -- "have failures here spanned enough
+distinct accounts to look like spraying?" -- so it never needs to grow past a
+small multiple of the threshold, and it expires with the failure window.
 """
 
 
@@ -88,6 +114,7 @@ class AuthThrottleIdentity:
     ip_lock_key: str
     account_failure_key: str | None
     account_lock_key: str | None
+    ip_accounts_key: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +173,7 @@ def build_auth_throttle_identity(
         ip_lock_key=f"{prefix}:ip:{client_ip}:lock",
         account_failure_key=account_failure_key,
         account_lock_key=account_lock_key,
+        ip_accounts_key=f"{prefix}:ip:{client_ip}:accounts",
     )
 
 
@@ -175,14 +203,36 @@ async def record_auth_failure(
     *,
     settings: AuthRateLimitSettings,
     fallback_limiter: InMemoryAuthRateLimiter,
+    ip_distinct_accounts: int = 0,
 ) -> AuthFailureRecord:
-    """Record a failed auth attempt and return whether it created a lockout."""
+    """Record a failed auth attempt and return whether it created a lockout.
+
+    Args:
+        request: Incoming request.
+        identity: Throttle keys for this attempt.
+        settings: Window, ceilings, and lockout duration.
+        fallback_limiter: Process-local limiter used when Valkey is down.
+        ip_distinct_accounts: When above zero, the per-IP bucket locks only once
+            its failures have also spanned this many *distinct* account
+            identifiers. Pass it on post-credential steps -- the caller already
+            proved a password, so the spray the IP bucket exists to stop is
+            visible in the account dimension, while the raw count alone
+            describes one person fumbling a code and charges their whole shared
+            address for it. The raw ceiling still applies: both must be
+            exceeded. Leave at zero where an attempt needs no credential
+            (``login``, ``signup``), because there the IP counter is the only
+            defence against enumeration from a single host.
+
+    Returns:
+        Whether this failure created a lockout, and under which bucket.
+    """
     if not settings.enabled:
         return AuthFailureRecord(locked=False, retry_after_seconds=None, reason="disabled")
     window_seconds = max(1, settings.window_seconds)
     lockout_seconds = max(1, settings.lockout_seconds)
     max_ip = max(1, settings.ip_max_failures)
     max_account = max(1, settings.account_max_failures)
+    distinct_required = min(max(0, ip_distinct_accounts), DISTINCT_SET_MAX_MEMBERS)
 
     ip_ttl = await _record_failure_bucket(
         request,
@@ -192,6 +242,9 @@ async def record_auth_failure(
         max_failures=max_ip,
         lockout_seconds=lockout_seconds,
         fallback_limiter=fallback_limiter,
+        distinct_key=identity.ip_accounts_key if distinct_required else None,
+        distinct_member=identity.identifier_hash,
+        distinct_required=distinct_required,
     )
     account_ttl = None
     if identity.account_failure_key is not None and identity.account_lock_key is not None:
@@ -216,9 +269,23 @@ async def reset_auth_throttle(
     identity: AuthThrottleIdentity,
     *,
     fallback_limiter: InMemoryAuthRateLimiter,
+    include_ip: bool = True,
 ) -> None:
-    """Clear auth counters after successful completion of an auth flow."""
-    keys = [identity.ip_failure_key, identity.ip_lock_key]
+    """Clear auth counters after successful completion of an auth flow.
+
+    Args:
+        request: Incoming request.
+        identity: Keys of the attempt that just succeeded.
+        fallback_limiter: Process-local limiter used when Valkey is down.
+        include_ip: Also clear the per-IP counters. Right for a flow whose
+            account bucket bounds guessing on its own (login, password
+            re-confirmation). Pass ``False`` when the account identifier is
+            something the caller *chooses* -- a token, a claim inside it --
+            because then the IP bucket is the only cap on guessing, and a
+            success the attacker can produce at will (their own valid link)
+            would wipe it.
+    """
+    keys = [identity.ip_failure_key, identity.ip_lock_key, identity.ip_accounts_key] if include_ip else []
     if identity.account_failure_key is not None:
         keys.append(identity.account_failure_key)
     if identity.account_lock_key is not None:
@@ -260,19 +327,44 @@ async def _record_failure_bucket(
     max_failures: int,
     lockout_seconds: int,
     fallback_limiter: InMemoryAuthRateLimiter,
+    distinct_key: str | None = None,
+    distinct_member: str | None = None,
+    distinct_required: int = 0,
 ) -> int | None:
+    """Count one failure in a bucket and return the lock TTL it created, if any.
+
+    With *distinct_key* set, the counting and the distinct-identifier bookkeeping
+    happen in one script, so two concurrent failures cannot each read a stale
+    set size and disagree about whether the bucket should lock.
+    """
+    gated = distinct_key is not None and distinct_required > 0
     client = _valkey_client(request)
     if client is not None:
         try:
-            result = await client.eval(
-                _FAIL_SCRIPT,
-                2,
-                failure_key,
-                lock_key,
-                str(window_seconds),
-                str(max_failures),
-                str(lockout_seconds),
-            )
+            if gated:
+                result = await client.eval(
+                    _FAIL_DISTINCT_SCRIPT,
+                    3,
+                    failure_key,
+                    lock_key,
+                    str(distinct_key),
+                    str(window_seconds),
+                    str(max_failures),
+                    str(lockout_seconds),
+                    distinct_member or "",
+                    str(DISTINCT_SET_MAX_MEMBERS),
+                    str(distinct_required),
+                )
+            else:
+                result = await client.eval(
+                    _FAIL_SCRIPT,
+                    2,
+                    failure_key,
+                    lock_key,
+                    str(window_seconds),
+                    str(max_failures),
+                    str(lockout_seconds),
+                )
         except (ValkeyError, OSError) as exc:
             logger.warning("Auth throttle failure record via Valkey failed, using fallback: %s", exc)
         else:
@@ -287,6 +379,10 @@ async def _record_failure_bucket(
         window_seconds=window_seconds,
         max_failures=max_failures,
         lockout_seconds=lockout_seconds,
+        distinct_key=distinct_key if gated else None,
+        distinct_member=distinct_member,
+        distinct_required=distinct_required if gated else 0,
+        distinct_max_members=DISTINCT_SET_MAX_MEMBERS,
     )
 
 

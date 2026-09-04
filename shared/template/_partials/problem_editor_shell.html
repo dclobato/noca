@@ -55,6 +55,9 @@
         </div>
     </div>
 {% endif %}
+{# Host for the notices `noca-form-draft.js` raises for the Save form: the
+   restore offer and the session-probe outcome belong in this same slot. #}
+<div data-noca-draft-slot="{{ view.header.form_id }}"></div>
 {% set tab_labels = {"metadata": "Metadata", "statement": "Statement", "editorial": "Editorial", "limits": "Limits"} %}
 <ul class="nav nav-tabs mb-0 noca-tab-scroll"
     id="problem-edit-tabs"

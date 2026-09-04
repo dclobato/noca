@@ -29,4 +29,5 @@ MONITORED_SERVICES: tuple[MonitoredService, ...] = (
     MonitoredService(WorkerClass.RATING, "Rating", "monitoring"),
     MonitoredService(WorkerClass.AIASSISTANT, "AI Assistant", "smart_toy"),
     MonitoredService(WorkerClass.ANIMATOR, "Animator", "slideshow"),
+    MonitoredService(WorkerClass.MAILER, "Mailer", "outgoing_mail"),
 )

@@ -1,19 +1,19 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Aggregate and dynamic badge rules: streaks, CLEAN_CODE, and FULL_CLEAR.
+"""Aggregate badge rules: streaks, problem counts, and FULL_CLEAR.
 
 These rules need per-problem or per-user aggregates rather than a single
 submission's history, so they live apart from the per-submission evaluator in
-``arena_badges``. Data access helpers come from ``arena_badge_data``.
+``arena_badges``. Data access helpers come from ``arena_badge_data``. The
+dynamic CLEAN_CODE rule lives in ``arena_badge_rules_cleancode``.
 """
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -22,14 +22,12 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema.arena import arena_problem_set_problems, arena_problem_solvers
-from shared.db_schema.arena import arena_submission_judgments as _judgments
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.db_schema.arena import arena_users as _users
 from shared.enumerations import ArenaBadge
 from shared.services.arena_badge_data import AcEvent, ac_join, as_utc, award_badge, timezone_name
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
-_CLEAN_CODE_PERCENTILE = 0.05
 _STRIKE_THRESHOLDS: tuple[tuple[int, ArenaBadge], ...] = (
     (3, ArenaBadge.STRIKE_3),
     (7, ArenaBadge.STRIKE_7),
@@ -59,55 +57,6 @@ def consecutive_runs(days: list[date]) -> tuple[int, int]:
         run = run + 1 if cur - prev == timedelta(days=1) else 1
         longest = max(longest, run)
     return run, longest
-
-
-def percentile_threshold(values: list[int]) -> int | None:
-    """Return the top-5% (lowest) threshold value, ties-inclusive, or None if empty.
-
-    Args:
-        values: Metric measurements (e.g. wall-time ms or memory kb).
-
-    Returns:
-        The value at the 5th-percentile rank (index ``ceil(0.05*n)-1``, min 0),
-        or ``None`` when there are no measurements.
-    """
-    if not values:
-        return None
-    ordered = sorted(values)
-    idx = max(0, math.ceil(_CLEAN_CODE_PERCENTILE * len(ordered)) - 1)
-    return ordered[idx]
-
-
-async def award_clean_code(session: AsyncSession, problem_ids: set[str]) -> int:
-    """Award CLEAN_CODE to every user in the top 5% by time or memory per problem."""
-    awarded = 0
-    active = active_arena_judgment_subquery()
-    for problem_id in problem_ids:
-        rows = (
-            await session.execute(
-                select(_submissions.c.user_id, _judgments.c.max_wall_time_ms, _judgments.c.max_memory_kb)
-                .select_from(ac_join(active))
-                .where(_submissions.c.problem_id == problem_id)
-            )
-        ).all()
-        if not rows:
-            continue
-        time_thr = percentile_threshold([r.max_wall_time_ms for r in rows if r.max_wall_time_ms is not None])
-        mem_thr = percentile_threshold([r.max_memory_kb for r in rows if r.max_memory_kb is not None])
-        best_wall: dict[str, int] = {}
-        best_mem: dict[str, int] = {}
-        for row in rows:
-            if row.max_wall_time_ms is not None:
-                best_wall[row.user_id] = min(best_wall.get(row.user_id, row.max_wall_time_ms), row.max_wall_time_ms)
-            if row.max_memory_kb is not None:
-                best_mem[row.user_id] = min(best_mem.get(row.user_id, row.max_memory_kb), row.max_memory_kb)
-        for user_id in {r.user_id for r in rows}:
-            qualifies = (time_thr is not None and best_wall.get(user_id, math.inf) <= time_thr) or (
-                mem_thr is not None and best_mem.get(user_id, math.inf) <= mem_thr
-            )
-            if qualifies and await award_badge(session, user_id, ArenaBadge.CLEAN_CODE):
-                awarded += 1
-    return awarded
 
 
 async def award_streaks(session: AsyncSession, events: list[AcEvent]) -> int:

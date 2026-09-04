@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,6 +10,7 @@ from .errors import (
     ContestNotRunningError,
     DuplicatePrintTaskError,
     ForbiddenTaskActionError,
+    OpenSosTaskLimitError,
     PrintRequestsDisabledError,
     TaskAcquisitionTimeoutError,
     TaskAlreadyAcquiredError,
@@ -17,6 +18,7 @@ from .errors import (
     TaskError,
     TaskLockUnavailableError,
     TaskNotAcquiredByActorError,
+    TaskRateLimitError,
 )
 from .lifecycle import (
     acquire_task,
@@ -32,13 +34,14 @@ from .permissions import (
     can_view_tasks,
     is_chief_judge,
 )
-from .queries import get_task, list_tasks
+from .queries import get_task, get_task_with_details, list_tasks
 from .views import TaskView
 
 __all__ = [
     "ContestNotRunningError",
     "DuplicatePrintTaskError",
     "ForbiddenTaskActionError",
+    "OpenSosTaskLimitError",
     "PrintRequestsDisabledError",
     "TaskAcquisitionTimeoutError",
     "TaskAlreadyAcquiredError",
@@ -46,6 +49,7 @@ __all__ = [
     "TaskError",
     "TaskLockUnavailableError",
     "TaskNotAcquiredByActorError",
+    "TaskRateLimitError",
     "TaskView",
     "acquire_task",
     "can_force_release_tasks",
@@ -56,6 +60,7 @@ __all__ = [
     "create_sos_task",
     "finish_task",
     "get_task",
+    "get_task_with_details",
     "is_chief_judge",
     "list_tasks",
     "release_task",

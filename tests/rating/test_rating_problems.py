@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,14 +25,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema.arena import arena_problem_ratings, arena_rating_cycle_state
+from shared.enumerations import ArenaExpectedDifficulty
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 from shared.services.arena_difficulty_histogram import BIN_COUNT, build_difficulty_histogram
 from shared.services.arena_rating import (
     _NEUTRAL_PIVOT,
     CONTRAST_GAIN_MAX,
+    PRIOR_SOLVE_RATE,
     _apply_contrast,
     _contrast_gain,
     _effective_pivot,
     _raw_difficulty,
+    prior_solve_rate_for_difficulty,
     rate_all_problems,
     rate_problem,
 )
@@ -163,11 +167,20 @@ async def test_rate_all_problems_covers_never_attempted(session: AsyncSession) -
 
 @pytest.mark.asyncio
 async def test_rate_all_problems_persists_difficulty_histogram(session: AsyncSession) -> None:
-    """rate_all_problems must upsert a 20-bin histogram snapshot covering every problem."""
-    user = await _make_user(session)
-    await _make_problem(session, user)
-    p2 = await _make_problem(session, user)
-    await _seed_rating_row(session, p2.id, attempted=50, solved=25, total_tries=60)
+    """rate_all_problems snapshots measured problems only and counts the unmeasured rest."""
+    owner = await _make_user(session)
+    language = await _make_language(session)
+    await _make_problem(session, owner)  # never attempted: unmeasured
+    measured = await _make_problem(session, owner)
+    nearly = await _make_problem(session, owner)
+    # Stats are recomputed from real submissions at the start of the cycle, so
+    # evidence has to come from submitters rather than a seeded rating row.
+    for _ in range(MIN_ATTEMPTS_FOR_DISPLAY):
+        solver = await _make_user(session)
+        await _make_submission(session, solver.id, measured.id, language.id)
+    for _ in range(MIN_ATTEMPTS_FOR_DISPLAY - 1):
+        solver = await _make_user(session)
+        await _make_submission(session, solver.id, nearly.id, language.id)
 
     count = await rate_all_problems(session)
 
@@ -180,10 +193,36 @@ async def test_rate_all_problems_persists_difficulty_histogram(session: AsyncSes
     ).one()
     assert row.data is not None
     assert row.computed_at is not None
+    assert count == 3
     assert row.data["bins"] == BIN_COUNT
     assert len(row.data["counts"]) == BIN_COUNT
-    assert row.data["total_problems"] == count
-    assert sum(row.data["counts"]) == count
+    assert row.data["total_problems"] == 1
+    assert sum(row.data["counts"]) == 1
+    assert row.data["unmeasured_problems"] == 2
+    assert row.data["min_attempts"] == MIN_ATTEMPTS_FOR_DISPLAY
+
+
+@pytest.mark.asyncio
+async def test_rate_all_problems_counts_submissions_that_predate_the_rating_row(session: AsyncSession) -> None:
+    """A problem attempted before it ever had a rating row is measured on its first cycle.
+
+    The stats recompute is an UPDATE; if the defaults row were inserted only
+    afterwards, that first cycle would report zero attempts and hide the problem
+    behind the display gate for a whole interval.
+    """
+    owner = await _make_user(session)
+    language = await _make_language(session)
+    problem = await _make_problem(session, owner)
+    for _ in range(3):
+        attempter = await _make_user(session)
+        await _make_submission(session, attempter.id, problem.id, language.id)
+
+    await rate_all_problems(session)
+
+    attempted = await session.scalar(
+        select(arena_problem_ratings.c.attempted_users).where(arena_problem_ratings.c.problem_id == problem.id)
+    )
+    assert attempted == 3
 
 
 @pytest.mark.asyncio
@@ -241,6 +280,104 @@ def test_build_difficulty_histogram_empty() -> None:
 
     assert payload["total_problems"] == 0
     assert payload["counts"] == [0] * BIN_COUNT
+    assert payload["unmeasured_problems"] == 0
+    assert payload["min_attempts"] == MIN_ATTEMPTS_FOR_DISPLAY
+
+
+def test_build_difficulty_histogram_records_unmeasured_count() -> None:
+    """The excluded low-evidence problems are reported alongside the measured bins."""
+    payload = build_difficulty_histogram([50], unmeasured_problems=7)
+
+    assert payload["total_problems"] == 1
+    assert payload["unmeasured_problems"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Author-declared expected difficulty as the solve-rate prior
+# ---------------------------------------------------------------------------
+
+
+def _zero_attempt_rating(prior: float) -> int:
+    raw = _raw_difficulty(attempted_users=0, solved_users=0, total_tries_before_solve=0, prior_solve_rate=prior)
+    return _apply_contrast(raw, _effective_pivot(_NEUTRAL_PIVOT, 0), 0)
+
+
+@pytest.mark.parametrize("anchor", list(ArenaExpectedDifficulty))
+def test_declared_anchor_is_reproduced_exactly_at_zero_attempts(anchor: ArenaExpectedDifficulty) -> None:
+    """A fresh problem rates exactly its declared anchor, not the flat centre."""
+    assert _zero_attempt_rating(prior_solve_rate_for_difficulty(anchor.value)) == anchor.value
+
+
+def test_prior_is_monotonic_in_the_declaration_and_bounded() -> None:
+    """Harder declarations mean lower prior solve rates, within the clamp."""
+    priors = [prior_solve_rate_for_difficulty(d) for d in range(1, 101)]
+    assert priors == sorted(priors, reverse=True)
+    assert all(0.01 <= p <= 0.99 for p in priors)
+
+
+def test_no_declaration_reproduces_the_flat_prior_bit_for_bit() -> None:
+    """Omitting the prior keyword is exactly PRIOR_SOLVE_RATE, so existing ratings do not move."""
+    for attempted, solved, tries in ((0, 0, 0), (3, 1, 2), (50, 25, 60)):
+        default = _raw_difficulty(attempted_users=attempted, solved_users=solved, total_tries_before_solve=tries)
+        explicit = _raw_difficulty(
+            attempted_users=attempted,
+            solved_users=solved,
+            total_tries_before_solve=tries,
+            prior_solve_rate=PRIOR_SOLVE_RATE,
+        )
+        assert default == explicit
+
+
+def test_evidence_overrides_a_wrong_declaration_as_attempts_accumulate() -> None:
+    """Declared Hard, but everyone solves first try: the rating falls monotonically."""
+    prior = prior_solve_rate_for_difficulty(ArenaExpectedDifficulty.HARD.value)
+    ratings = []
+    for attempted in (0, 3, 10, 25, 50):
+        raw = _raw_difficulty(
+            attempted_users=attempted,
+            solved_users=attempted,
+            total_tries_before_solve=attempted,
+            prior_solve_rate=prior,
+        )
+        ratings.append(_apply_contrast(raw, _effective_pivot(_NEUTRAL_PIVOT, attempted), attempted))
+    assert ratings[0] == ArenaExpectedDifficulty.HARD.value
+    assert ratings == sorted(ratings, reverse=True)
+    assert ratings[-1] < 20
+
+
+@pytest.mark.asyncio
+async def test_rate_all_problems_seeds_from_the_declared_difficulty(session: AsyncSession) -> None:
+    """Two never-attempted problems rate at their declarations; an undeclared one at the centre."""
+    owner = await _make_user(session)
+    easy = await _make_problem(session, owner, expected_difficulty=ArenaExpectedDifficulty.EASY.value)
+    hard = await _make_problem(session, owner, expected_difficulty=ArenaExpectedDifficulty.HARD.value)
+    plain = await _make_problem(session, owner)
+
+    await rate_all_problems(session)
+
+    ratings = {
+        pid: await session.scalar(
+            select(arena_problem_ratings.c.rating).where(arena_problem_ratings.c.problem_id == pid)
+        )
+        for pid in (easy.id, hard.id, plain.id)
+    }
+    assert ratings[easy.id] == ArenaExpectedDifficulty.EASY.value
+    assert ratings[hard.id] == ArenaExpectedDifficulty.HARD.value
+    assert ratings[plain.id] == 50
+
+
+@pytest.mark.asyncio
+async def test_rate_problem_seeds_from_the_declared_difficulty(session: AsyncSession) -> None:
+    """The single-problem path reads the declaration too."""
+    owner = await _make_user(session)
+    problem = await _make_problem(session, owner, expected_difficulty=ArenaExpectedDifficulty.CHALLENGING.value)
+
+    await rate_problem(session=session, problem_id=problem.id)
+
+    rating = await session.scalar(
+        select(arena_problem_ratings.c.rating).where(arena_problem_ratings.c.problem_id == problem.id)
+    )
+    assert rating == ArenaExpectedDifficulty.CHALLENGING.value
 
 
 # ---------------------------------------------------------------------------

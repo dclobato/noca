@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from animator.error_handlers import register_error_handlers
 from animator.routes.public import router as public_router
 from animator.services.event_stream_service import AnimatorEventStream
+from animator.services.feed_cache import AnimatorFeedCache
 from shared.queue_schema import SubmissionEvent, VerdictEvent
 from web.models.contest import Contest
 from web.models.users import UberAdmin
@@ -51,6 +52,7 @@ class _BlockingRuntime:
 def _build_app(engine: AsyncEngine, stream: AnimatorEventStream) -> FastAPI:
     """Wire a minimal app around the public router with a live event stream."""
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.event_stream = stream
     app.include_router(public_router)

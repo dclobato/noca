@@ -51,6 +51,29 @@
                 {{ "Available on request" if rules.printing_enabled else "Not available" }}
             </dd>
         </div>
+        {#
+          The only row that is not a flat fact: the three ranking keys apply
+          *in order*, each one breaking the tie the previous left. That order
+          is the information, so it is a real <ol> rather than prose. The keys
+          themselves are invariant across contests -- they mirror
+          `compute_icpc` in `shared/services/scoreboard_projection.py`, whose
+          "Ranking rules" section in `docs/SHARED_SERVICES.md` is the single
+          source of truth. The penalty rows below explain what feeds key 2.
+        #}
+        <div class="noca-dashboard-rules-item noca-dashboard-rules-item-stacked">
+            <dt>
+                {{ render_icon(icon="emoji_events", classes=["noca-dashboard-rules-icon"]) }}
+                Ranking
+            </dt>
+            <dd>
+                <ol class="noca-dashboard-rank-keys">
+                    <li>Most problems solved</li>
+                    <li>Lowest total time</li>
+                    <li>Earliest last accepted solution</li>
+                </ol>
+                <p class="noca-dashboard-rank-tie mb-0">Teams tied on all three share a rank.</p>
+            </dd>
+        </div>
         <div class="noca-dashboard-rules-item">
             <dt>
                 {{ render_icon(icon="gavel", classes=["noca-dashboard-rules-icon"]) }}

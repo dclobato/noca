@@ -71,7 +71,7 @@ async def admin_problem_categories_search(
 @router.get("/problems/suggestions", name="arena_admin_problem_suggestions")
 async def arena_admin_problem_suggestions(
     field: Annotated[ProblemSuggestionField, Query()],
-    q: Annotated[str, Query(min_length=2, max_length=256)],
+    q: Annotated[str, Query(min_length=3, max_length=256)],
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -82,7 +82,11 @@ async def arena_admin_problem_suggestions(
     Args:
         field: Stored text field to search: ``"author"``, ``"license"`, or
             ``"source"``.
-        q: Literal search text, between 2 and 256 characters.
+        q: Literal search text, between 3 and 256 characters. Its terms are
+            matched independently, so a partial or out-of-order term still
+            matches, and every term needs three letters or digits: a shorter
+            one cannot be answered from a trigram index and is declined rather
+            than served by a sequential scan.
         current_user: Authenticated admin or problem editor.
         session: Active request database session.
 

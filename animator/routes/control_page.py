@@ -74,6 +74,8 @@ async def control_page(
             "reset_url": str(request.url_for("animator_control_reset", slug=slug)),
             "jump_url": str(request.url_for("animator_control_jump_team", slug=slug)),
             "jump_pending_url": str(request.url_for("animator_control_jump_pending", slug=slug)),
+            "show_media_url": str(request.url_for("animator_control_show_team_media", slug=slug)),
+            "hide_media_url": str(request.url_for("animator_control_hide_team_media", slug=slug)),
             "lease_claim_url": f"{lease_base}/claim",
             "lease_heartbeat_url": f"{lease_base}/heartbeat",
             "lease_release_url": f"{lease_base}/release",

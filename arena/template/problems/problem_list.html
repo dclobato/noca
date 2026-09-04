@@ -228,21 +228,25 @@
                                     </td>
                                 {% endif %}
                                 <td class="column-width-narrow">
-                                    {% if item.rating is not none %}
+                                    {% if item.difficulty.state == "measured" %}
                                         <div class="progress arena-rating-progress"
                                              role="progressbar"
-                                             aria-valuenow="{{ item.rating }}"
+                                             aria-valuenow="{{ item.difficulty.value }}"
                                              aria-valuemin="0.1"
                                              aria-valuemax="10"
-                                             aria-label="Difficulty {{ '%.1f'|format(item.rating) }} out of 10"
-                                             title="Difficulty: {{ '%.1f'|format(item.rating) }}/10">
-                                            <div class="progress-bar arena-rating-bar-{{ (item.rating | round) | int }}"
-                                                 style="width:{{ item.rating * 10 }}%">
-                                                {{ "%.1f"|format(item.rating) }}
+                                             aria-label="{{ item.difficulty.description }}"
+                                             title="{{ item.difficulty.description }}">
+                                            <div class="progress-bar arena-rating-bar-{{ item.difficulty.bar_level }}"
+                                                 style="width:{{ item.difficulty.value * 10 }}%">
+                                                {{ item.difficulty.text }}
                                             </div>
                                         </div>
                                     {% else %}
-                                        <span class="text-muted">—</span>
+                                        <span class="arena-rating-text">
+                                            {% with difficulty=item.difficulty %}
+                                                {% include "_partials/difficulty_value.html" %}
+                                            {% endwith %}
+                                        </span>
                                     {% endif %}
                                 </td>
                             </tr>

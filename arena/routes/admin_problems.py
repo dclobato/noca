@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
@@ -44,7 +45,14 @@ from arena.routes.admin_problem_form_views import (
 )
 from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.routes.admin_problem_new import creation_return_query, resolve_choice_or_redirect
-from arena.services import admin_problem_service
+from arena.routes.auth_throttle import (
+    PASSWORD_VERIFY_ACTION,
+    check_verification_throttle,
+    record_verification_failure,
+    reset_verification_throttle,
+    throttled_response,
+)
+from arena.services import admin_problem_service, rejudge_service
 from arena.services.pagination_service import parse_page
 from arena.services.statement_language_service import (
     safe_statement_language,
@@ -52,6 +60,8 @@ from arena.services.statement_language_service import (
 from shared.enumerations import ArenaEditorialReleasePolicy, StatementLanguage
 from shared.services.admin_audit import record_admin_action
 from shared.services.problem_definition_view import MOVED_TO_JUDGMENT
+from shared.services.problem_export_cache import SAMPLE_CASES_SUFFIX, discard_cached_export, export_cache_dir
+from shared.services.rejudge_cooldown import acquire_rejudge_cooldown, release_rejudge_cooldown
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -302,6 +312,7 @@ async def admin_problem_edit(
             notes=problem.notes or "",
             license=problem.license or "",
             statement_language=problem.statement_language.value if problem.statement_language else "",
+            expected_difficulty=str(problem.expected_difficulty) if problem.expected_difficulty is not None else "",
         ),
         cats_data=selected_cats_data(all_categories, selected_ids),
         back_url=back_url,
@@ -441,14 +452,29 @@ async def admin_problem_delete(
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Permanently delete a problem and all its dependent data."""
+    """Permanently delete a problem and all its dependent data.
+
+    The password confirmation shares the ``password_verify`` bucket with every
+    other route that re-checks the account password, so the field is not an
+    unthrottled oracle and rotating routes cannot multiply the guess budget.
+    The lockout is checked before the hash, so a locked actor is refused even
+    with the correct password and nothing is deleted.
+    """
     problem = await get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
 
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=current_user
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_admin_problem_list")
     if not current_user.check_password(password):
+        await record_verification_failure(request, session, identity, action=PASSWORD_VERIFY_ACTION, user=current_user)
         flash("Incorrect password.", FlashCategory.DANGER)
         return RedirectResponse(url=edit_url, status_code=303)
+    await reset_verification_throttle(request, identity)
 
+    problem_id_deleted = problem.id
     arena_number = await admin_problem_service.delete_problem(session, problem)
     await record_admin_action(
         session,
@@ -462,6 +488,12 @@ async def admin_problem_delete(
         detail=f"arena_number={arena_number}",
     )
     await session.commit()
+    if settings.PUBLIC_PROBLEM_PACK_PATH is not None:
+        # Derived data: dropped after the commit so a failed deletion keeps a
+        # cache that is still correct. Both artifacts of the problem go.
+        cache_dir = export_cache_dir(settings.PUBLIC_PROBLEM_PACK_PATH)
+        await discard_cached_export(cache_dir, problem_id_deleted)
+        await discard_cached_export(cache_dir, problem_id_deleted, suffix=SAMPLE_CASES_SUFFIX)
     flash(f"Problem #{arena_number} deleted.", FlashCategory.SUCCESS)
     return RedirectResponse(
         url=problem_list_url(
@@ -490,24 +522,68 @@ async def admin_problem_rejudge_all(
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Re-enqueue every submission and return to the workflow that requested it."""
+    """Re-enqueue every settled submission and return to the workflow that requested it.
+
+    Guarded in order: the shared password-verification throttle (so the
+    password field is not an unthrottled oracle), then a per-problem cooldown,
+    then the in-flight skip inside :func:`arena.services.rejudge_service.build_rejudge_jobs`.
+    The audit row commits with the new judgments.
+    """
     problem = await get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
     return_url = safe_next_path(next_url) or edit_url
 
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=current_user
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_admin_problem_list")
     if not current_user.check_password(password):
+        await record_verification_failure(request, session, identity, action=PASSWORD_VERIFY_ACTION, user=current_user)
         flash("Incorrect password.", FlashCategory.DANGER)
         return RedirectResponse(url=return_url, status_code=303)
+    await reset_verification_throttle(request, identity)
 
-    jobs = await admin_problem_service.build_rejudge_jobs(session, problem.id)
-    await session.commit()
-
-    for job in jobs:
-        await enqueue_arena_submission_job(request.app.state.valkey_runtime, job)
-
-    count = len(jobs)
-    flash(
-        f"{count} submission{'s' if count != 1 else ''} enqueued for re-judging.",
-        FlashCategory.SUCCESS,
+    runtime = request.app.state.valkey_runtime
+    cooldown_after = await acquire_rejudge_cooldown(
+        runtime, module="arena", problem_id=problem.id, ttl_seconds=settings.REJUDGE_COOLDOWN_SECONDS
     )
+    if cooldown_after:
+        flash(
+            f"A rejudge-all of this problem was started less than {settings.REJUDGE_COOLDOWN_SECONDS} s ago. "
+            f"Try again in {cooldown_after} s.",
+            FlashCategory.DANGER,
+        )
+        return RedirectResponse(url=return_url, status_code=303)
+
+    try:
+        result = await rejudge_service.build_rejudge_jobs(session, problem.id)
+        if result.jobs:
+            await record_admin_action(
+                session,
+                request,
+                module="arena",
+                actor_user_id=current_user.id,
+                actor_label=current_user.email_normalizado,
+                action="rejudge_all",
+                target_type="arena_problem",
+                target_id=problem.id,
+                detail=f"queued={len(result.jobs)} skipped_in_flight={result.skipped_in_flight}",
+                severity="warning",
+            )
+        await session.commit()
+    except BaseException:
+        await release_rejudge_cooldown(runtime, module="arena", problem_id=problem.id)
+        raise
+
+    for job in result.jobs:
+        await enqueue_arena_submission_job(runtime, job)
+
+    count = len(result.jobs)
+    if not result.jobs:
+        await release_rejudge_cooldown(runtime, module="arena", problem_id=problem.id)
+    message = f"{count} submission{'s' if count != 1 else ''} enqueued for re-judging."
+    if result.skipped_in_flight:
+        message += f" {result.skipped_in_flight} already being judged and left alone."
+    flash(message, FlashCategory.SUCCESS if count else FlashCategory.WARNING)
     return RedirectResponse(url=return_url, status_code=303)

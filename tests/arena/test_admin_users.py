@@ -37,6 +37,10 @@ from arena.routes.admin_users import admin_user_profile, admin_user_rating_histo
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import admin_user_topup_credits
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
+from arena.routes.admin_users_consent import router as arena_admin_users_consent_router
+from arena.routes.admin_users_google import router as arena_admin_users_google_router
+from arena.routes.admin_users_lockout import router as arena_admin_users_lockout_router
+from arena.routes.admin_users_username import router as arena_admin_users_username_router
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services import admin_login_history_service
@@ -110,6 +114,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _logout() -> Response:
         return Response("logout")
 
+    @app.get("/auth/password-reset", name="arena_password_reset")
+    async def _password_reset() -> Response:
+        return Response("password reset")
+
     @app.get("/user/profile", name="arena_user_profile")
     async def _profile() -> Response:
         return Response("profile")
@@ -136,6 +144,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
 
     @app.get("/admin/dashboard/ai-usage", name="arena_admin_dashboard_ai_usage")
     async def _dash_ai_usage() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/terms", name="arena_admin_dashboard_terms")
+    async def _dash_terms() -> Response:
         return Response("stub")
 
     @app.get("/admin/categories", name="arena_admin_category_list")
@@ -197,6 +209,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_admin_categories_router)
     app.include_router(arena_admin_users_router)
     app.include_router(arena_admin_users_actions_router)
+    app.include_router(arena_admin_users_username_router)
+    app.include_router(arena_admin_users_consent_router)
+    app.include_router(arena_admin_users_google_router)
+    app.include_router(arena_admin_users_lockout_router)
     app.include_router(arena_ranking_router)
     app.include_router(arena_legal_router)
     return app
@@ -448,9 +464,9 @@ async def test_admin_user_profile_renders_target_user(session: AsyncSession) -> 
     assert "Attempted Problems" not in response.text
     assert "Favorites" not in response.text
     assert "data-fp-date" in response.text
-    assert "Parental consent: Not required" in response.text
+    assert "is 18 or older and manages this account alone" in response.text
     assert "Grant parental consent" not in response.text
-    assert "Revoke parental consent" not in response.text
+    assert "Withdraw parental consent" not in response.text
     assert 'id="confirmToggleRankingVisibleModal"' in response.text
     assert "Hide user from ranking" in response.text
     assert "Hide from ranking" in response.text
@@ -771,9 +787,10 @@ async def test_admin_user_profile_shows_parental_consent_action_for_minor(sessio
 
     assert response.status_code == 200
     normalized_html = " ".join(response.text.split())
-    assert "Parental consent: Not given" in normalized_html
+    assert "arena-admin-consent--withheld" in normalized_html
+    assert "Without consent the account stays suspended." in normalized_html
     assert "Grant parental consent" in response.text
-    assert "Parental consent: Not required" not in response.text
+    assert "manages this account alone" not in response.text
 
 
 @pytest.mark.asyncio
@@ -1791,3 +1808,205 @@ async def test_post_routes_return_403_for_non_admin(session: AsyncSession) -> No
         for path in post_paths:
             response = await client.post(path, data={})
             assert response.status_code == 403, f"Expected 403 for {path}, got {response.status_code}"
+
+
+# ---------------------------------------------------------------------------
+# The age-shield surface on the admin user profile
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("date_of_birth", "expected_phrase"),
+    [
+        (date.today().replace(year=date.today().year - 15), "This user is under 18"),
+        (None, "no date of birth on record"),
+    ],
+    ids=["minor", "unknown-dob"],
+)
+@pytest.mark.asyncio
+async def test_admin_profile_shows_the_age_shield_and_refuses_the_public_toggle(
+    session: AsyncSession,
+    date_of_birth: date | None,
+    expected_phrase: str,
+) -> None:
+    """A shielded target is badged, explained, and its enable button disabled.
+
+    Both shielded states are covered here because both reach this page: unlike
+    the user's own profile, an admin can open an account with no recorded date
+    of birth, which cannot hold a session of its own.
+    """
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session, name="Admin", email="admin-shield@test.example", role=ArenaRole.ARENA_ADMIN
+    )
+    target = await _create_arena_user(session, name="Shielded Target", email="shielded@test.example")
+    target.dta_nascimento = date_of_birth
+    target.public_profile = False
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.get(f"/admin/users/{target.id}")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Age-shielded" in body
+    assert expected_phrase in body
+    assert 'id="admin-age-shield-note"' in body
+    assert 'data-bs-target="#adminChangeUsernameModal"' in body
+    assert target.username in body
+
+
+@pytest.mark.asyncio
+async def test_admin_profile_states_plainly_that_an_adult_is_not_shielded(session: AsyncSession) -> None:
+    """The row renders in both states, so absence never has to be interpreted.
+
+    A row that appeared only when shielded would leave a reader unable to tell
+    "this adult is not shielded" from "this page does not say".
+    """
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session, name="Admin", email="admin-noshield@test.example", role=ArenaRole.ARENA_ADMIN
+    )
+    target = await _create_arena_user(session, name="Adult Target", email="adult-target@test.example")
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.get(f"/admin/users/{target.id}")
+
+    assert response.status_code == 200
+    assert "Not shielded" in response.text
+    assert "Age-shielded" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# The admin user list: handle, address, and the age-shield column
+# ---------------------------------------------------------------------------
+#
+# These identifiers are shown unmasked and searched in full **because this is
+# the admin console**. The age shield is a public read-path rule governing what
+# anonymous and peer surfaces publish; it was never a rule about what an
+# operator may see. The tests below pin that boundary from both sides: the admin
+# list shows what the ranking withholds, and `test_minor_shield_read_paths.py`
+# still proves the public pages do not.
+
+
+@pytest.mark.asyncio
+async def test_admin_user_list_search_matches_the_username(session: AsyncSession) -> None:
+    """An operator acting on a report has only the handle to search by.
+
+    The handle is the only name the reporter could have seen, so it has to be a
+    way in -- otherwise a report about `coruja-serena-042` is unactionable.
+    """
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session, name="Admin", email="admin-usearch@test.example", role=ArenaRole.ARENA_ADMIN
+    )
+    target = await _create_arena_user(session, name="Alice Wonderland", email="alice-u@test.example")
+    other = await _create_arena_user(session, name="Bob Other", email="bob-u@test.example")
+    target.username = "coruja-serena-042"
+    other.username = "tatu-veloz-777"
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        response = await client.get("/admin/users?search=coruja-serena")
+
+    assert response.status_code == 200
+    assert "Alice Wonderland" in response.text
+    assert "Bob Other" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_user_list_search_matches_a_partial_username(session: AsyncSession) -> None:
+    """Substring matching, like the name and email branches beside it."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin-part@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Carol Partial", email="carol-p@test.example")
+    target.username = "jaguatirica-atenta-901"
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        response = await client.get("/admin/users?search=atenta")
+
+    assert response.status_code == 200
+    assert "Carol Partial" in response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_user_list_shows_the_handle_and_the_full_address(session: AsyncSession) -> None:
+    """Both identifiers render, and the address is not masked."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin-show@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Dora Shown", email="dora.shown@escola.example")
+    target.username = "arara-curiosa-123"
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        response = await client.get("/admin/users")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Dora Shown" in body
+    assert "arara-curiosa-123" in body
+    assert "dora.shown@escola.example" in body
+    # A masked form would mean the shield had leaked into the admin console.
+    assert "d***@escola.example" not in body
+
+
+@pytest.mark.parametrize(
+    ("date_of_birth", "expected_label"),
+    [
+        (date.today().replace(year=date.today().year - 15), "Age-shielded, under 18"),
+        (None, "Age-shielded, no date of birth on record"),
+        (date(1990, 1, 1), "Not age-shielded"),
+    ],
+    ids=["minor", "unknown-dob", "adult"],
+)
+@pytest.mark.asyncio
+async def test_admin_user_list_shield_column_states(
+    session: AsyncSession,
+    date_of_birth: date | None,
+    expected_label: str,
+) -> None:
+    """The column distinguishes all three states, not just shielded or not.
+
+    The two shielded reasons need different action -- a minor ages out on their
+    own, while a missing date of birth is a gap an operator can close -- so
+    collapsing them into one marker would hide the only one that is actionable.
+    """
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session, name="Admin", email=f"admin-shieldcol-{expected_label[:6]}@test.example", role=ArenaRole.ARENA_ADMIN
+    )
+    admin.dta_nascimento = date(1980, 1, 1)
+    target = await _create_arena_user(
+        session, name="Target Row", email=f"target-shieldcol-{expected_label[:6]}@test.example"
+    )
+    target.dta_nascimento = date_of_birth
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        response = await client.get("/admin/users?search=Target Row")
+
+    assert response.status_code == 200
+    assert expected_label in response.text

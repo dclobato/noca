@@ -42,8 +42,9 @@
                     </caption>
                     <thead>
                         <tr>
-                            <th scope="col">Date/time</th>
-                            <th scope="col">Origin</th>
+                            <th scope="col" class="arena-live-feed-col-date">Date/time</th>
+                            <th scope="col" class="arena-live-feed-col-affiliation">Affiliation</th>
+                            <th scope="col" class="arena-live-feed-col-origin">Origin</th>
                             <th scope="col">Problem</th>
                             <th scope="col">Language</th>
                             <th scope="col">Verdict</th>
@@ -53,7 +54,7 @@
                            data-feed-url="{{ request.url_for("arena_live_feed") }}"
                            data-events-url="{{ request.url_for("arena_live_events") }}">
                         <tr>
-                            <td colspan="5" class="text-center text-muted">Loading…</td>
+                            <td colspan="6" class="text-center text-muted">Loading…</td>
                         </tr>
                     </tbody>
                 </table>
@@ -64,6 +65,8 @@
     </section>
 {% endblock %}
 {% block extra_script %}
-    <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='live-feed.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='live-feed.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}

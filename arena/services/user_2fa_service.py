@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -196,6 +196,30 @@ async def confirmar_ativacao_2fa(
         return TwoFASetupResult(status=Autenticacao2FA.ENABLED, backup_codes=backup_codes)
     except SQLAlchemyError as exc:
         raise User2FAError(f"Database error activating 2FA: {exc}") from exc
+
+
+async def abortar_ativacao_2fa(usuario: ArenaUser, session: AsyncSession) -> None:
+    """Void a tentative TOTP secret whose confirmation was locked out.
+
+    A partially guessed setup code must not stay valid across the lockout, so
+    the pending secret is discarded; the user starts a fresh setup (with a new
+    secret) once the lockout expires. Does nothing when 2FA is already active.
+
+    Args:
+        usuario: Arena user whose 2FA activation is being cancelled.
+        session: Active async database session.
+
+    Raises:
+        User2FAError: On database errors.
+    """
+    if usuario.usa_2fa:
+        return
+    try:
+        usuario.otp_secret = None
+        await session.flush()
+        logger.warning("Cancelled 2FA activation for %s after a confirmation lockout", usuario.email)
+    except SQLAlchemyError as exc:
+        raise User2FAError(f"Error cancelling 2FA activation: {exc}") from exc
 
 
 async def desativar_2fa(usuario: ArenaUser, session: AsyncSession) -> TwoFASetupResult:

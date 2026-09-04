@@ -39,11 +39,7 @@ from shared.db_schema import (
 )
 from shared.enumerations import ALL_CONTEST_ROLES, ProblemValidatorType
 
-from .announcement import announcement_flag_for_backup_row
 from .models import (
-    EDITORIAL_FORMAT_VERSION,
-    LEGACY_FORMAT_VERSION,
-    PREVIOUS_FORMAT_VERSION,
     ContestBackupError,
 )
 from .row_validation import (
@@ -61,7 +57,6 @@ from .row_validation import (
     validate_optional_user_reference,
     validate_row,
 )
-from .strategy import strategy_for_backup_problem
 from .validation import ArchiveIndex
 
 _PROBLEM_ENTRY_KEYS = {
@@ -112,7 +107,6 @@ def validate_backup_integrity(
         manifest["problems"],
         contest_id,
         archive_index,
-        manifest["format_version"],
     )
     submission_by_id = index_rows(submissions, submission_rows, "submission")
 
@@ -145,19 +139,8 @@ def validate_backup_integrity(
         test_case_by_id,
         user_by_id,
     )
-    _validate_clarifications(clarification_rows, problem_by_id, user_by_id, manifest["format_version"])
+    _validate_clarifications(clarification_rows, problem_by_id, user_by_id)
     _validate_tasks(task_rows, problem_by_id, user_by_id)
-
-
-# Columns that version 1 predates. Strict row validation compares against the
-# *live* table, so a column added after an archive was captured would make that
-# archive unrestorable unless it is optional on the legacy branch. Version 2
-# requires them, so a v2 archive omitting one is refused as malformed rather than
-# quietly filled in.
-_OPTIONAL_PROBLEM_COLUMNS_BY_VERSION = {
-    LEGACY_FORMAT_VERSION: {"validator_type", "artifact_generation", "editorial"},
-    PREVIOUS_FORMAT_VERSION: {"editorial"},
-}
 
 
 def _validate_problems(
@@ -165,7 +148,6 @@ def _validate_problems(
     references: list[dict[str, Any]],
     contest_id: str,
     archive_index: ArchiveIndex,
-    format_version: int,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[dict[str, Any], str]]]:
     problem_by_id: dict[str, dict[str, Any]] = {}
     test_case_by_id: dict[str, tuple[dict[str, Any], str]] = {}
@@ -174,12 +156,9 @@ def _validate_problems(
 
     for position, entry in enumerate(entries):
         require_exact_keys(entry, _PROBLEM_ENTRY_KEYS, f"problem entry {position}")
-        problem = validate_row(
-            problems,
-            as_mapping(entry["problem"], "problem row"),
-            "problem",
-            optional_columns=_OPTIONAL_PROBLEM_COLUMNS_BY_VERSION.get(format_version, set()),
-        )
+        # No optional columns: the single supported version states every column
+        # the live table has, so a row missing one is malformed rather than old.
+        problem = validate_row(problems, as_mapping(entry["problem"], "problem row"), "problem")
         problem_id = required_id(problem, "problem")
         if problem_id in problem_by_id:
             raise ContestBackupError(f"Duplicate problem id: {problem_id!r}.")
@@ -204,7 +183,9 @@ def _validate_problems(
             if validated_validator.get("problem_id") != problem_id:
                 raise ContestBackupError(f"Custom validator for {problem_id!r} has a mismatched problem id.")
 
-        strategy = strategy_for_backup_problem(problem, validated_validator)
+        # NOT NULL in the live table, so validate_row has already refused a row
+        # that omits it or states a value outside the enum.
+        strategy = ProblemValidatorType(problem["validator_type"])
         _validate_problem_children(entry, problem_id, directory, strategy, archive_index, test_case_by_id)
         problem_by_id[problem_id] = problem
         seen_ordinals.add(ordinal)
@@ -311,36 +292,17 @@ def _validate_judgments(
             validate_optional_user_reference(child.get("actor_user_id"), user_by_id, "judgment audit actor")
 
 
-# Versions that predate ``clarifications.is_announcement``. A version-4 archive omitting
-# it is malformed, exactly as a version-2 archive omitting the editorial is.
-_OPTIONAL_CLARIFICATION_COLUMNS_BY_VERSION = {
-    LEGACY_FORMAT_VERSION: {"is_announcement"},
-    PREVIOUS_FORMAT_VERSION: {"is_announcement"},
-    EDITORIAL_FORMAT_VERSION: {"is_announcement"},
-}
-
-
 def _validate_clarifications(
     rows: list[dict[str, Any]],
     problem_by_id: Mapping[str, dict[str, Any]],
     user_by_id: Mapping[str, dict[str, Any]],
-    format_version: int,
 ) -> None:
-    role_by_user_id = {user_id: row.get("role") for user_id, row in user_by_id.items()}
     for row in rows:
-        clarification = validate_row(
-            clarifications,
-            row,
-            "clarification",
-            optional_columns=_OPTIONAL_CLARIFICATION_COLUMNS_BY_VERSION.get(format_version, set()),
-        )
+        clarification = validate_row(clarifications, row, "clarification")
         validate_optional_reference(clarification.get("problem_id"), problem_by_id, "clarification problem")
         require_reference(clarification.get("team_id"), user_by_id, "clarification team")
         for column in ("judge_id", "hidden_by_judge_id", "hidden_by_admin_id"):
             validate_optional_user_reference(clarification.get(column), user_by_id, f"clarification {column}")
-        # Resolved through the same helper the restorer uses, so the checker cannot
-        # accept a row the restorer would classify differently.
-        announcement_flag_for_backup_row(clarification, role_by_user_id)
 
 
 def _validate_tasks(

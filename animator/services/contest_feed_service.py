@@ -25,6 +25,9 @@ Query budget (independent of team/problem/submission/site counts):
 * meta:     problems + sites + site team-counts (3 queries; contest already loaded)
 * snapshot: teams + problems + submissions/judgments (3 queries; contest already loaded)
 
+The snapshot's pending-submission list and its recent-activity backlog are both
+derived from those same loaded rows, so neither costs a query of its own.
+
 A pre-start request runs fewer: meta skips the problem query, and snapshot runs
 none at all.
 """
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,22 +48,20 @@ from animator.models.query_records import (
     TeamRecord,
 )
 from animator.models.responses import (
-    ContestMetaResponse,
     PendingSubmissionResponse,
     ProblemCellResponse,
-    ProblemMeta,
+    RecentEventResponse,
     ScoreboardSnapshotResponse,
-    SiteMeta,
     TeamStandingResponse,
 )
 from animator.models.reveal_session import MedalCutoffs
 from animator.services.contest_queries import (
     load_enabled_contest,
     load_problems,
-    load_sites,
     load_submission_rows,
     load_teams,
 )
+from animator.services.recent_events_service import build_recent_events
 from shared.services.balloon_assets import medal_band_for_rank
 from shared.services.scoreboard_projection import (
     ScoreboardSnapshot,
@@ -69,8 +71,11 @@ from shared.services.scoreboard_projection import (
     ordinal_to_label,
 )
 
+if TYPE_CHECKING:
+    from animator.services.feed_cache import AnimatorFeedCache
+
 __all__ = [
-    "build_meta_response",
+    "build_snapshot_response_cached",
     "build_pending_submissions",
     "build_snapshot",
     "build_snapshot_response",
@@ -295,6 +300,7 @@ def snapshot_to_response(
     wa_penalty: int,
     cutoffs: MedalCutoffs | None = None,
     has_started: bool,
+    recent_events: list[RecentEventResponse] | None = None,
 ) -> ScoreboardSnapshotResponse:
     """Map a shared snapshot to the typed public response model.
 
@@ -312,6 +318,9 @@ def snapshot_to_response(
             caller that forgot it would publish a gated contest's empty
             standings as an ordinary "no teams yet" board instead of the
             pre-start banner. Callers pass ``projection.has_started``.
+        recent_events: Freeze-safe activity backlog seeding a freshly loaded
+            ticker, if any. Defaults to empty, which is what a pre-start
+            projection and every ad-hoc caller want.
 
     Returns:
         The typed snapshot response, each row carrying its medal band.
@@ -361,6 +370,7 @@ def snapshot_to_response(
         balloon_colors=snapshot.balloon_colors,
         standings=standings,
         pending_submissions=pending_submissions or [],
+        recent_events=recent_events or [],
     )
 
 
@@ -370,6 +380,7 @@ async def build_snapshot_response(
     now: datetime | None = None,
     site_id: str | None = None,
     cutoffs: MedalCutoffs | None = None,
+    cache: AnimatorFeedCache | None = None,
 ) -> ScoreboardSnapshotResponse:
     """Build and serialize a global or site scoreboard snapshot response.
 
@@ -383,12 +394,35 @@ async def build_snapshot_response(
             service reach the selected site's cutoffs without re-querying every
             site, which the scope resolution already did. Global scope leaves
             this ``None`` and the contest's own global cutoffs are used.
+        cache: Optional per-process feed cache. With one, the response is built
+            at most once per TTL per scope and phase; without one (unit tests,
+            ad-hoc callers) every call loads and scores afresh.
 
     Returns:
         The typed snapshot response for the requested scope.
 
     Raises:
         ValueError: If a site scope is requested without its cutoffs.
+    """
+    response, _ = await build_snapshot_response_cached(
+        session, contest, now=now, site_id=site_id, cutoffs=cutoffs, cache=cache
+    )
+    return response
+
+
+async def build_snapshot_response_cached(
+    session: AsyncSession,
+    contest: ContestRecord,
+    now: datetime | None = None,
+    site_id: str | None = None,
+    cutoffs: MedalCutoffs | None = None,
+    cache: AnimatorFeedCache | None = None,
+) -> tuple[ScoreboardSnapshotResponse, int]:
+    """Like :func:`build_snapshot_response`, also reporting the seconds it stays cached.
+
+    Returns:
+        The response and the whole seconds until the cached entry expires, or
+        ``0`` when no cache was given (the route then sends no ``Cache-Control``).
     """
     # A site's cutoffs are NOT NULL, so their absence here is a caller mistake,
     # not "this site has no medals". Failing loudly beats the alternatives:
@@ -402,71 +436,38 @@ async def build_snapshot_response(
             contest.global_silver_cutoff,
             contest.global_bronze_cutoff,
         )
-    projection = await _project(session, contest, now=now, site_id=site_id)
-    pending_submissions = build_pending_submissions(
-        projection.standings,
-        projection.submission_records,
-        projection.judgments,
-        projection.teams,
-        projection.problem_records,
-        contest.freeze_at_seconds,
-    )
-    return snapshot_to_response(
-        projection.snapshot,
-        pending_submissions,
-        teams=projection.teams,
-        wa_penalty=contest.wa_penalty,
-        cutoffs=cutoffs,
-        has_started=projection.has_started,
-    )
-
-
-async def build_meta_response(
-    session: AsyncSession,
-    contest: ContestRecord,
-    now: datetime | None = None,
-) -> ContestMetaResponse:
-    """Build the public contest metadata response for an enabled contest.
-
-    The problem set is withheld until the contest starts -- the response then
-    carries an empty ``problems`` list and ``has_started=False``. Sites stay
-    visible in both states: the launcher is built from them, and a venue's name
-    and team count are not part of the secret the pre-start gate protects.
-    """
     reference = _now_utc(now)
-    has_started = contest.has_started_at(reference)
-    problem_records = await load_problems(session, contest.id) if has_started else []
-    site_records = await load_sites(session, contest.id)
+    resolved_cutoffs = cutoffs
 
-    problem_meta = [
-        ProblemMeta(
-            problem_id=problem.id,
-            ordinal=problem.ordinal,
-            label=ordinal_to_label(problem.ordinal),
-            balloon_color=problem.color.lstrip("#"),
+    async def build() -> ScoreboardSnapshotResponse:
+        projection = await _project(session, contest, now=reference, site_id=site_id)
+        pending_submissions = build_pending_submissions(
+            projection.standings,
+            projection.submission_records,
+            projection.judgments,
+            projection.teams,
+            projection.problem_records,
+            contest.freeze_at_seconds,
         )
-        for problem in problem_records
-    ]
-    site_meta = [
-        SiteMeta(
-            site_id=site.id,
-            name=site.sitename,
-            gold_cutoff=site.gold_cutoff,
-            silver_cutoff=site.silver_cutoff,
-            bronze_cutoff=site.bronze_cutoff,
-            team_count=site.team_count,
+        recent_events = build_recent_events(
+            projection.submission_records,
+            projection.judgments,
+            projection.teams,
+            projection.problem_records,
+            freeze_at_seconds=contest.freeze_at_seconds,
+            viewer_sees_frozen=projection.snapshot.is_frozen,
+            accept_pe=contest.accept_pe,
         )
-        for site in site_records
-    ]
-    return ContestMetaResponse(
-        contest_id=contest.id,
-        slug=contest.login_slug,
-        name=contest.contest_name,
-        start_time=contest.start_time_utc.isoformat(),
-        end_time=contest.end_time_utc.isoformat(),
-        freeze_at=contest.freeze_at_utc.isoformat(),
-        is_frozen=contest.is_frozen_at(reference),
-        has_started=has_started,
-        problems=problem_meta,
-        sites=site_meta,
-    )
+        return snapshot_to_response(
+            projection.snapshot,
+            pending_submissions,
+            teams=projection.teams,
+            wa_penalty=contest.wa_penalty,
+            cutoffs=resolved_cutoffs,
+            has_started=projection.has_started,
+            recent_events=recent_events,
+        )
+
+    if cache is None:
+        return await build(), 0
+    return await cache.snapshot(contest, site_id=site_id, cutoffs=cutoffs, now=reference, build=build)

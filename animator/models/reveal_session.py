@@ -281,6 +281,14 @@ class RevealSessionState(BaseModel):
             retried command can be replayed instead of applied twice. Part of the
             state — and therefore of the same fenced write — because a receipt
             kept anywhere else could disagree with the state it describes.
+        dataset_generation: Opaque identity of the frozen universe this state
+            was built over, minted by ``initialize_reveal_session`` — that is,
+            by a fresh ``start-reveal`` or an explicit ``restart`` — and carried
+            unchanged through every later transition. It keys the per-process
+            reveal dataset cache, so a restart on one replica can never be
+            projected over another replica's stale rows. ``None`` only for a
+            state persisted before the field existed; such a ceremony bypasses
+            the cache until it is rebuilt. Additive within ``state_version=3``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -295,6 +303,7 @@ class RevealSessionState(BaseModel):
     step_log: tuple[StepEntry, ...]
     focused_team_id: str | None
     command_receipts: tuple[CommandReceipt, ...] = ()
+    dataset_generation: str | None = None
 
     @property
     def reveal_log(self) -> tuple[str, ...]:

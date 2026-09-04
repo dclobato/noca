@@ -94,6 +94,38 @@ enum class ControllerLeaseState {
     UNAVAILABLE,
 }
 
+/**
+ * Result of a team-media cue.
+ *
+ * Deliberately its own type rather than a [CommandOutcome]. A cue answers `204`,
+ * so there is no projection to carry, and — more importantly — it has no
+ * *ambiguous* case at all. A reveal command that fails opaquely may or may not
+ * have moved the ceremony, which is what the ambiguity lock exists for; a cue
+ * either reached the projectors or did not, and pressing again is the correct,
+ * harmless response either way. Modelling it as a [CommandOutcome] would invite
+ * exactly the lock this must never engage.
+ *
+ * Note that [Sent] means the animator accepted and published it, never that a
+ * projector rendered it: the cue is not replayed, and a browser that was
+ * disconnected at that instant simply never sees it.
+ */
+sealed interface MediaCueOutcome {
+    /** Accepted and published to the ceremony's scope. */
+    data object Sent : MediaCueOutcome
+
+    /** The server stated a reason; nothing was published. */
+    data class Refused(val status: Int, val detail: String?) : MediaCueOutcome
+
+    /** The request never completed. Retrying is safe. */
+    data class Failed(val cause: String) : MediaCueOutcome
+
+    /** The credential was rejected; it has been forgotten. */
+    data object AuthFailure : MediaCueOutcome
+
+    /** Not dispatched: no credential, no ownership, or a request already in flight. */
+    data object Suppressed : MediaCueOutcome
+}
+
 /** Result of a controller-lease operation. */
 sealed interface LeaseOutcome {
     data class Active(val lease: ControllerLeaseResponse) : LeaseOutcome

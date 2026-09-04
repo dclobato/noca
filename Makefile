@@ -22,7 +22,7 @@ check:
 	uv run ruff check .
 
 typecheck:
-	uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator
+	uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator mailer
 
 test:
 	uv run pytest

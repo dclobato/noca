@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,7 @@ from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.models.arena_users import ArenaUser
+from arena.routes.live import _brazilian_state_code, _country_flag_path, _serialize_live_feed_row
 from arena.services.live_feed_service import build_arena_live_feed_snapshot
 from shared.enumerations import ArenaRole, JudgmentStatus, ProblemValidatorType
 from shared.services.sse_refresh import iter_refresh_events
@@ -37,6 +40,39 @@ class _NeverYieldRuntime:
         """Yield no events while keeping the async generator shape."""
         if False:
             yield None
+
+
+def test_country_flag_path_uses_circle_only_for_brazil() -> None:
+    """Only Brazil resolves through the circular state-flags asset set."""
+    assert _country_flag_path("BR") == "img/state-flags/BR.svg"
+    assert _country_flag_path("br") == "img/state-flags/BR.svg"
+    assert _country_flag_path("US") == "img/flags/us.svg"
+
+
+class _LiveFeedRequest:
+    """Minimal request stand-in for live-feed row serialization."""
+
+    def __init__(self) -> None:
+        """Install the template timestamp formatter used by the route."""
+
+        def formatter(*_args: object) -> str:
+            """Return a stable localized timestamp."""
+            return "2026-01-01 09:00:00 -03"
+
+        template_environment = SimpleNamespace(globals={"arena_format_datetime": formatter})
+        templates = SimpleNamespace(env=template_environment)
+        state = SimpleNamespace(arena_templates=templates)
+        self.app = SimpleNamespace(state=state)
+
+    def url_for(self, name: str, **path_params: Any) -> str:
+        """Return deterministic route URLs for serializer assertions."""
+        if name == "static_vendor":
+            return f"http://testserver/static/vendor/{path_params['path']}"
+        if name == "arena_affiliation_logo_thumbnail":
+            return f"http://testserver/affiliations/{path_params['affiliation_id']}/logo"
+        if name == "arena_problem_detail":
+            return f"http://testserver/problems/{path_params['arena_number']}"
+        raise AssertionError(f"Unexpected route name: {name}")
 
 
 async def _make_language(session: AsyncSession) -> Language:
@@ -160,6 +196,7 @@ async def test_live_feed_returns_only_finalized_newest_first(session: AsyncSessi
     affiliation = await _make_affiliation(session)
     user.affiliation_id = affiliation.id
     user.country_code = "BR"
+    user.subdivision_code = "BR-SP"
     problem = await _make_problem(session, user)
 
     finalized_ac = await _make_submission(
@@ -200,8 +237,20 @@ async def test_live_feed_returns_only_finalized_newest_first(session: AsyncSessi
     assert rows[0].affiliation_has_logo is True
     assert rows[0].country_code == "BR"
     assert rows[0].country_name == "Brazil"
+    assert rows[0].subdivision_code == "BR-SP"
+    assert rows[0].subdivision_name == "São Paulo"
     assert rows[0].language_icon == "devicon-python-plain"
     assert rows[0].problem_number == problem.arena_number
+
+    payload = _serialize_live_feed_row(  # type: ignore[arg-type]
+        _LiveFeedRequest(),
+        user,
+        rows[0],
+    )
+    assert payload["subdivision_code"] == "BR-SP"
+    assert payload["subdivision_name"] == "São Paulo"
+    assert payload["country_flag_url"] == "http://testserver/static/vendor/img/state-flags/BR.svg"
+    assert payload["state_flag_url"] == "http://testserver/static/vendor/img/state-flags/SP.svg"
 
 
 @pytest.mark.asyncio
@@ -227,6 +276,29 @@ async def test_live_feed_preserves_missing_user_origin_data(session: AsyncSessio
     assert row.affiliation_has_logo is False
     assert row.country_code is None
     assert row.country_name is None
+    assert row.subdivision_code is None
+    assert row.subdivision_name is None
+
+
+@pytest.mark.parametrize(
+    ("country_code", "subdivision_code", "expected"),
+    [
+        ("BR", "BR-SP", "SP"),
+        ("br", "br-rj", "RJ"),
+        ("BR", "BR-DF", "DF"),
+        ("US", "US-CA", None),
+        ("BR", None, None),
+        ("BR", "SP", None),
+        ("BR", "BR-SAO", None),
+    ],
+)
+def test_brazilian_state_code_requires_a_two_letter_br_subdivision(
+    country_code: str | None,
+    subdivision_code: str | None,
+    expected: str | None,
+) -> None:
+    """Only a Brazilian ISO 3166-2 code maps to a local state flag."""
+    assert _brazilian_state_code(country_code, subdivision_code) == expected
 
 
 @pytest.mark.asyncio

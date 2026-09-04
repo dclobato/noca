@@ -177,13 +177,23 @@ for path in problem_statements problem_testcases email_log .env .env.crypto "$CO
     [[ -e "$EXTRACT_DIR/$path" ]] || die "Filesystem archive is missing required path: $path"
 done
 
+# Configuration is one file per layer (docs/ENV_LAYERS.md), and which layers a
+# deployment uses is its own choice, so the set is taken from the archive rather
+# than hardcoded. Restoring only `.env` and `.env.crypto` would leave a host
+# whose Compose file names `env_file:` entries that do not exist.
+mapfile -t RESTORED_ENV_FILES < <(
+    cd "$EXTRACT_DIR" && find . -maxdepth 1 -type f -name '.env*' -printf '%P\n' | sort
+)
+((${#RESTORED_ENV_FILES[@]} > 0)) || die "Filesystem archive contains no environment files"
+
 mkdir -p -- "$PROJECT_DIR"
 exec 9>"$PROJECT_DIR/.restore.lock"
 flock -n 9 || die "Another Noca restore is already running"
 
 # Install the backed-up configuration first so Compose can initialize a clean host.
-install -m 600 -- "$EXTRACT_DIR/.env" "$PROJECT_DIR/.env"
-install -m 600 -- "$EXTRACT_DIR/.env.crypto" "$PROJECT_DIR/.env.crypto"
+for env_file in "${RESTORED_ENV_FILES[@]}"; do
+    install -m 600 -- "$EXTRACT_DIR/$env_file" "$PROJECT_DIR/$env_file"
+done
 mkdir -p -- "$(dirname "$PROJECT_DIR/$COMPOSE_RELATIVE")"
 install -m 600 -- "$EXTRACT_DIR/$COMPOSE_RELATIVE" "$PROJECT_DIR/$COMPOSE_RELATIVE"
 
@@ -194,7 +204,7 @@ service_exists postgres || die "Backed-up Compose file has no 'postgres' service
 service_exists valkey || die "Backed-up Compose file has no 'valkey' service"
 
 APPLICATION_SERVICES=()
-for service in web arena autojudge rating aiassistant healthmonitor; do
+for service in web arena autojudge rating aiassistant mailer healthmonitor; do
     if service_exists "$service"; then
         APPLICATION_SERVICES+=("$service")
     fi

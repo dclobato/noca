@@ -1,33 +1,34 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 """Public Arena user image routes and current-user profile page."""
 
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_badges import ArenaUserBadge
+from arena.models.arena_user_google_identity import ArenaUserGoogleIdentity
 from arena.models.arena_users import ArenaUser
 from arena.routes.user_profile_api import router as profile_api_router
-from arena.services import admin_user_service, backup2fa_service
+from arena.services import admin_user_service, backup2fa_service, google_identity_service
 from arena.services.arena_favorite_service import FavoriteProblemRow, get_favorites_paginated
 from arena.services.pagination_service import Pagination, build_pagination_params, clamp_page
 from arena.services.profile_location_service import list_countries
 from arena.services.session_service import (
     build_current_next_url,
     build_login_redirect_response,
-    missing_profile_fields,
 )
 from arena.services.submission_list_service import (
     ARENA_SUBMISSIONS_PER_PAGE,
@@ -103,7 +104,7 @@ def _build_image_response(request: Request, data: bytes, mime_type: str) -> Resp
         Response: FastAPI response containing image bytes.
     """
     image_service: ImageProcessingService = request.app.state.image_service
-    return image_service.build_image_response(data, mime_type)
+    return image_service.build_image_response(data, mime_type, request=request)
 
 
 @router.get("/user/{user_id}/photo", name="arena_user_photo_by_id")
@@ -121,33 +122,6 @@ async def arena_user_photo_by_id(
 _NOTIFICATIONS_PER_PAGE = 25
 _SUBMISSIONS_PER_PAGE = ARENA_SUBMISSIONS_PER_PAGE
 _CREDITS_PER_PAGE = 25
-
-
-@router.get(
-    "/user/profile/complete",
-    response_class=HTMLResponse,
-    name="arena_user_profile_completion",
-)
-async def arena_user_profile_completion(
-    request: Request,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
-) -> Response:
-    """Prompt an authenticated user to complete required profile information."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-
-    missing_fields = missing_profile_fields(current_user)
-    if not missing_fields:
-        return RedirectResponse(url=str(request.url_for("arena_dashboard")), status_code=303)
-
-    templates = request.app.state.arena_templates
-    return _html(
-        templates.TemplateResponse(
-            request,
-            "users/profile_completion.html",
-            {"missing_fields": missing_fields},
-        )
-    )
 
 
 @router.get("/user/profile", response_class=HTMLResponse, name="arena_user_profile")
@@ -201,6 +175,8 @@ async def arena_user_profile(
         "credits",
         "statistics",
     }
+    if settings.GOOGLE_OAUTH_ENABLED:
+        _valid_tabs.add("linked-accounts")
     canonical = _tab_aliases.get(tab or "", tab or "")
     active_tab = canonical if canonical in _valid_tabs else "personal-security"
     if solved_page is not None:
@@ -222,6 +198,7 @@ async def arena_user_profile(
     # ── Tab-specific data: only fetch what the active tab needs ────────────
     _empty_progress: Pagination[object] = Pagination(items=[], page=1, per_page=50, total=0)
     backup_code_count: int = 0
+    google_identity: ArenaUserGoogleIdentity | None = None
     active_languages: list[object] = []
     progress: UserProgress | None = None
     favorites: Pagination[FavoriteProblemRow] | None = None
@@ -244,6 +221,9 @@ async def arena_user_profile(
             solved=_empty_progress,  # type: ignore[arg-type]
             attempted=_empty_progress,  # type: ignore[arg-type]
         )
+
+    elif active_tab == "linked-accounts":
+        google_identity = await google_identity_service.get_identity_for_user(session, current_user.id)
 
     elif active_tab == "solved":
         solved_page_data = await get_solved_progress(
@@ -335,6 +315,7 @@ async def arena_user_profile(
                 "current_user": current_user,
                 "sem_afiliacao_id": sem_afiliacao_id,
                 "backup_code_count": backup_code_count,
+                "google_identity": google_identity,
                 "progress": progress,
                 "favorites": favorites,
                 "active_tab": active_tab,
@@ -476,12 +457,18 @@ async def arena_user_profile_notifications_mark_all_read(
 async def arena_user_avatar_by_id(
     user_id: str,
     request: Request,
+    v: Annotated[str | None, Query()] = None,
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Return the stored resized Arena user avatar or generated fallback."""
+    """Return the selected Google avatar, Arena upload, or generated fallback."""
     user = await _get_user_or_404(user_id, session)
-    data, mime_type = user.avatar
-    return _build_image_response(request, data, mime_type)
+    identity = await google_identity_service.get_identity_for_user(session, user.id)
+    google_avatar = identity.cached_avatar if identity is not None and identity.use_google_avatar else None
+    data, mime_type = google_avatar or user.avatar
+    response = _build_image_response(request, data, mime_type)
+    if v != str(user.avatar_revision):
+        response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    return response
 
 
 @router.post("/user/profile/photo", name="arena_user_profile_photo_update")
@@ -528,6 +515,9 @@ async def arena_user_profile_photo_update(
         avatar_base64=processed.avatar_base64,
         mime_type=processed.mime_type,
     )
+    identity = await google_identity_service.get_identity_for_user(session, current_user.id)
+    if identity is not None:
+        identity.use_google_avatar = False
     await session.commit()
 
     flash("Profile photo updated.", FlashCategory.SUCCESS)

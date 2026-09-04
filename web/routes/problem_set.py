@@ -13,29 +13,34 @@ which is why it deliberately does not reuse the contest-scoped dependencies:
 those resolve an authenticated actor and redirect anonymous visitors to the
 login page.
 
-Because the route is anonymous, it is also the most exposed endpoint in Web:
-when ``NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH`` is configured, archives are built
-once per contest and served from the on-disk cache (see
-``web.services.problem_set_cache``), so a burst of downloads costs one build
-plus zero database work per hit. Without a cache directory, every download is
-built fresh into a temporary file — acceptable for development, not for a
-public deployment.
+Because the route is anonymous, it is also the most exposed endpoint in Web,
+and it is guarded twice. Every request first counts against the per-IP
+``web:problem-set`` window (``NOCA_WEB_PUBLIC_RATE_LIMIT_PROBLEM_SET_*``), ahead
+of the gate query. Then, when ``NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH`` is
+configured, archives are built once per contest and served from the on-disk
+cache (see ``web.services.problem_set_cache``), so a burst of downloads costs
+one build plus zero database work per hit. Without a cache directory, every
+download is built fresh into a temporary file — acceptable for development, and
+**refused with 503 in production**, before any query, because rebuilding the
+whole problem set per anonymous request is never acceptable there.
 """
 
 import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from starlette.background import BackgroundTask
 
+from shared.enumerations import Environment
 from shared.services.problem_package import PackageError
 from web.config import settings
 from web.models.contest import Contest
 from web.services.problem_set_cache import ensure_cached_archive
 from web.services.problem_set_service import build_problem_set_archive, problem_set_filename
+from web.services.public_rate_limits import enforce_problem_set_rate_limit
 
 router = APIRouter(tags=["problem_set"])
 
@@ -88,12 +93,30 @@ async def _build_archive(request: Request, slug: str, dest_path: Path) -> None:
         )
 
 
-@router.get("/problem-set/{slug}.zip", name="problem_set_download")
+UNCACHED_IN_PRODUCTION_DETAIL = "Problem-set archive cache is not configured."
+
+
+@router.get(
+    "/problem-set/{slug}.zip",
+    name="problem_set_download",
+    dependencies=[Depends(enforce_problem_set_rate_limit)],
+)
 async def problem_set_download(request: Request, slug: str) -> FileResponse:
-    """Stream the contest's public problem-set archive, when released."""
+    """Stream the contest's public problem-set archive, when released.
+
+    Raises:
+        HTTPException: ``503`` in production when no cache directory is
+            configured -- decided before the gate query, since in that state
+            every download is refused regardless of slug and there is nothing
+            to disclose; ``404`` when the contest is unknown or unreleased;
+            ``409`` when a problem's stored files are missing.
+    """
+    cache_dir = settings.PUBLIC_PROBLEM_PACK_PATH
+    if cache_dir is None and settings.ENVIRONMENT == Environment.PRODUCTION:
+        raise HTTPException(status_code=503, detail=UNCACHED_IN_PRODUCTION_DETAIL)
+
     contest = await _load_released_contest(request, slug)
     filename = problem_set_filename(contest)
-    cache_dir = settings.PUBLIC_PROBLEM_PACK_PATH
 
     if cache_dir is not None:
         try:

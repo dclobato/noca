@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,6 +19,7 @@ from healthmonitor.services.uptime_stats import (
     SLOTS_PER_WINDOW,
     SlotStat,
     read_service_heatmap,
+    read_service_heatmaps,
     reap_expired_slots,
     record_probe,
     slot_epoch,
@@ -34,6 +35,8 @@ class FakeValkeyRuntime:
         self.hashes: dict[str, dict[str, int]] = {}
         self.ttls: dict[str, int] = {}
         self.deleted: list[str] = []
+        self.batch_calls: list[list[str]] = []
+        self.batch_unavailable = False
 
     async def eval(self, script: str, numkeys: int, *args: str) -> object | None:
         key, up_flag, ttl = args
@@ -49,6 +52,12 @@ class FakeValkeyRuntime:
         if bucket is None:
             return [None] * len(fields)
         return [str(bucket[field]) if field in bucket else None for field in fields]
+
+    async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
+        self.batch_calls.append(list(keys))
+        if self.batch_unavailable:
+            return None
+        return [await self.hmget(key, fields) for key in keys]
 
     async def delete(self, *keys: str) -> None:
         self.deleted.extend(keys)
@@ -119,3 +128,51 @@ async def test_reap_expired_slots_deletes_only_pre_window_keys() -> None:
     }
     assert not visible_keys.intersection(fake.deleted)
     assert stats_key(MONITORED_SERVICES[0].worker_class, oldest_visible - SLOT_SECONDS) in fake.deleted
+
+
+@pytest.mark.asyncio
+async def test_read_service_heatmaps_matches_per_service_reads_in_one_batch() -> None:
+    """The batched read reproduces every per-service heatmap through one pipeline call."""
+    fake: Any = FakeValkeyRuntime()
+    now = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
+    earlier = datetime(2026, 7, 10, 20, 0, tzinfo=UTC)
+    await record_probe(fake, WorkerClass.WEB, up=True, retention_days=30, now=now)
+    await record_probe(fake, WorkerClass.ARENA, up=False, retention_days=30, now=earlier)
+    await record_probe(fake, WorkerClass.ARENA, up=True, retention_days=30, now=earlier)
+    expected = {
+        service.worker_class: await read_service_heatmap(fake, service.worker_class, now=now)
+        for service in MONITORED_SERVICES
+    }
+    fake.batch_calls.clear()
+
+    heatmaps = await read_service_heatmaps(fake, MONITORED_SERVICES, now=now)
+
+    assert heatmaps == expected
+    assert list(heatmaps) == [service.worker_class for service in MONITORED_SERVICES]
+    assert len(fake.batch_calls) == 1
+    assert len(fake.batch_calls[0]) == len(MONITORED_SERVICES) * SLOTS_PER_WINDOW
+    assert all(slots[0].slot_start < slots[-1].slot_start for slots in heatmaps.values())
+    assert heatmaps[WorkerClass.WEB][-1].uptime_pct == 100.0
+    assert heatmaps[WorkerClass.ARENA][-1].uptime_pct is None
+    assert any(slot.uptime_pct == 50.0 for slot in heatmaps[WorkerClass.ARENA])
+
+
+@pytest.mark.asyncio
+async def test_read_service_heatmaps_treats_missing_hashes_as_empty_slots() -> None:
+    """No recorded probes yields a complete window of empty (``None``) slots, not an error."""
+    fake: Any = FakeValkeyRuntime()
+
+    heatmaps = await read_service_heatmaps(fake, MONITORED_SERVICES)
+
+    assert all(len(slots) == SLOTS_PER_WINDOW for slots in heatmaps.values())
+    assert all(slot.uptime_pct is None for slots in heatmaps.values() for slot in slots)
+
+
+@pytest.mark.asyncio
+async def test_read_service_heatmaps_raises_when_batch_unavailable() -> None:
+    """A failed pipeline is an outage, never an all-empty history."""
+    fake: Any = FakeValkeyRuntime()
+    fake.batch_unavailable = True
+
+    with pytest.raises(RuntimeError):
+        await read_service_heatmaps(fake, MONITORED_SERVICES)

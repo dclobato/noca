@@ -11,9 +11,9 @@
 # artifact_is_source=True: the source .php file is the artifact injected into
 # the run container; no compiled output is produced.
 #
-# Pinned family: php:8.5.8-cli-bookworm (Debian bookworm)
+# Pinned family: php:8.5.8-cli-trixie (Debian trixie)
 
-FROM php:8.5.8-cli-bookworm
+FROM php:8.5.8-cli-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

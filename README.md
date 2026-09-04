@@ -34,6 +34,7 @@ noca/
 |-- autojudge/              # Compilation and execution worker
 |-- rating/                 # Arena rating, statistics, and badge worker
 |-- aiassistant/            # Arena AI review worker
+|-- mailer/                 # Outbound-email worker (the only mail sender)
 |-- healthmonitor/          # Public health-monitoring server
 |-- animator/               # Contest live scoreboard and reveal runtime
 |   |-- routes/             # HTTP endpoints
@@ -60,7 +61,7 @@ noca/
 
 ## Modules
 
-The runtime is composed of five user-facing applications, three workers, and
+The runtime is composed of five user-facing applications, four workers, and
 one shared library. Arrows in the following figure show logical dependencies and
 workflows, not direct imports between runtime applications. The Health Monitor
 Animator, and Landing Page are omitted from the figure to keep the submission
@@ -104,6 +105,7 @@ The modules and their entry points are:
 | `autojudge/` | `noca-autojudge` | `uv run noca-autojudge` | Shared judge worker |
 | `rating/` | `noca-rating` | `uv run noca-rating` | Arena rating worker |
 | `aiassistant/` | `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
+| `mailer/` | `noca-mailer` | `uv run noca-mailer` | Outbound-email worker: drains the mail queue Web and Arena fill; the only process that talks to a mail provider |
 | `healthmonitor/` | `noca-healthmonitor` | `uv run noca-healthmonitor` | Public health-monitoring server |
 | `animator/` | `noca-animator` | `uv run noca-animator` | Live scoreboard and reveal presentation runtime |
 | `landingpage/` | Container only | `./containers/build.sh landingpage` | Standalone environment landing page |
@@ -175,6 +177,8 @@ Its main features include:
 - Clarification, balloon, print, and SOS task workflows.
 - Submission and verdict audit trails without executing untrusted code in the
   web process.
+- A platform announcement board for deployment-wide notices, published by
+  uberadmins and readable without an account.
 
 See the [architecture overview](docs/ARCHITECTURE.md),
 [Contest routes](web/docs/ROUTES.md), and
@@ -232,6 +236,10 @@ Its main features include:
 
 - Free self-service registration, email confirmation, password recovery, and
   optional two-factor authentication.
+- Optional "Login with Google" as a second door to the same account, off by
+  default. Google proves identity; two-factor authentication, the age gate, and
+  the terms gate still apply, and an account is linked only from an
+  already-authenticated session.
 - Regular user and teacher roles. Teachers can create classes and assign
   scheduled problem sets.
 - Optional class self-registration and teacher-reviewed registration requests.
@@ -246,7 +254,16 @@ Its main features include:
 - Leaderboards and live submission activity.
 - Gamification through Capybara badges, because everybody loves capybaras.
 - An LGPD/GDPR age gate that rejects registrations under age 13 and requires
-  parental or legal-guardian consent for users aged 13 through 17.
+  parental or legal-guardian consent for users aged 13 through 17. A guardian
+  can withdraw that consent at any time through a signed link of their own.
+- A minor shield over every public read path: a user aged 13 through 17, and any
+  adult who has not opted in, is published under a pseudonymous username rather
+  than a legal name. Every account gets such a username at signup, and it is
+  what leaderboards, profiles, and search expose.
+- Editorials with a per-problem release policy -- never, always, or only once
+  the reader has solved the problem.
+- A platform announcement board, plus announcements an administrator can require
+  every user to acknowledge before continuing.
 - Notifications for judging, rating, and optional AI review events.
 - Administrative tools for users, affiliations, categories, problems, test
   cases, and worker status.
@@ -408,8 +425,14 @@ storage.
 
 ## Configuration
 
-NOCA reads configuration from environment variables, normally supplied through
-a `.env` file. Variables use prefixes that identify their owners:
+NOCA reads configuration from environment variables. They ship as **layered
+templates** rather than one monolithic file: each `.env.<layer>.full` is a
+coherent group of settings with one set of readers, and each service loads only
+the layers it actually reads. A value has exactly one home, so copies cannot
+drift apart, and no container receives credentials for a subsystem it does not
+have.
+
+Variables use prefixes that identify their owners:
 
 | Prefix | Scope |
 | --- | --- |
@@ -418,40 +441,58 @@ a `.env` file. Variables use prefixes that identify their owners:
 | `NOCA_ARENA_` | Arena application |
 | `NOCA_ANIMATOR_` | Animator application |
 | `NOCA_HEALTHMON_` | Health Monitor application |
+| `NOCA_LANDINGPAGE_` | Landing Page container |
 | `NOCA_JUDGE_` | AutoJudge worker |
 | `NOCA_RATING_` | Rating worker |
 | `NOCA_AI_` | AI Assistant worker |
+| `NOCA_MAILER_` | Mailer worker |
+
+A container deployment copies the templates its services need and lists each
+service's stack in `env_file:`, as `docker-compose.yml.sample` does. A
+single-host development install can concatenate the templates into one `.env`;
+[Bootstrap and deployment](docs/BOOTSTRAP.md) gives the exact command.
+`NOCA_DATA_ROOT` must stay in the project-root `.env` either way, because
+Compose reads that file to interpolate the Compose file itself.
 
 The [configuration reference](docs/CONFIG.md) lists every supported option,
-its default, validation rules, ownership, and operational notes. Production
-deployments must use secure secrets, secure cookies behind HTTPS, persistent
-storage, and a network-disabled judge execution environment.
+its default, validation rules, ownership, and operational notes, and the
+[environment layer map](docs/ENV_LAYERS.md) shows which template file each
+setting lives in and which services load it. Production deployments must use
+secure secrets, secure cookies behind HTTPS, persistent storage, and a
+network-disabled judge execution environment.
 
 Default values are a safe start.
 
 ## Quickstart
 
-Install all workspace packages and fetch the shared browser assets before
-starting a development environment:
+Install all workspace packages, assemble the environment file, and fetch the
+shared browser assets before starting a development environment:
 
 ```bash
 uv sync --all-packages
+# Assemble .env from the layer templates -- see docs/BOOTSTRAP.md for the
+# exact concatenation, which must list every layer the entrypoints read.
 uv run python scripts/fetch_assets.py
 uv run alembic upgrade head
 uv run python scripts/bootstrap_languages.py
 ```
 
-Start each selected runtime in a separate terminal. Common combinations are:
+Start each selected runtime in a separate terminal. `noca-mailer` belongs to
+**every** combination, including development: Contest and Arena hold no SMTP
+settings of their own, hand every outbound message to the mail queue, and
+refuse to start until a mailer has published its presence. Common combinations
+are:
 
-- Contest: `noca-web` + `noca-autojudge`.
+- Contest: `noca-web` + `noca-autojudge` + `noca-mailer`.
 - Contest with live presentation: `noca-web` + `noca-autojudge` +
-  `noca-animator`.
-- Arena core: `noca-arena` + `noca-autojudge`.
-- Arena with ratings: `noca-arena` + `noca-autojudge` + `noca-rating`.
-- Arena with AI feedback: `noca-arena` + `noca-autojudge` +
+  `noca-mailer` + `noca-animator`.
+- Arena core: `noca-arena` + `noca-autojudge` + `noca-mailer`.
+- Arena with ratings: `noca-arena` + `noca-autojudge` + `noca-mailer` +
+  `noca-rating`.
+- Arena with AI feedback: `noca-arena` + `noca-autojudge` + `noca-mailer` +
   `noca-aiassistant`.
 - Public status dashboards: add `noca-healthmonitor` to any combination.
-- Full ecosystem: all eight runtime modules. Run the seven Python entry points
+- Full ecosystem: all nine runtime modules. Run the eight Python entry points
   below and the `landingpage` container.
 
 For example, start the complete ecosystem with:
@@ -462,6 +503,7 @@ uv run noca-arena
 uv run noca-autojudge
 uv run noca-rating
 uv run noca-aiassistant
+uv run noca-mailer
 uv run noca-healthmonitor
 uv run noca-animator
 ```
@@ -474,10 +516,10 @@ setting its four required public URL variables and its release tag
 docker compose -f docker-compose.yml.sample up --build landingpage
 ```
 
-Run **only one** Rating replica. Contest doesn't depend on Arena, Rating, or AI
-Assistant. Animator is optional and serves only contests enabled by a Contest
-administrator. Arena doesn't depend on Contest, and its Rating and AI Assistant
-workers are optional.
+Run **only one** Rating replica and **only one** Mailer replica. Contest
+doesn't depend on Arena, Rating, or AI Assistant. Animator is optional and
+serves only contests enabled by a Contest administrator. Arena doesn't depend
+on Contest, and its Rating and AI Assistant workers are optional.
 
 See [Bootstrap and deployment](docs/BOOTSTRAP.md) for database setup, secrets,
 language images, and production preparation.
@@ -485,9 +527,15 @@ language images, and production preparation.
 ## Docker
 
 The repository includes [a Docker Compose sample](docker-compose.yml.sample)
-with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, Health Monitor,
-Animator, Landing Page, PostgreSQL, and Valkey services. Use it as a deployment
+with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, Mailer, Health
+Monitor, Animator, Landing Page, PostgreSQL, and Valkey services. Use it as a deployment
 template and remove application or worker services that you don't need.
+
+Each service in the sample lists its own `env_file:` stack, so copy the
+templates those stacks name before starting it. Only variables owned by
+`.env.compose.full` belong in the project-root `.env`: Compose resolves `${...}`
+from the shell and that file alone, never from an `env_file`, so interpolating a
+layer-owned variable would silently override the layer's real value.
 
 The sample mounts persistent PostgreSQL and Valkey volumes, problem statements,
 shared test case storage, the crypto environment file, and the Docker socket
@@ -497,9 +545,14 @@ using it in production, especially:
 - Database, JWT, worker-command, and encryption secrets.
 - `NOCA_COOKIE_SECURE` and reverse-proxy trust settings.
 - Test case and statement storage paths.
+- The problem-package cache directories
+  (`NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH`, `NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH`),
+  which are mandatory in production: both applications refuse to start without
+  the one they use.
+- A running Mailer worker, without which Contest and Arena refuse to start.
 - Docker socket access and the judge container network mode.
 - OpenAI credentials and AI credit policy.
-- The single-replica requirement for Rating.
+- The single-replica requirement for Rating and Mailer.
 
 Build and start the selected Compose services with:
 
@@ -512,15 +565,14 @@ docker compose -f docker-compose.yml.sample up --build
 NOCA requires Python 3.14 and uses `uv` for workspace and dependency management.
 PostgreSQL, Valkey, and Docker must be available for integration paths that use
 them. During local application development, run Contest, Arena, AutoJudge,
-Rating, AI Assistant, Health Monitor, and Animator directly instead of placing
-them in containers.
+Rating, AI Assistant, Mailer, Health Monitor, and Animator directly instead of
+placing them in containers.
 
 The repository's implementation conventions are documented in
 [AGENTS.md](AGENTS.md), the detailed architecture is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and accepted-but-unimplemented
-work is tracked in [ROADMAP.md](ROADMAP.md), which links into
-[docs/BACKLOG.md](docs/BACKLOG.md) -- a generated index of the Gitea issues
-that hold each full contract.
+work is tracked in [ROADMAP.md](ROADMAP.md), a reading guide that links into
+the Gitea issues holding each full contract.
 
 ## Code quality
 
@@ -530,7 +582,7 @@ change:
 ```bash
 uv run ruff format .
 uv run ruff check --fix .
-uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator
+uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator mailer
 uv run pytest
 ```
 
@@ -557,6 +609,8 @@ community.
   `isolate` provide core runtime infrastructure.
 - [Country Flags](https://github.com/hampusborgos/country-flags) by Hampus
   Borgos provides the ISO 3166-1 flag assets used in Arena.
+- [Brazil State Flags Icons](https://github.com/pierrelapalu/icones-bandeiras-br-uf)
+  by Pierre Lapalu provides the circular Brazilian national and UF flag assets.
 - [BOCA](https://www.github.com/cassiopc/boca) Online Contest Administrator and Brazil's competitive programming
   community inspired NOCA's Contest workflows.
 

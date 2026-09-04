@@ -39,7 +39,7 @@
                         <td>
                             <div class="arena-dashboard-user-identity">
                                 {% if current_user %}
-                                    {{ render_avatar(top_user.id, request.url_for('arena_user_avatar_by_id', user_id=top_user.id) , alt=top_user.name) }}
+                                    {{ render_avatar(top_user.id, request.url_for('arena_user_avatar_by_id', user_id=top_user.id) ~ '?v=' ~ top_user.avatar_revision, alt=top_user.name) }}
                                 {% endif %}
                                 <span class="arena-dashboard-user-name">{{ top_user.name }}</span>
                             </div>

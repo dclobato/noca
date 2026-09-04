@@ -133,7 +133,7 @@
 }
 
 .arena-ranking-table--affiliations {
-    min-width: 38rem;
+    min-width: 45rem;
 }
 
 .arena-ranking-table thead th:first-child,
@@ -209,12 +209,6 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    color: var(--arena-primary);
-    text-decoration: none;
-}
-
-.arena-ranking-affiliation-link:visited {
-    color: var(--arena-primary);
 }
 
 .arena-ranking-affiliation-link img {
@@ -223,18 +217,6 @@
 
 .arena-ranking-affiliation-link .arena-ranking-name {
     color: inherit;
-}
-
-.arena-ranking-affiliation-link:hover,
-.arena-ranking-affiliation-link:focus-visible {
-    color: var(--arena-primary-container);
-}
-
-.arena-ranking-affiliation-link:hover .arena-ranking-name,
-.arena-ranking-affiliation-link:focus-visible .arena-ranking-name {
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.2em;
 }
 
 .arena-ranking-logo-placeholder {

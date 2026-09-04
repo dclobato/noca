@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,7 +17,9 @@ from web.routes.contest_admin_user_helpers import _build_contest_login_url, _htm
 from web.services.assorted_utils import slugfy
 from web.services.contest_user_service import batch_import_users, parse_batch_upload
 from web.services.user_credentials_email_service import (
+    CredentialEmailSendResult,
     build_user_credentials_email_content,
+    email_actor_key,
     send_credentials_email,
 )
 
@@ -165,9 +167,12 @@ async def send_batch_credentials_email(
         raise HTTPException(status_code=400, detail="Invalid downloadable users payload.")
 
     email_service = request.app.state.email_service
+    actor_key = email_actor_key(ctx.actor)
     sent = 0
+    queued = 0
     failed = 0
     skipped = 0
+    budget_stop: CredentialEmailSendResult | None = None
     failure_messages: list[str] = []
     delivery_by_username: dict[str, tuple[str, str]] = {}
 
@@ -182,8 +187,16 @@ async def send_batch_credentials_email(
         if not to_email or not password:
             skipped += 1
             continue
+        if budget_stop is not None:
+            # The budget refused an earlier row: the rest of the batch is not even
+            # attempted, and each row says why so the retry button can pick it up.
+            skipped += 1
+            downloadable_users[index]["email_delivery_status"] = "budget_exceeded"
+            downloadable_users[index]["email_delivery_detail"] = budget_stop.detail
+            delivery_by_username[username] = ("budget_exceeded", budget_stop.detail)
+            continue
 
-        send_result = send_credentials_email(
+        send_result = await send_credentials_email(
             email_service,
             to_email=to_email,
             fullname=fullname,
@@ -195,11 +208,26 @@ async def send_batch_credentials_email(
                 password=password,
                 sender_name=email_service.default_from_name or settings.BRAND_NAME,
             ),
+            actor_key=actor_key,
         )
-        if send_result.success:
-            sent += 1
-            downloadable_users[index]["email_delivery_status"] = "sent"
-            delivery_by_username[username] = ("sent", send_result.detail)
+        if send_result.budget_exceeded:
+            budget_stop = send_result
+            skipped += 1
+            failure_messages.append(
+                f"Email budget exceeded after {sent + queued} messages; "
+                f"try again in {send_result.retry_after_seconds} s."
+            )
+            downloadable_users[index]["email_delivery_status"] = "budget_exceeded"
+            downloadable_users[index]["email_delivery_detail"] = send_result.detail
+            delivery_by_username[username] = ("budget_exceeded", send_result.detail)
+        elif send_result.success:
+            status = "queued" if send_result.queued else "sent"
+            if send_result.queued:
+                queued += 1
+            else:
+                sent += 1
+            downloadable_users[index]["email_delivery_status"] = status
+            delivery_by_username[username] = (status, send_result.detail)
         else:
             failed += 1
             failure_messages.append(f"{username}: {send_result.detail}")
@@ -214,9 +242,9 @@ async def send_batch_credentials_email(
         if uname in delivery_by_username:
             dstatus, ddetail = delivery_by_username[uname]
             r["email_delivery_status"] = dstatus
-            r["email_delivery_detail"] = ddetail if dstatus == "failed" else None
+            r["email_delivery_detail"] = ddetail if dstatus in ("failed", "budget_exceeded") else None
 
-    summary = f"Email delivery: {sent} sent, {failed} failed, {skipped} skipped."
+    summary = f"Email delivery: {sent} sent, {queued} queued, {failed} failed, {skipped} skipped."
     if failure_messages:
         summary = f"{summary} Failures: {'; '.join(failure_messages[:5])}"
     await record_request_security_event(
@@ -224,15 +252,17 @@ async def send_batch_credentials_email(
         request,
         module="web",
         event_type="credential_email_batch_completed",
-        severity="warning" if failed else "info",
+        severity="warning" if failed or budget_stop is not None else "info",
         actor_user_id=ctx.actor.id,
         actor_label=ctx.actor.username,
         metadata={
             "scope": "contest_user_batch",
             "contest_slug": ctx.contest.login_slug,
             "sent": sent,
+            "queued": queued,
             "failed": failed,
             "skipped": skipped,
+            "budget_exceeded": budget_stop is not None,
         },
     )
     await ctx.session.commit()
@@ -243,7 +273,7 @@ async def send_batch_credentials_email(
         isinstance(user_data, dict)
         and str(user_data.get("email") or "").strip()
         and str(user_data.get("password") or "").strip()
-        and user_data.get("email_delivery_status") != "sent"
+        and user_data.get("email_delivery_status") not in ("sent", "queued")
         for user_data in downloadable_users
     )
     return _html(

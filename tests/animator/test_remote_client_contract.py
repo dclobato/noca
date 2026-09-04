@@ -287,6 +287,18 @@ def test_kotlin_definitive_statuses_match_the_stated_refusals() -> None:
     assert statuses == {400, 403, 404, 409, 422}
 
 
+def test_projector_count_is_wired_through_every_android_layer() -> None:
+    """The lease's projector count reaches the Android status header.
+
+    The field is optional on the wire, so nothing would fail if a layer dropped
+    it — the operator would simply never see the readout. Each hop is pinned.
+    """
+    assert '@SerialName("projector_count") val projectorCount: Int? = null' in _kotlin("ApiModels.kt")
+    assert "fun projectorLabel(count: Int?): String" in _kotlin("Controls.kt")
+    assert "ProjectorReadout(outcome.lease.projectorCount)" in _kotlin("../ui/RemoteViewModel.kt")
+    assert "projectorLabel(count)" in _kotlin("../ui/RemoteScreen.kt")
+
+
 def test_jump_pending_is_wired_through_every_android_layer() -> None:
     """The server command remains reachable from the Android button pad."""
     assert 'jumpPending = "$base/jump-pending"' in _kotlin("Urls.kt")

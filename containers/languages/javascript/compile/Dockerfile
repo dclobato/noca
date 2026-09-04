@@ -2,9 +2,9 @@
 #
 # Short-lived container — one per submission, destroyed after syntax check.
 #
-# Pinned family: node:24-bookworm-slim (Debian bookworm slim)
+# Pinned family: node:24-trixie-slim (Debian trixie slim)
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

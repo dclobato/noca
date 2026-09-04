@@ -79,9 +79,13 @@
   editForm.addEventListener('input', isDirty);
   editForm.addEventListener('change', isDirty);
 
+  // Decided after the event has finished propagating: the draft module's
+  // session probe (`noca-form-draft.js`) listens on the document and may cancel
+  // this submit, and a cancelled Save must keep the unload guard armed.
   editForm.addEventListener('submit', function (event) {
-    if (event.defaultPrevented) return;
-    isSubmittingEditForm = true;
+    window.setTimeout(function () {
+      if (!event.defaultPrevented) isSubmittingEditForm = true;
+    }, 0);
   });
 
   document.addEventListener('submit', function (event) {

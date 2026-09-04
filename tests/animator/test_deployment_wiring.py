@@ -7,7 +7,7 @@
 """Deployment-wiring tests for the animator container and sample stack.
 
 These assertions cover the parts of the deployment that no unit test would
-otherwise reach: configuration parity across ``config.py`` / ``.env.full`` /
+otherwise reach: configuration parity across ``config.py`` / ``.env.animator.full`` /
 ``docs/CONFIG.md`` / compose, the image actually shipping every static directory
 the app mounts, the schema-consumer boundary, and the proxy/publication wiring.
 They are file-level checks precisely because the operational validation they
@@ -27,10 +27,11 @@ import pytest
 import yaml
 
 from animator.config import Settings
+from tests.deployment_env import effective_env_keys, stack_variables
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml.sample"
-ENV_FULL = REPO_ROOT / ".env.full"
+ENV_FULL = REPO_ROOT / ".env.animator.full"
 CONFIG_DOC = REPO_ROOT / "docs" / "CONFIG.md"
 DOCKERFILE = REPO_ROOT / "containers" / "animator" / "Dockerfile"
 ENTRYPOINT = REPO_ROOT / "containers" / "animator" / "entrypoint.sh"
@@ -75,16 +76,18 @@ def animator_service(compose: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_every_setting_is_documented() -> None:
-    """Each animator setting appears in .env.full and docs/CONFIG.md.
+    """Each animator setting appears in its env-layer stack and docs/CONFIG.md.
 
-    A setting that exists in code but in neither file is undiscoverable to an
+    A setting that exists in code but in neither place is undiscoverable to an
     operator, which is how deployments end up running on accidental defaults.
+    The animator reads shared layers too, so the check is against the whole stack
+    ``env_layers.toml`` declares for it, not against .env.animator.full alone.
     """
-    env_text = ENV_FULL.read_text(encoding="utf-8")
+    supplied = stack_variables("animator")
     doc_text = CONFIG_DOC.read_text(encoding="utf-8")
-    missing_env = sorted(n for n in _settings_env_names() if n not in env_text)
+    missing_env = sorted(n for n in _settings_env_names() if n not in supplied)
     missing_doc = sorted(n for n in _settings_env_names() if n not in doc_text)
-    assert missing_env == [], f"absent from .env.full: {missing_env}"
+    assert missing_env == [], f"absent from the animator env-layer stack: {missing_env}"
     assert missing_doc == [], f"absent from docs/CONFIG.md: {missing_doc}"
 
 
@@ -109,8 +112,12 @@ def test_compose_env_keys_are_real_settings(animator_service: dict[str, Any]) ->
 
 
 def test_compose_declares_presence_and_proxy_settings(animator_service: dict[str, Any]) -> None:
-    """Presence, proxy trust, and status-link settings are explicit, not implied."""
-    keys = set(animator_service["environment"])
+    """Presence, proxy trust, and status-link settings reach the container.
+
+    Most now arrive through the layered ``env_file`` templates rather than the
+    ``environment:`` block, so the check is on the effective environment.
+    """
+    keys = effective_env_keys(animator_service)
     assert {
         "NOCA_ANIMATOR_WORKER_ID",
         "NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS",
@@ -126,15 +133,18 @@ def test_compose_declares_presence_and_proxy_settings(animator_service: dict[str
 
 
 def test_healthcheck_port_matches_settings_and_expose(animator_service: dict[str, Any]) -> None:
-    """Compose probe port, settings default port, and EXPOSE all agree.
+    """Compose probe port, the pinned container port, settings, and EXPOSE agree.
 
-    The probe interpolates ``NOCA_ANIMATOR_PORT`` so it follows a reconfigured
-    port; its fallback is what must match the settings default and EXPOSE.
+    The probe cannot interpolate ``NOCA_ANIMATOR_PORT``: Compose resolves
+    ``${...}`` from the project-root ``.env`` and never from the
+    ``.env.animator.full`` this service loads, so the reference would follow the
+    interpolation default rather than the configured port. The stack pins the
+    port instead, and this holds all four statements of it together.
     """
     default_port = Settings.model_fields["PORT"].default
     probe = " ".join(animator_service["healthcheck"]["test"])
-    assert "localhost:${NOCA_ANIMATOR_PORT:-" in probe
-    assert f"localhost:${{NOCA_ANIMATOR_PORT:-{default_port}}}/health" in probe
+    assert f"localhost:{default_port}/health" in probe
+    assert str(animator_service["environment"]["NOCA_ANIMATOR_PORT"]) == str(default_port)
     assert f"EXPOSE {default_port}" in DOCKERFILE.read_text(encoding="utf-8")
 
 

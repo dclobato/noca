@@ -21,6 +21,8 @@ from shared.db_schema import security_events
 from shared.services.security_events import record_security_event
 from shared.services.security_events_export import CSV_HEADER
 from tests.web.test_inactive_contest_routes import _build_app, _login_uberadmin
+from web.database import get_db
+from web.models.users import UberAdmin
 
 
 @pytest.mark.asyncio
@@ -212,6 +214,36 @@ async def test_security_events_csv_exports_all_web_rows_ignoring_filters(
     exported = {row[2] for row in rows[1:]}
     assert {"web_csv_event_0", "web_csv_event_1", "web_csv_event_2"} <= exported
     assert "arena_csv_event" not in exported
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_opens_exactly_one_session(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """The stream reads through the dependency's session; it must not open a second.
+
+    FastAPI keeps the request's yield-dependency open until the whole body has
+    been sent, so a stream that opened its own session held two pool connections
+    for the entire export (#198).
+    """
+    app, auth_service = _build_app(session)
+    token = await _login_uberadmin(auth_service, session, uberadmin.username)
+    session_factory = app.state.db_session
+    opened = 0
+
+    def counted_session_factory() -> AsyncSession:
+        nonlocal opened
+        opened += 1
+        return session_factory()
+
+    app.state.db_session = counted_session_factory
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.get("/uberadmin/security-events.csv")
+
+    assert response.status_code == 200
+    # The dependency's session comes from the factory unless the harness injects
+    # it through an override; either way, a second count is a nested session.
+    assert opened == (0 if get_db in app.dependency_overrides else 1)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -124,6 +124,7 @@ class ClassMemberManagementRow:
     email: str
     status: Literal["active", "pending"]
     registered_at: date | datetime
+    avatar_revision: int
 
 
 @dataclass(frozen=True)

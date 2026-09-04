@@ -46,7 +46,20 @@
 
   // Common deps: { photoEl, titleEl, photoFallbackEl, photoBase, scope,
   //                fetchImpl, urlApi, AbortControllerCtor, audioEnabled }
-  // Audio-enabled mode also requires { audioEl, statusEl, audioBase }.
+  // Audio-enabled mode also requires { audioEl, statusEl, audioBase }, and
+  // optionally { blockedMessage } to replace the copy above.
+  //
+  // The message is injectable because the same modal serves two audiences. On a
+  // click it is read by the person who clicked, and "press play" is the right
+  // instruction. Opened by an operator's remote cue it is read by a room of
+  // spectators who cannot reach the keyboard, so instructing them is worse than
+  // useless — the caller supplies copy that states the condition instead, and
+  // tells the operator separately.
+  //
+  // It may therefore be a **function**, resolved at the moment the status is
+  // written rather than when the modal was constructed: which audience is
+  // reading depends on how *this* open happened, and one dialog instance serves
+  // both for the life of the page.
   function createTeamModal(deps) {
     var photoEl = deps.photoEl;
     var audioEnabled = deps.audioEnabled === true;
@@ -54,6 +67,14 @@
     var titleEl = deps.titleEl;
     var statusEl = audioEnabled ? deps.statusEl : null;
     var photoFallbackEl = deps.photoFallbackEl;
+    var blockedMessage = deps.blockedMessage;
+
+    function blockedText() {
+      if (typeof blockedMessage === "function") {
+        return blockedMessage() || BLOCKED_MESSAGE;
+      }
+      return typeof blockedMessage === "string" ? blockedMessage : BLOCKED_MESSAGE;
+    }
     var generation = 0;
     var pending = null;
     var photoObjectUrl = null;
@@ -215,7 +236,7 @@
             return;
           }
           showPlayer(true);
-          setStatus(deferredOutcome === "blocked" ? BLOCKED_MESSAGE : "");
+          setStatus(deferredOutcome === "blocked" ? blockedText() : "");
           finish(deferredOutcome);
         }
 

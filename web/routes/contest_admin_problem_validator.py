@@ -29,6 +29,7 @@ from shared.services.custom_validator import (
     stage_candidate,
     status_view,
 )
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.problem import ProblemCustomValidator
@@ -42,8 +43,11 @@ from web.services.problem_service import (
     hide_sample_interactions,
     unhide_sample_interactions,
 )
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
-router = APIRouter(prefix="/c/{slug}/admin/problems", tags=["contest_admin_problems"])
+router = APIRouter(
+    prefix="/c/{slug}/admin/problems", tags=["contest_admin_problems"], dependencies=[Depends(web_user_read_rate_limit)]
+)
 
 
 @router.post("/{problem_id}/validator", name="upload_problem_custom_validator")
@@ -96,6 +100,9 @@ async def upload_problem_custom_validator(
     # validator removal resurface.
     demoted = await convert_sample_test_cases_to_secret(ctx.session, problem.id)
     resurfaced = await unhide_sample_interactions(ctx.session, problem.id)
+    # Staging a validator demotes public cases and resurfaces interactions,
+    # both of which the public package ships.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
 
     job = build_validation_job(domain="contest", problem_id=problem.id, candidate_token=token)
@@ -236,6 +243,9 @@ async def remove_problem_custom_validator_route(
     )
     remove_validator(problem.custom_validator)
     await ctx.session.delete(problem.custom_validator)
+    # Removing the validator hides or deletes the interactions the public
+    # package ships.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
 
     flash("Custom validator removed.", FlashCategory.SUCCESS)

@@ -108,11 +108,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         """Stub dashboard endpoint."""
         return HTMLResponse("dashboard")
 
-    @stubs.get("/user/profile/complete", name="arena_user_profile_completion")
-    async def _stub_profile_completion(request: Request) -> HTMLResponse:
-        """Stub profile completion endpoint."""
-        return HTMLResponse("profile completion")
-
     @stubs.get("/live", name="arena_live")
     @stubs.get("/status", name="arena_status")
     async def _stub_status(request: Request) -> HTMLResponse:
@@ -168,8 +163,6 @@ async def _create_user_requiring_pw_change(
     session: AsyncSession,
     email: str = "pwchange@test.example",
     usa_2fa: bool = False,
-    *,
-    complete_profile: bool = True,
 ) -> ArenaUser:
     """Create an active Arena user with ``precisa_trocar_senha=True``.
 
@@ -194,9 +187,9 @@ async def _create_user_requiring_pw_change(
         usa_2fa=usa_2fa,
         precisa_trocar_senha=True,
         session_version=1,
-        affiliation_id="test-affiliation" if complete_profile else None,
-        preferred_language_id="python" if complete_profile else None,
-        country_code="BR" if complete_profile else None,
+        affiliation_id="test-affiliation",
+        preferred_language_id="python",
+        country_code="BR",
         prefered_language="en-US",
     )
     user.password = "OldPass1!"
@@ -205,37 +198,6 @@ async def _create_user_requiring_pw_change(
     session.add(user)
     await session.flush()
     return user
-
-
-@pytest.mark.asyncio
-async def test_forced_password_change_incomplete_profile_overrides_safe_next(
-    session: AsyncSession,
-) -> None:
-    """Completed forced password change prioritizes profile completion."""
-    app = _build_arena_app(session)
-    user = await _create_user_requiring_pw_change(session, complete_profile=False)
-    await session.commit()
-    pending_token = set_pending_password_change_token(
-        user,
-        app.state.jwt_service,
-        next_page="/submissions/sub-1",
-    )
-    _add_session_writer(app, pending_token, "/test-set-pw-incomplete")
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        await client.post("/test-set-pw-incomplete")
-        response = await client.post(
-            "/auth/change-password",
-            data={
-                "current_password": "OldPass1!",
-                "new_password": "FreshNewPass1!",
-                "confirm_password": "FreshNewPass1!",
-            },
-            follow_redirects=False,
-        )
-
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/user/profile/complete")
 
 
 # ---------------------------------------------------------------------------

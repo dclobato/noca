@@ -9,10 +9,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
 from shared.enumerations import RoleEnum
+from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.users import User
 from web.services.clarification_service import (
+    ClarificationRateLimitError,
     ContestNotRunningError,
+    TooManyUnansweredClarificationsError,
     create_announcement,
     create_clarification,
 )
@@ -45,10 +48,27 @@ async def submit_new(
             ctx.actor,
             problem_id=problem_id.strip() or None,
             question=question_stripped,
+            rate_limit_window_seconds=settings.CLARIFICATION_RATE_LIMIT_WINDOW_SECONDS,
+            rate_limit_max_requests=settings.CLARIFICATION_RATE_LIMIT_MAX_REQUESTS,
+            max_open_clarifications=settings.CLARIFICATION_RATE_LIMIT_MAX_UNANSWERED,
         )
         await ctx.session.commit()
     except ContestNotRunningError:
         flash("Clarifications can only be submitted while the contest is running.", FlashCategory.DANGER)
+        return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
+    except TooManyUnansweredClarificationsError as exc:
+        flash(
+            f"You have {exc.open_count} clarifications still unanswered. "
+            "Wait for a judge to answer before asking again.",
+            FlashCategory.DANGER,
+        )
+        return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
+    except ClarificationRateLimitError as exc:
+        next_time = exc.next_allowed_at.astimezone().strftime("%H:%M:%S")
+        flash(
+            f"Clarification limit reached. You can ask again after {next_time}.",
+            FlashCategory.DANGER,
+        )
         return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
     except ValueError:
         flash("The selected problem does not belong to this contest.", FlashCategory.DANGER)

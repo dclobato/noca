@@ -282,7 +282,7 @@ def _select_effective_judgment(candidates: list[_JudgmentCandidate]) -> Judgment
         The effective judgment record.
     """
     best = max(candidates, key=_judgment_sort_key)
-    return JudgmentRecord(final_verdict=best[3])
+    return JudgmentRecord(id=best[0], final_verdict=best[3])
 
 
 def _judgment_sort_key(item: _JudgmentCandidate) -> tuple[bool, datetime, str]:

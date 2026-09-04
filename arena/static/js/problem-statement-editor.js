@@ -10,6 +10,9 @@
  * Builds the statement and optional editorial with the same shared EasyMDE core,
  * then syncs both underlying textareas on form submit. Arena offers no PDF/MD
  * source switching.
+ *
+ * A restored browser draft (`noca-form-draft.js`) writes the textareas directly,
+ * so both visible editors are refreshed from them on `noca:form-draft-restored`.
  */
 (function () {
   'use strict';
@@ -29,6 +32,13 @@
     form.addEventListener('submit', function () {
       statementEditor.syncToTextarea();
       editorialEditor.syncToTextarea();
+    });
+
+    form.addEventListener('noca:form-draft-restored', function () {
+      var statement = document.getElementById('stmt-md-editor');
+      var editorial = document.getElementById('editorial-md-editor');
+      if (statement) statementEditor.setValue(statement.value);
+      if (editorial) editorialEditor.setValue(editorial.value);
     });
   });
 })();

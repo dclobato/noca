@@ -1,10 +1,11 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
+{% from "_macros.html" import render_country_flag with context %}
 <div class="py-4">
     <form method="get"
           class="d-flex flex-wrap gap-2 align-items-end mb-3"
@@ -108,9 +109,7 @@
                         </td>
                         <td>
                             {% if login.country_name %}
-                                <img src="{{ request.url_for('static_vendor', path='img/flags/' + login.country_code.lower() + '.svg') }}"
-                                     class="arena-country-flag"
-                                     alt="">
+                                {{ render_country_flag(request, login.country_code) }}
                                 {{ login.detailed_location }}
                             {% else %}
                                 <span class="text-muted">&mdash;</span>

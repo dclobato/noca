@@ -179,3 +179,30 @@
     object-fit: cover;
     margin-right: 0.25rem;
 }
+
+.arena-country-flag--circular {
+    height: 2rem;
+    border: 0;
+    border-radius: 50%;
+    object-fit: contain;
+}
+
+.arena-state-flag {
+    width: 1.75rem;
+    height: 1.75rem;
+    vertical-align: middle;
+    object-fit: contain;
+    margin-right: 0.25rem;
+}
+
+.arena-location-flags {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+    vertical-align: middle;
+}
+
+.arena-location-flags .arena-country-flag,
+.arena-location-flags .arena-state-flag {
+    margin-right: 0;
+}

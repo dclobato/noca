@@ -23,6 +23,8 @@
             {{ dashboard_card(request.url_for("uberadmin_import_contest_form") , "upload", "Import contest", "Restore from a backup archive", True, filled=True) }}
             {{ dashboard_card(request.url_for("list_uberadmins_route") , "manage_accounts", "Manage UberAdmins", "Global administrator accounts", True, filled=True) }}
             {{ dashboard_card(request.url_for("uberadmin_security_events") , "shield_person", "Security events", "Authentication & audit log", True, filled=True) }}
+            {{ dashboard_card(request.url_for("uberadmin_lockouts") , "lock_open", "Sign-in lockouts", "Unlock a login or an address early", True, filled=True) }}
+            {{ dashboard_card(nav_url(request, "uberadmin_announcements") , "campaign", "Announcements", "Platform-wide notices", True, filled=True) }}
             {{ dashboard_card(request.url_for("uberadmin_inactive_contests") , "archive", "Inactive contests", "Deactivated & recoverable", True, filled=True) }}
         </div>
         {# The operationally urgent bucket -- what needs attention right now -- gets its own band rather than sitting as a peer of Past and Upcoming. #}

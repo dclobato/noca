@@ -66,6 +66,29 @@ def contest_minutes(timestamp_seconds: int | None) -> int | None:
     return display_minutes_from_seconds(timestamp_seconds)
 
 
+def format_hidden_window(total_seconds: int) -> str:
+    """Render a withheld-results duration the way a person would say it.
+
+    ``"45 min"``, ``"1 h"``, ``"1 h 20 min"`` -- not the ``Xh Ymin Zs`` of
+    :func:`format_seconds_compact`, which reads as a stopwatch. This is the
+    Python twin of ``formatHiddenWindow`` in
+    ``animator/static/js/animator-render.js``: the Web scoreboard and the
+    animator board describe the same freeze, so they must word it identically.
+    Change one and change the other.
+
+    Args:
+        total_seconds: Non-negative duration in seconds.
+
+    Returns:
+        The duration in minutes, or in hours and minutes past an hour.
+    """
+    minutes = max(0, total_seconds) // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h" if rest == 0 else f"{hours} h {rest} min"
+
+
 def format_site_identity(site_name: str | None, base_name: str) -> str:
     """Return a display name optionally prefixed by the user's site.
 

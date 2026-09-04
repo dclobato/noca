@@ -28,9 +28,16 @@ from animator.services.controller_lease_service import (
     _HEARTBEAT_SCRIPT,
     _RELEASE_SCRIPT,
     _TAKEOVER_SCRIPT,
+    _VERIFY_SCRIPT,
 )
+from animator.services.projector_presence import _ATTEND_SCRIPT, _COUNT_SCRIPT, _LEAVE_SCRIPT
 from animator.services.reveal_session_store import _LOAD_STATE_SCRIPT, _RELEASE_LOCK_SCRIPT
-from shared.reveal_schema import RevealStateChangedEvent
+from shared.reveal_schema import RevelationEvent
+from shared.services.sse_connection_limit import ACQUIRE_SCRIPT, RELEASE_SCRIPT, RENEW_SCRIPT
+from tests.shared._auth_fake_valkey import AUTH_SCRIPTS, AuthFakeValkey
+from tests.shared._sse_fake_valkey import SseFakeValkey
+
+_SSE_SCRIPTS: Final = frozenset({ACQUIRE_SCRIPT, RELEASE_SCRIPT, RENEW_SCRIPT})
 
 _LOAD_HIT = 1
 
@@ -73,6 +80,8 @@ class FakeRevealStoreClient:
         hold_lock_until: asyncio.Event | None = None,
         bootstrap_controller_leases: bool = False,
     ) -> None:
+        self.sse_gauges = SseFakeValkey()
+        self.auth_throttle = AuthFakeValkey()
         """Create a fake, optionally over shared backing state.
 
         Args:
@@ -103,8 +112,12 @@ class FakeRevealStoreClient:
         self.crash_after = crash_after
         self.hold_lock_until = hold_lock_until
         self.bootstrap_controller_leases = bootstrap_controller_leases
-        self.published: list[RevealStateChangedEvent] = []
+        self.published: list[RevelationEvent] = []
         self.trace: list[str] = []
+        self.projectors: dict[str, dict[str, int]] = {}
+        """Projector presence sets: key -> member -> expiry on the fake clock."""
+        self.clock = 0
+        """The fake Valkey ``TIME``; advance it to expire presence entries."""
 
     async def _round_trip(self) -> None:
         """Yield to the event loop the way a real Valkey call would.
@@ -167,6 +180,12 @@ class FakeRevealStoreClient:
         if script == _HEARTBEAT_SCRIPT:
             key, controller_id, _ttl = args
             return 1 if self.strings.get(key) == controller_id else 0
+        if script == _VERIFY_SCRIPT:
+            # Ownership check only: unlike the mutation script it takes no lock
+            # and bootstraps nothing, so a media cue can neither contend with a
+            # command in flight nor invent ownership it was never granted.
+            key, controller_id = args
+            return 1 if self.strings.get(key) == controller_id else 0
         if script == _RELEASE_SCRIPT:
             key, controller_id = args
             if self.strings.get(key) == controller_id:
@@ -193,7 +212,32 @@ class FakeRevealStoreClient:
             if self.hold_lock_until is not None:
                 await self.hold_lock_until.wait()
             return 1
+        if script == _ATTEND_SCRIPT:
+            key, member, ttl = args
+            self.projectors.setdefault(key, {})[member] = self.clock + int(ttl)
+            return 1
+        if script == _LEAVE_SCRIPT:
+            key, member = args
+            return int(self.projectors.get(key, {}).pop(member, None) is not None)
+        if script == _COUNT_SCRIPT:
+            members = self.projectors.get(args[0], {})
+            for member in [m for m, expiry in members.items() if expiry <= self.clock]:
+                del members[member]
+            return len(members)
+        if script in _SSE_SCRIPTS:
+            # The SSE connection lease shares this client; serve its gauges too.
+            return await self.sse_gauges.eval(script, numkeys, *args)
+        if script in AUTH_SCRIPTS:
+            # The operator-token lockout shares this client as well.
+            return await self.auth_throttle.eval(script, numkeys, *args)
         raise AssertionError(f"unexpected script: {script!r}")
+
+    async def delete(self, *keys: str) -> int:
+        """Delete throttle keys (the lockout reset) and any plain strings by name."""
+        removed = await self.auth_throttle.delete(*keys)
+        for key in keys:
+            removed += int(self.strings.pop(key, None) is not None)
+        return removed
 
     async def fenced_save_reveal_state(
         self, *, lock_key: str, state_key: str, token: str, state_json: str, ttl_seconds: int
@@ -211,7 +255,33 @@ class FakeRevealStoreClient:
         self._crash_after("save")
         return 1
 
-    async def publish_revelation(self, event: RevealStateChangedEvent) -> bool:
+    async def fenced_publish_revelation(
+        self,
+        *,
+        controller_key: str,
+        token: str,
+        event: RevelationEvent,
+    ) -> int | None:
+        """Publish only while ``controller_key`` still holds ``token``.
+
+        Modelled as one step, exactly as the Lua is, so a test that expires or
+        takes over a lease *between* a caller's own ownership check and its
+        publish observes the refusal rather than a delivered frame.
+        """
+        await self._round_trip()
+        self._crash_before("publish")
+        if self.publish_raises:
+            raise RuntimeError("simulated unrecoverable publish failure")
+        if self.unavailable or not self.publish_ok:
+            return None
+        if self.strings.get(controller_key) != token:
+            return -1
+        self.published.append(event)
+        self.trace.append("publish")
+        self._crash_after("publish")
+        return 0
+
+    async def publish_revelation(self, event: RevelationEvent) -> bool:
         """Record a published nudge, or fail/raise as configured."""
         await self._round_trip()
         self._crash_before("publish")

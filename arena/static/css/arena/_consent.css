@@ -1,0 +1,267 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Guardian parental-consent pages (grant and withdraw)
+
+   The decision is one lit node on a chronology that starts before it and
+   continues past it, so "you may withdraw at any time" is read as structure
+   rather than as reassurance printed under a button.
+
+   Grant and withdraw are the same rail. They differ only in
+   --arena-consent-accent, which is what lets a guardian holding both emails
+   tell the two pages apart at a glance.
+
+   The effects list and the kept-data statement are deliberately not scoped to
+   this page: the Arena admin's consent modal drives the same write path and
+   renders the same two blocks, so neither door can describe the decision more
+   lightly than the other.
+   ============================================================ */
+/* Carried by the auth-flow card itself, so it contributes the accent and the rail
+   metrics and never the page width -- the shell owns that, exactly as it does for
+   login and 2FA. */
+.arena-consent-page {
+    --arena-consent-accent: var(--arena-primary);
+    --arena-consent-marker-size: 0.875rem;
+    --arena-consent-rail-x: 0.4375rem;
+}
+
+.arena-consent-page--withdraw {
+    --arena-consent-accent: var(--arena-error);
+}
+
+/* ── The rail ────────────────────────────────────────────────────────────── */
+.arena-consent-rail {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.arena-consent-node {
+    position: relative;
+    padding-bottom: var(--arena-space-md);
+    padding-left: 2.25rem;
+}
+
+/* The connector. Each node owns its own segment so the decision's segment can
+   carry the accent without a second overlay element. */
+.arena-consent-node::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--arena-consent-rail-x);
+    width: 2px;
+    background-color: var(--arena-outline-variant);
+    content: '';
+}
+
+.arena-consent-node:first-child::before {
+    top: 0.5rem;
+}
+
+.arena-consent-node:last-child {
+    padding-bottom: 0;
+}
+
+.arena-consent-node:last-child::before {
+    bottom: auto;
+    height: 0.5rem;
+}
+
+/* The marker. */
+.arena-consent-node::after {
+    position: absolute;
+    top: 0.125rem;
+    left: 0;
+    width: var(--arena-consent-marker-size);
+    height: var(--arena-consent-marker-size);
+    border: 2px solid var(--arena-outline);
+    border-radius: 50%;
+    background-color: var(--arena-surface);
+    content: '';
+}
+
+.arena-consent-node--now::before {
+    background-color: var(--arena-consent-accent);
+}
+
+.arena-consent-node--now::after {
+    top: 0.5rem;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-left: -0.125rem;
+    border-color: var(--arena-consent-accent);
+    background-color: var(--arena-consent-accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--arena-consent-accent) 16%, transparent);
+}
+
+/* ── Past and future nodes ───────────────────────────────────────────────── */
+.arena-consent-milestone {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.arena-consent-date {
+    display: block;
+    margin-top: 0.125rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    font-weight: 400;
+}
+
+.arena-consent-note {
+    margin: 0.25rem 0 0;
+    max-width: 62ch;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* ── The decision ────────────────────────────────────────────────────────── */
+/* A panel, not a nested card: it sits inside the auth card and carries no
+   elevation of its own. The border is the commitment boundary -- what is inside it
+   is what the button does -- so it is drawn from the accent rather than the
+   neutral outline. */
+.arena-consent-decision {
+    border: 1px solid color-mix(in srgb, var(--arena-consent-accent) 34%, var(--arena-outline-variant));
+    border-radius: var(--arena-radius-lg);
+    padding: var(--arena-space-md);
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-consent-decision .arena-auth-title {
+    margin-bottom: 0.375rem;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+}
+
+.arena-consent-account {
+    margin: 0 0 var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    font-size: 1rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.arena-consent-account strong {
+    color: var(--arena-on-surface);
+}
+
+/* ── What changes ────────────────────────────────────────────────────────── */
+.arena-consent-effects {
+    margin: 0 0 var(--arena-space-md);
+    border-top: 1px solid var(--arena-outline-variant);
+    padding: 0;
+    list-style: none;
+}
+
+.arena-consent-effect {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--arena-outline-variant);
+    padding: 0.625rem 0;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+    line-height: 1.45;
+}
+
+.arena-consent-effect .material-symbols-outlined {
+    flex-shrink: 0;
+    margin-top: 0.0625rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 1.25rem;
+}
+
+/* The one claim that is not an effect of the decision: what it never touches. */
+.arena-consent-keeps {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    margin: 0 0 var(--arena-space-md);
+    border-radius: var(--arena-radius);
+    padding: 0.625rem 0.75rem;
+    background-color: var(--arena-surface-container);
+    color: var(--arena-on-surface);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.arena-consent-keeps .material-symbols-outlined {
+    flex-shrink: 0;
+    margin-top: 0.0625rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 1.25rem;
+}
+
+/* ── Acting ──────────────────────────────────────────────────────────────── */
+.arena-consent-attestation {
+    margin: 0 0 0.75rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.arena-consent-submit {
+    width: 100%;
+    font-weight: 600;
+}
+
+/* A secondary utility inside the decision card (the student's "resend" on the
+   waiting page). Bootstrap's neutral outline is drawn in a fixed mid-gray that
+   reads as disabled on the card's tinted surface and falls under 4.5:1 in dark,
+   so the enabled state is drawn from the surface tokens instead. */
+.arena-consent-decision .btn-outline-secondary.arena-consent-submit {
+    color: var(--arena-on-surface);
+    border-color: var(--arena-outline);
+    background-color: transparent;
+}
+
+.arena-consent-decision .btn-outline-secondary.arena-consent-submit:hover,
+.arena-consent-decision .btn-outline-secondary.arena-consent-submit:focus-visible {
+    color: var(--arena-on-surface);
+    border-color: var(--arena-on-surface-variant);
+    background-color: var(--arena-surface-container-high);
+}
+
+/* The escape sits under the action, never beside it: the destructive choice and
+   its opposite must never be one mis-tap apart on a phone. */
+.arena-consent-escape {
+    display: block;
+    margin: 0.75rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* ── Stages that name no account ─────────────────────────────────────────────
+   done, throttled, and the dead-link stage carry no subject by design, so they
+   cannot draw a chronology. They render as the decision node alone. */
+
+.arena-consent-statement p {
+    max-width: 62ch;
+}
+
+.arena-consent-statement p:last-child {
+    margin-bottom: 0;
+}
+
+@media (max-width: 30rem) {
+    .arena-consent-node {
+        padding-left: 1.875rem;
+    }
+
+    .arena-consent-decision {
+        padding: var(--arena-space-md) 0.875rem;
+    }
+}

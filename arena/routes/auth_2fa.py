@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.database import get_db
 from arena.routes.auth_common import (
     AUTH_RATE_LIMITER,
@@ -26,7 +27,7 @@ from arena.routes.auth_common import (
     _token_failure_message,
 )
 from arena.services import arena_auth_service, user_2fa_service, user_security_notification_service, user_service
-from arena.services.session_service import post_login_redirect_url
+from arena.services.session_service import safe_next_url
 from shared.services.auth_rate_limit import (
     build_auth_throttle_identity,
     check_auth_throttle,
@@ -129,11 +130,20 @@ async def arena_2fa_submit(
 
     validation = await user_2fa_service.validar_codigo_2fa(usuario, full_code.strip(), session)
     if not validation.success:
+        # The account bucket is the real cap here: reaching this step needs a
+        # valid password, so an attacker already holds the credential for the
+        # account they are attacking and five failures stop them. The per-IP
+        # bucket is therefore gated on the only signal that separates spraying
+        # from honest fumbling -- how many *distinct* accounts the failures span
+        # -- because Arena's users share school-lab NAT addresses, TOTP fails
+        # honestly far more often than a password does, and an ungated IP count
+        # lets one student lock their whole class out of the 2FA step.
         failure = await record_auth_failure(
             request,
             throttle_identity,
             settings=throttle_settings,
             fallback_limiter=AUTH_RATE_LIMITER,
+            ip_distinct_accounts=settings.AUTH_RATE_LIMIT_2FA_IP_DISTINCT_ACCOUNTS,
         )
         await record_request_security_event(
             session,
@@ -155,6 +165,7 @@ async def arena_2fa_submit(
         request,
         throttle_identity,
         fallback_limiter=AUTH_RATE_LIMITER,
+        include_ip=False,
     )
 
     remember_me: bool = bool(extra_data.get("remember_me", False))
@@ -177,7 +188,14 @@ async def arena_2fa_submit(
         return _redirect_to(request, "arena_change_password")
 
     backup_code_used = validation.method_used == user_2fa_service.Autenticacao2FA.BACKUP
-    login_mode = "backup_code" if backup_code_used else "2fa"
+    base_mode = "backup_code" if backup_code_used else "2fa"
+    # The originating door is carried in the pending-2FA token so a Google login on a
+    # 2FA account is recorded as google_2fa rather than losing how identity was proven.
+    # A token minted before this field existed simply reports the password path.
+    login_origin = extra_data.get("login_method")
+    if not isinstance(login_origin, str) or not login_origin:
+        login_origin = "password"
+    login_mode = base_mode if login_origin == "password" else f"{login_origin}_{base_mode}"
     history_result = await arena_auth_service.registrar_login_concluido(
         usuario,
         session,
@@ -230,12 +248,12 @@ async def arena_2fa_submit(
     )
     await session.commit()
 
-    if backup_code_used and not user_security_notification_service.send_backup_code_used_email(
+    if backup_code_used and not await user_security_notification_service.send_backup_code_used_email(
         usuario, request.app.state.email_service, remaining=backup_remaining
     ):
         logger.warning("Backup-code-used notification email failed for user %s", usuario.id)
 
-    redirect_url = post_login_redirect_url(usuario, next_url, request)
+    redirect_url = safe_next_url(next_url, request)
     response = RedirectResponse(url=redirect_url, status_code=303)
     _set_login_cookie(response, token=token_login, remember_me=remember_me)
     logger.info("2FA verified for user %s", usuario.id)

@@ -36,6 +36,16 @@
 #                                  # build single-platform image with buildx and load locally
 #   ./containers/build.sh --platforms linux/amd64,linux/arm64 --push
 #                                  # push via Buildx Bake without publishing internal bases
+#   ./containers/build.sh --cache-repo ghcr.io/acme/noca/buildcache
+#                                  # reuse layers between runs through a registry build cache.
+#                                  # Reads on every Bake build; writes only with --push, which
+#                                  # is the only mode guaranteed to hold registry credentials.
+#   ./containers/build.sh --parallel
+#                                  # build concurrently via Buildx Bake and load the results
+#                                  # into the local daemon (no registry). Single-platform only,
+#                                  # since a manifest list cannot be loaded into dockerd; the
+#                                  # host platform is selected automatically unless --platforms
+#                                  # names exactly one.
 #   ./containers/build.sh --no-cache   # force full rebuild
 #   ./containers/build.sh --version v2.9.0
 #                                  # tag each image with both its slot tag and :slot-v2.9.0
@@ -49,6 +59,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NO_CACHE=""
 TARGETS=()
 PUSH=0
+PARALLEL=0
+# Registry build cache. Empty disables it entirely, so a developer with no registry
+# credentials is unaffected. Each target gets its own tag under this repository:
+# a single shared ref cannot work, because concurrent targets in one Bake would each
+# overwrite the others' cache manifest.
+CACHE_REPO="${NOCA_BUILD_CACHE_REPO:-}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PLATFORMS_SET=0
 IMAGE_PREFIX="${NOCA_IMAGE_PREFIX:-noca}"
@@ -56,7 +72,7 @@ IMAGE_NAMING="${NOCA_IMAGE_NAMING:-path}"
 ALT_IMAGE_PREFIX="${NOCA_ALT_IMAGE_PREFIX:-}"
 ALT_IMAGE_NAMING="${NOCA_ALT_IMAGE_NAMING:-path}"
 VERSION=""
-JUDGE_ISOLATE_TAG="${JUDGE_ISOLATE_TAG:-v2.6}"
+JUDGE_ISOLATE_TAG="${JUDGE_ISOLATE_TAG:-v2.7}"
 # Name of the dedicated docker-container builder the push path falls back to when
 # the active buildx builder uses the embedded "docker" driver. See containers/BUILD.md
 # (Builder Driver / Troubleshooting).
@@ -65,7 +81,7 @@ BUILDX_BUILDER="${NOCA_BUILDX_BUILDER:-noca-builder}"
 BAKE_BUILDER_ARGS=()
 
 # The application images, as opposed to the per-language judge images.
-APP_TARGETS=(webapp arena autojudge rating aiassistant healthmonitor animator landingpage)
+APP_TARGETS=(webapp arena autojudge rating aiassistant mailer healthmonitor animator landingpage)
 
 # Languages whose compile image is built FROM noca/judge-compile-base. Single source
 # of truth for both the prerequisite detection and the per-language build loop below;
@@ -172,6 +188,22 @@ while [[ $# -gt 0 ]]; do
             PUSH=1
             shift
             ;;
+        --parallel|-j)
+            PARALLEL=1
+            shift
+            ;;
+        --cache-repo)
+            if [[ $# -lt 2 ]]; then
+                echo "--cache-repo requires a value (e.g. ghcr.io/acme/noca/buildcache)"
+                exit 1
+            fi
+            CACHE_REPO="$2"
+            shift 2
+            ;;
+        --cache-repo=*)
+            CACHE_REPO="${1#*=}"
+            shift
+            ;;
         --platforms)
             if [[ $# -lt 2 ]]; then
                 echo "--platforms requires a value (e.g. linux/amd64,linux/arm64)"
@@ -225,8 +257,31 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
 fi
 
 USE_BUILDX=0
-if [[ "$PLATFORMS_SET" -eq 1 || "$PUSH" -eq 1 ]]; then
+if [[ "$PLATFORMS_SET" -eq 1 || "$PUSH" -eq 1 || "$PARALLEL" -eq 1 ]]; then
     USE_BUILDX=1
+fi
+
+# `--load` writes into the local daemon, which stores one image per tag and cannot hold a
+# manifest list, so the concurrent local path is single-platform by construction. Narrow the
+# default platform pair down to whatever the daemon actually runs rather than failing on it;
+# an explicit multi-platform --platforms is a contradiction and is refused.
+if [[ "$PARALLEL" -eq 1 && "$PUSH" -eq 0 ]]; then
+    if [[ "$PLATFORMS" == *,* ]]; then
+        if [[ "$PLATFORMS_SET" -eq 1 ]]; then
+            echo "--parallel loads images into the local daemon and cannot build a manifest list."
+            echo "Pass a single platform (e.g. --platforms linux/amd64), or add --push."
+            exit 1
+        fi
+        _host_arch="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || true)"
+        [[ -n "$_host_arch" ]] || _host_arch="$(uname -m)"
+        case "$_host_arch" in
+            x86_64) _host_arch="amd64" ;;
+            aarch64) _host_arch="arm64" ;;
+        esac
+        PLATFORMS="linux/${_host_arch}"
+        echo "--parallel: narrowing platforms to the host platform (${PLATFORMS})."
+        unset _host_arch
+    fi
 fi
 
 if [[ "$USE_BUILDX" -eq 1 ]]; then
@@ -408,6 +463,8 @@ ensure_container_builder() {
 }
 
 build_with_bake() {
+    # $1: "push" to publish manifest lists, or "load" to import into the local daemon.
+    local bake_mode="${1:-push}"
     local name_separator="/"
     local alt_name_separator="/"
     local bake_no_cache="false"
@@ -415,6 +472,9 @@ build_with_bake() {
     local repo_root
     local target=""
     local dir=""
+    local -a bake_output=()
+    local -a bake_cache=()
+    local cache_target=""
 
     repo_root="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -430,7 +490,7 @@ build_with_bake() {
 
     for target in "${TARGETS[@]}"; do
         case "$target" in
-            webapp|arena|autojudge|rating|aiassistant|healthmonitor|animator|landingpage)
+            webapp|arena|autojudge|rating|aiassistant|mailer|healthmonitor|animator|landingpage)
                 bake_targets+=("$target")
                 ;;
             *)
@@ -454,7 +514,47 @@ build_with_bake() {
         exit 1
     fi
 
-    echo "Publish path: Buildx Bake"
+    if [[ "$bake_mode" == "load" ]]; then
+        # Set the output per requested target rather than passing --load, which expands to
+        # `--set *.output=type=docker` and would also flip the four internal base targets away
+        # from their `type=cacheonly`. Those bases are resolved in-graph through bake `contexts`
+        # and are deliberately never exported; loading them would leave dangling untagged
+        # images and break the invariant the bake file documents.
+        for target in "${bake_targets[@]}"; do
+            bake_output+=(--set "${target}.output=type=docker")
+        done
+        echo "Build path: Buildx Bake (parallel, loading into the local daemon)"
+    else
+        bake_output+=(--push)
+        echo "Publish path: Buildx Bake"
+    fi
+    if [[ -n "$CACHE_REPO" ]]; then
+        # The internal bases carry the most expensive layers in the graph -- isolate is
+        # compiled from source and judge-compile-base is shared by eight compile images --
+        # and they are `type=cacheonly`, so without their own cache entries every run
+        # rebuilds them before it can reuse anything downstream. They are dependencies
+        # rather than requested targets, so they are named explicitly here.
+        for cache_target in "${bake_targets[@]}" \
+            app-base assets-base isolate-base judge-compile-base; do
+            bake_cache+=(--set "${cache_target}.cache-from=type=registry,ref=${CACHE_REPO}:${cache_target}")
+            if [[ "$bake_mode" == "push" ]]; then
+                # mode=max keeps intermediate stages, which is what makes the multi-stage
+                # builders (isolate, lua) reusable rather than just their final layer.
+                # Writing needs push access to the cache repository, so it is limited to
+                # the mode that is already authenticated against a registry.
+                # image-manifest=true,oci-mediatypes=true writes the cache as an OCI image
+                # manifest. Buildx's default cache manifest type is rejected by Docker Hub
+                # and ECR; GHCR accepts either, so this is set unconditionally rather than
+                # branched on the registry.
+                bake_cache+=(--set "${cache_target}.cache-to=type=registry,ref=${CACHE_REPO}:${cache_target},mode=max,image-manifest=true,oci-mediatypes=true")
+            fi
+        done
+        if [[ "$bake_mode" == "push" ]]; then
+            echo "Build cache: ${CACHE_REPO} (read/write)"
+        else
+            echo "Build cache: ${CACHE_REPO} (read-only; writes require --push)"
+        fi
+    fi
     echo "Bake targets: ${bake_targets[*]}"
     echo ""
 
@@ -470,13 +570,14 @@ build_with_bake() {
             BAKE_NO_CACHE="$bake_no_cache" \
             JUDGE_ISOLATE_TAG="$JUDGE_ISOLATE_TAG" \
             docker buildx bake "${BAKE_BUILDER_ARGS[@]}" \
-            --file containers/docker-bake.hcl --push "${bake_targets[@]}"
+            --file containers/docker-bake.hcl \
+            "${bake_cache[@]}" "${bake_output[@]}" "${bake_targets[@]}"
     )
 }
 
 if [[ "$PUSH" -eq 1 ]]; then
     ensure_container_builder
-    build_with_bake
+    build_with_bake push
     echo "══════════════════════════════════════════════════"
     echo "  All requested images built successfully."
     echo ""
@@ -484,6 +585,18 @@ if [[ "$PUSH" -eq 1 ]]; then
     echo "    docker buildx imagetools inspect $(image_name webapp)"
     echo "    docker buildx imagetools inspect $(image_name rating)"
     echo "    docker buildx imagetools inspect $(image_name "judge-<language>"):<compile|run>"
+    echo "══════════════════════════════════════════════════"
+    exit 0
+fi
+
+if [[ "$PARALLEL" -eq 1 ]]; then
+    ensure_container_builder
+    build_with_bake load
+    echo "══════════════════════════════════════════════════"
+    echo "  All requested images built successfully."
+    echo ""
+    echo "  Verify images:"
+    echo "    docker images | grep '${IMAGE_PREFIX%%/*}'"
     echo "══════════════════════════════════════════════════"
     exit 0
 fi
@@ -497,7 +610,7 @@ NEED_JUDGE_COMPILE_BASE=0
 for target in "${TARGETS[@]}"; do
     if [[ "$target" == "webapp" || "$target" == "arena" \
        || "$target" == "autojudge" || "$target" == "rating" \
-       || "$target" == "aiassistant" || "$target" == "healthmonitor" \
+       || "$target" == "aiassistant" || "$target" == "mailer" || "$target" == "healthmonitor" \
        || "$target" == "animator" ]]; then
         NEED_APP_BASE=1
     fi
@@ -597,6 +710,12 @@ for target in "${TARGETS[@]}"; do
 
     if [[ "$target" == "aiassistant" ]]; then
         build_image "$(image_name aiassistant)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/aiassistant/Dockerfile" \
+            "APP_BASE_REF=${APP_BASE_REF}"
+        continue
+    fi
+
+    if [[ "$target" == "mailer" ]]; then
+        build_image "$(image_name mailer)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/mailer/Dockerfile" \
             "APP_BASE_REF=${APP_BASE_REF}"
         continue
     fi

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,7 +21,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
-from arena.services.profile_location_service import country_name
+from arena.services.profile_location_service import country_name, subdivision_name
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import (
     arena_affiliations,
@@ -45,6 +45,8 @@ class ArenaLiveFeedRow:
         affiliation_has_logo: Whether the affiliation has a stored logo.
         country_code: User location ISO 3166-1 alpha-2 country code, or None.
         country_name: User location country display name, or None.
+        subdivision_code: User location ISO 3166-2 subdivision code, or None.
+        subdivision_name: User location subdivision display name, or None.
         problem_number: Public sequential problem number (used to build the link).
         problem_title: Problem display title.
         language_name: Language display name.
@@ -59,6 +61,8 @@ class ArenaLiveFeedRow:
     affiliation_has_logo: bool
     country_code: str | None
     country_name: str | None
+    subdivision_code: str | None
+    subdivision_name: str | None
     problem_number: int
     problem_title: str
     language_name: str
@@ -106,6 +110,7 @@ async def build_arena_live_feed_snapshot(session: AsyncSession) -> ArenaLiveFeed
             arena_affiliations.c.logo_base64.label("affiliation_logo_base64"),
             arena_affiliations.c.logo_mime.label("affiliation_logo_mime"),
             arena_users.c.country_code,
+            arena_users.c.subdivision_code,
             arena_problems.c.arena_number,
             arena_problems.c.title,
             languages_table.c.name,
@@ -145,11 +150,13 @@ async def build_arena_live_feed_snapshot(session: AsyncSession) -> ArenaLiveFeed
             affiliation_has_logo=bool(row[4] and row[5]),
             country_code=row[6],
             country_name=country_name(row[6]),
-            problem_number=row[7],
-            problem_title=row[8],
-            language_name=row[9],
-            language_icon=row[10],
-            verdict=str(row[11]),
+            subdivision_code=row[7],
+            subdivision_name=subdivision_name(row[7]),
+            problem_number=row[8],
+            problem_title=row[9],
+            language_name=row[10],
+            language_icon=row[11],
+            verdict=str(row[12]),
         )
         for row in visible_rows
     ]

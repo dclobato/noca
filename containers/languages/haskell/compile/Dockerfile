@@ -8,7 +8,7 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned family: debian:bookworm-slim + ghc=9.0.2-4
+# Pinned family: debian:trixie-slim + ghc=9.6.6-4
 
 ARG JUDGE_COMPILE_BASE_REF=noca/judge-compile-base:latest
 FROM ${JUDGE_COMPILE_BASE_REF}
@@ -17,8 +17,8 @@ LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 USER root
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends "ghc=9.0.2-4" \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends "ghc=9.6.6-4" \
     && rm -rf /var/lib/apt/lists/*
 
 USER judge

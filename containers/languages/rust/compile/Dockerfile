@@ -2,9 +2,9 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned family: rust:1.96.1-bookworm (Debian bookworm)
+# Pinned family: rust:1.96.1-trixie (Debian trixie)
 
-FROM rust:1.96.1-bookworm
+FROM rust:1.96.1-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

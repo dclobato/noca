@@ -9,17 +9,17 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned family: php:8.5.8-cli-bookworm (Debian bookworm)
+# Pinned family: php:8.5.8-cli-trixie (Debian trixie)
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM php:8.5.8-cli-bookworm
+FROM php:8.5.8-cli-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin/isolate

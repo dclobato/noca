@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,6 +40,58 @@ _PASSWORD_CHANGE_TIMEOUT = 300  # seconds
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def evaluate_account_access_gates(usuario: ArenaUser) -> UserServiceResult | None:
+    """Evaluate the account-state gates every authenticated login must clear.
+
+    These are the checks that do not depend on *how* the user proved their
+    identity: the account must be active with a confirmed email, its date of
+    birth must be known, and it must satisfy the LGPD age rules. Password login
+    and Google login both run them, which is what keeps a new authentication
+    door from silently bypassing the age gate.
+
+    The function is pure and deliberately does not log: the caller decides when
+    a failure is worth recording, so a wrong-password attempt never emits the
+    account's age or consent state to the log.
+
+    Args:
+        usuario: The user whose identity has been (or is about to be) proven.
+
+    Returns:
+        UserServiceResult | None: ``None`` when every gate is clear, otherwise a
+            result carrying the blocking status and the user, so the caller can
+            route to the matching remediation flow.
+    """
+    if not usuario.ativo or not usuario.email_confirmado:
+        return UserServiceResult(
+            status=UserOperationStatus.USER_INACTIVE,
+            user=usuario,
+            error_message="Account is inactive or email is not confirmed.",
+        )
+
+    if usuario.dta_nascimento is None:
+        return UserServiceResult(
+            status=UserOperationStatus.AGE_RECONFIRMATION_REQUIRED,
+            user=usuario,
+            error_message="Date of birth must be confirmed before login.",
+        )
+
+    age_status = check_age(usuario.dta_nascimento)
+    if age_status == AgeStatus.BLOCKED:
+        return UserServiceResult(
+            status=UserOperationStatus.UNDERAGE_BLOCKED,
+            user=usuario,
+            error_message="Account is below the minimum allowed age.",
+        )
+    if age_status == AgeStatus.NEEDS_PARENTAL_CONSENT and not usuario.consentimento_responsavel:
+        return UserServiceResult(
+            status=UserOperationStatus.PARENTAL_CONSENT_REQUIRED,
+            user=usuario,
+            error_message="Parent or legal guardian consent is required.",
+        )
+
+    return None
 
 
 async def efetuar_login(
@@ -88,41 +140,26 @@ async def efetuar_login(
         logger.warning("Login attempt for non-existent account: %s", normalizado)
         return UserServiceResult(status=UserOperationStatus.INVALID_CREDENTIALS)
 
-    if not usuario.ativo or not usuario.email_confirmado:
+    # The gates are evaluated once but reported in two places, because the
+    # inactive check precedes the password check while the age checks follow it.
+    # evaluate_account_access_gates() is deliberately silent so that a failed
+    # password attempt never logs the account's age or consent state.
+    gate_failure = evaluate_account_access_gates(usuario)
+    if gate_failure is not None and gate_failure.status == UserOperationStatus.USER_INACTIVE:
         logger.warning("Login attempt for inactive/unconfirmed account: %s", normalizado)
-        return UserServiceResult(
-            status=UserOperationStatus.USER_INACTIVE,
-            user=usuario,
-            error_message="Account is inactive or email is not confirmed.",
-        )
+        return gate_failure
 
     if not usuario.check_password(password):
         logger.warning("Wrong password for %s", normalizado)
         return UserServiceResult(status=UserOperationStatus.INVALID_CREDENTIALS)
 
-    if usuario.dta_nascimento is None:
-        logger.warning("Login attempt for account missing date of birth: %s", normalizado)
-        return UserServiceResult(
-            status=UserOperationStatus.AGE_RECONFIRMATION_REQUIRED,
-            user=usuario,
-            error_message="Date of birth must be confirmed before login.",
+    if gate_failure is not None:
+        logger.warning(
+            "Login attempt blocked for %s by account access gate: %s",
+            normalizado,
+            gate_failure.status.name,
         )
-
-    age_status = check_age(usuario.dta_nascimento)
-    if age_status == AgeStatus.BLOCKED:
-        logger.warning("Login attempt for under-13 account: %s", normalizado)
-        return UserServiceResult(
-            status=UserOperationStatus.UNDERAGE_BLOCKED,
-            user=usuario,
-            error_message="Account is below the minimum allowed age.",
-        )
-    if age_status == AgeStatus.NEEDS_PARENTAL_CONSENT and not usuario.consentimento_responsavel:
-        logger.warning("Login attempt for account pending parental consent: %s", normalizado)
-        return UserServiceResult(
-            status=UserOperationStatus.PARENTAL_CONSENT_REQUIRED,
-            user=usuario,
-            error_message="Parent or legal guardian consent is required.",
-        )
+        return gate_failure
 
     try:
         if not usuario.usa_2fa:
@@ -175,6 +212,7 @@ def set_pending_2fa_token(
     remember_me: bool = False,
     next_page: str | None = None,
     session_started_at: int | None = None,
+    login_method: str = "password",
 ) -> str:
     """Create a PENDING_2FA token to carry the login through a 2FA gate.
 
@@ -184,11 +222,19 @@ def set_pending_2fa_token(
         remember_me: Passed through in extra_data for the route to honour.
         next_page: Redirect target after 2FA, passed through in extra_data.
         session_started_at: Original remembered-session start timestamp.
+        login_method: How identity was proven before the 2FA hop -- ``"password"``
+            or ``"google"``. Carried through so the completed login can be recorded
+            as ``google_2fa`` rather than losing the fact that Google was the front
+            door.
 
     Returns:
         str: Signed PENDING_2FA JWT.
     """
-    extra_data: dict[str, object] = {"remember_me": remember_me, "next": next_page}
+    extra_data: dict[str, object] = {
+        "remember_me": remember_me,
+        "next": next_page,
+        "login_method": login_method,
+    }
     if session_started_at is not None:
         extra_data[SESSION_STARTED_AT_CLAIM] = session_started_at
     return str(

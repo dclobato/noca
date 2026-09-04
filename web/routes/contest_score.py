@@ -9,19 +9,20 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from shared.enumerations import RoleEnum
+from shared.services.balloon_assets import normalize_hex_color
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
-from web.models.site import Site
 from web.models.users import UberAdmin, User
-from web.services.assorted_utils import format_site_identity
+from web.services.assorted_utils import format_hidden_window
 from web.services.scoreboard import ScoreboardService, ScoreboardSnapshot
-from web.services.site_service import list_contest_sites
+from web.services.scoreboard_display_cache import ScoreboardSite, get_scoreboard_display_data
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
-router = APIRouter(prefix="/c/{slug}/scoreboard", tags=["contest_score"])
+router = APIRouter(
+    prefix="/c/{slug}/scoreboard", tags=["contest_score"], dependencies=[Depends(web_user_read_rate_limit)]
+)
 
 _service = ScoreboardService()
 
@@ -37,38 +38,7 @@ def _access_blocked(actor: UberAdmin | User, contest: Contest) -> bool:
     return not (contest.is_running or contest.is_past)
 
 
-async def _build_team_display_data(
-    ctx: ContestContext,
-) -> tuple[dict[str, str], dict[str, str | None]]:
-    """Build site-aware team labels and memberships for scoreboard rendering.
-
-    Args:
-        ctx: Contest-scoped request context.
-
-    Returns:
-        Mappings of team IDs to rendered labels and assigned site IDs.
-    """
-    result = await ctx.session.execute(
-        select(User)
-        .where(
-            User.contest_id == ctx.contest.id,
-            User.role == RoleEnum.TEAM,
-        )
-        .options(selectinload(User.site))
-    )
-    teams = result.scalars().all()
-    display_map = {
-        team.id: format_site_identity(
-            team.site.sitename if team.site is not None else None,
-            team.fullname,
-        )
-        for team in teams
-    }
-    site_map = {team.id: team.site_id for team in teams}
-    return display_map, site_map
-
-
-def _site_filter_options(actor: UberAdmin | User, sites: list[Site]) -> list[Site]:
+def _site_filter_options(actor: UberAdmin | User, sites: list[ScoreboardSite]) -> list[ScoreboardSite]:
     """Return the sites the actor may select explicitly.
 
     Args:
@@ -83,7 +53,7 @@ def _site_filter_options(actor: UberAdmin | User, sites: list[Site]) -> list[Sit
     return sites
 
 
-def _resolve_selected_site_id(requested_site_id: str, site_options: list[Site]) -> str:
+def _resolve_selected_site_id(requested_site_id: str, site_options: list[ScoreboardSite]) -> str:
     """Resolve a requested site ID against the actor's selectable sites.
 
     Args:
@@ -126,6 +96,35 @@ def _filter_snapshot_by_site(
     return replace(snapshot, standings=standings)
 
 
+def _css_safe_balloon_colors(snapshot: ScoreboardSnapshot) -> list[str | None]:
+    """Validate each problem's balloon color for use inside a stylesheet.
+
+    The scoreboard passes every problem's balloon color to its cells through a
+    small ``<style>`` block, because ``problems.color`` is a free-form
+    ``String(7)`` -- the admin form offers a native color picker beside the
+    18-swatch palette -- so no fixed set of CSS classes can cover the value
+    space. Nothing validates that column on save, and a stylesheet, unlike the
+    ``/assets/balloon/<color>`` route that answers ``400``, would execute
+    whatever it is handed. So the hex is normalized here and an unusable one
+    becomes ``None``: that column simply renders without its color rather than
+    smuggling declarations into the page.
+
+    Args:
+        snapshot: Scoreboard snapshot whose balloon colors are display order.
+
+    Returns:
+        One ``#rrggbb`` string per problem, in display order, or ``None`` where
+        the stored value is not a color.
+    """
+    safe: list[str | None] = []
+    for color in snapshot.balloon_colors:
+        try:
+            safe.append(normalize_hex_color(color))
+        except ValueError:
+            safe.append(None)
+    return safe
+
+
 @router.get("/", response_class=HTMLResponse, name="contest_score")
 async def view(
     request: Request,
@@ -157,6 +156,9 @@ async def view(
                     "access_blocked": True,
                     "snapshot": None,
                     "team_display_map": {},
+                    "team_site_name_map": {},
+                    "problem_cell_colors": [],
+                    "frozen_hidden_window": None,
                     "viewer_role": "public",
                     "is_final_scoreboard": False,
                 },
@@ -180,7 +182,12 @@ async def view(
     else:
         viewer_role = "admin" if is_admin else "public"
         snapshot = await _service.get_cached_or_compute(contest, viewer_role, ctx.session, valkey)
-    sites = await list_contest_sites(ctx.session, contest.id)
+    # One short-lived Valkey entry for everything the page renders *around* the
+    # snapshot, so a scoreboard hit that finds a cached snapshot does no
+    # database work at all -- these two queries used to run on every refresh of
+    # the most-polled page in a live contest.
+    display = await get_scoreboard_display_data(ctx.session, contest.id, valkey)
+    sites = display.sites
     site_options = _site_filter_options(actor, sites)
     show_site_filter = len(sites) > 1
     actor_has_site = isinstance(actor, User) and actor.site_id is not None
@@ -190,7 +197,13 @@ async def view(
         (site for site in site_options if site.id == selected_site_id),
         None,
     )
-    team_display_map, team_site_map = await _build_team_display_data(ctx)
+    team_display_map = display.team_names
+    team_site_map = display.team_site_ids
+    team_site_name_map = display.team_site_names
+    # How much the freeze is withholding right now, for the Frozen band. Below a
+    # minute there is no number worth showing, so the band names the state alone.
+    hidden_seconds = contest.scoreboard_frozen_hidden_seconds
+    frozen_hidden_window = format_hidden_window(hidden_seconds) if hidden_seconds >= 60 else None
     snapshot = _filter_snapshot_by_site(snapshot, team_site_map, selected_site_id)
     all_sites_url = request.url_for("contest_score", slug=contest.login_slug)
     refresh_url = all_sites_url
@@ -210,6 +223,9 @@ async def view(
                 "access_blocked": False,
                 "snapshot": snapshot,
                 "team_display_map": team_display_map,
+                "team_site_name_map": team_site_name_map,
+                "problem_cell_colors": _css_safe_balloon_colors(snapshot),
+                "frozen_hidden_window": frozen_hidden_window,
                 "site_options": site_options,
                 "show_site_filter": show_site_filter,
                 "selected_site_id": selected_site_id,

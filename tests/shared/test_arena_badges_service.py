@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -239,44 +239,123 @@ async def test_full_clear_when_all_set_problems_solved(session: AsyncSession) ->
     assert ArenaBadge.FULL_CLEAR in await _badges(session, user)
 
 
-async def test_clean_code_by_memory_only(session: AsyncSession) -> None:
-    """A slow but lean solution still earns CLEAN_CODE via the memory percentile."""
+async def _clean_code_field(
+    session: AsyncSession,
+    problem: str,
+    entries: list[tuple[str, int | None, int | None]],
+) -> None:
+    """Submit one AC per (user, wall_ms, memory_kb) entry against ``problem``."""
+    for i, (user_id, wall_ms, memory_kb) in enumerate(entries):
+        await _submit(
+            session,
+            user_id,
+            problem,
+            Verdict.AC,
+            _WEEKDAY_NOON + timedelta(minutes=i),
+            wall_ms=wall_ms,
+            memory_kb=memory_kb,
+        )
+
+
+async def test_clean_code_requires_both_axes(session: AsyncSession) -> None:
+    """Leading on one axis alone is not enough; the top 5% must hold on both."""
     problem = str(uuid.uuid4())
-    fast_lean = await _new_user(session)
-    others = [await _new_user(session) for _ in range(19)]
-    base = _WEEKDAY_NOON
-    # The target is the slowest by time but the lowest by memory.
-    await _submit(session, fast_lean, problem, Verdict.AC, base, wall_ms=10_000, memory_kb=100)
-    for i, u in enumerate(others):
-        await _submit(session, u, problem, Verdict.AC, base + timedelta(minutes=i + 1), wall_ms=100, memory_kb=5_000)
+    lean_only = await _new_user(session)
+    fast_only = await _new_user(session)
+    both = await _new_user(session)
+    # 40 solvers -> the band holds floor(0.05 * 40) = 2 users per axis.
+    entries: list[tuple[str, int | None, int | None]] = [
+        (lean_only, 10_000, 100),  # best memory, worst time
+        (fast_only, 5, 9_000),  # best time, worst memory
+        (both, 6, 200),  # second on both axes
+    ]
+    entries += [(await _new_user(session), 100, 5_000) for _ in range(37)]
+    await _clean_code_field(session, problem, entries)
 
     await compute_badge_awards(session, full_reconcile=True)
 
-    assert ArenaBadge.CLEAN_CODE in await _badges(session, fast_lean)
+    assert ArenaBadge.CLEAN_CODE not in await _badges(session, lean_only)
+    assert ArenaBadge.CLEAN_CODE not in await _badges(session, fast_only)
+    assert ArenaBadge.CLEAN_CODE in await _badges(session, both)
 
 
-async def test_clean_code_dynamic_awards_older_ac_on_reconcile(session: AsyncSession) -> None:
-    """An older AC that did NOT qualify enters the top 5% as the population grows.
+async def test_clean_code_skips_problems_below_minimum_solvers(session: AsyncSession) -> None:
+    """A problem with too few solvers ranks nobody, so its best solver gets nothing."""
+    problem = str(uuid.uuid4())
+    soloist = await _new_user(session)
+    entries: list[tuple[str, int | None, int | None]] = [(soloist, 1, 1)]
+    entries += [(await _new_user(session), 1_000, 5_000) for _ in range(18)]
+    await _clean_code_field(session, problem, entries)
 
-    Memory is left null so only the wall-time percentile decides eligibility.
-    """
+    await compute_badge_awards(session, full_reconcile=True)
+
+    # 19 solvers is one short of the minimum, so the fastest and leanest solution
+    # in the field still qualifies for nothing.
+    assert ArenaBadge.CLEAN_CODE not in await _badges(session, soloist)
+
+
+async def test_clean_code_tie_overflowing_the_band_qualifies_nobody(session: AsyncSession) -> None:
+    """A tied block wider than the 5% band is dropped rather than admitted whole."""
+    problem = str(uuid.uuid4())
+    # 40 solvers -> a band of 2. Ten users share the lowest memory value, so the
+    # memory axis admits none of them, and the conjunction leaves nobody.
+    tied = [await _new_user(session) for _ in range(10)]
+    entries: list[tuple[str, int | None, int | None]] = [(u, 5 + i, 4_052) for i, u in enumerate(tied)]
+    entries += [(await _new_user(session), 1_000, 9_000) for _ in range(30)]
+    await _clean_code_field(session, problem, entries)
+
+    await compute_badge_awards(session, full_reconcile=True)
+
+    for user_id in tied:
+        assert ArenaBadge.CLEAN_CODE not in await _badges(session, user_id)
+
+
+async def test_clean_code_revoked_when_faster_solvers_arrive(session: AsyncSession) -> None:
+    """A holder pushed out of the band by newer solutions loses the badge."""
     problem = str(uuid.uuid4())
     target = await _new_user(session)
-    faster = await _new_user(session)
-    base = _WEEKDAY_NOON
-    # Two ACs: with n=2 the top-5% threshold is the single fastest (10), so the
-    # target (100) does NOT qualify yet.
-    await _submit(session, target, problem, Verdict.AC, base, wall_ms=100, memory_kb=None)
-    await _submit(session, faster, problem, Verdict.AC, base + timedelta(minutes=1), wall_ms=10, memory_kb=None)
+    runner_up = await _new_user(session)
+    entries: list[tuple[str, int | None, int | None]] = [(target, 10, 100), (runner_up, 20, 200)]
+    entries += [(await _new_user(session), 1_000, 5_000) for _ in range(18)]
+    await _clean_code_field(session, problem, entries)
     await compute_badge_awards(session, full_reconcile=True)
-    assert ArenaBadge.CLEAN_CODE not in await _badges(session, target)
+    # 20 solvers -> a band of 1, which the target holds alone on both axes.
+    assert ArenaBadge.CLEAN_CODE in await _badges(session, target)
 
-    # Add 19 slower solutions. Now n=21, the threshold index rises to the 2nd
-    # fastest (100), so the target's older AC enters the top 5%.
-    for i in range(19):
-        u = await _new_user(session)
-        await _submit(session, u, problem, Verdict.AC, base + timedelta(minutes=i + 2), wall_ms=1000, memory_kb=None)
+    # Twenty faster and leaner solutions arrive. The band grows to 2, but the
+    # target is now 21st on both axes and falls out of it.
+    later = [(await _new_user(session), 1 + i, 10 + i) for i in range(20)]
+    for i, (user_id, wall_ms, memory_kb) in enumerate(later):
+        await _submit(
+            session,
+            user_id,
+            problem,
+            Verdict.AC,
+            _WEEKDAY_NOON + timedelta(hours=1, minutes=i),
+            wall_ms=wall_ms,
+            memory_kb=memory_kb,
+        )
     await compute_badge_awards(session, full_reconcile=True)
+
+    assert ArenaBadge.CLEAN_CODE not in await _badges(session, target)
+    assert ArenaBadge.CLEAN_CODE in await _badges(session, later[0][0])
+
+
+async def test_clean_code_not_revoked_by_incremental_pass(session: AsyncSession) -> None:
+    """An incremental pass sees a partial population and must not revoke on it."""
+    problem = str(uuid.uuid4())
+    target = await _new_user(session)
+    entries: list[tuple[str, int | None, int | None]] = [(target, 10, 100)]
+    entries += [(await _new_user(session), 1_000, 5_000) for _ in range(19)]
+    await _clean_code_field(session, problem, entries)
+    await compute_badge_awards(session, full_reconcile=True)
+    assert ArenaBadge.CLEAN_CODE in await _badges(session, target)
+
+    # An unrelated AC on another problem drives a cycle that loads only that
+    # problem. The holder's badge must survive it.
+    other = await _new_user(session)
+    await _submit(session, other, str(uuid.uuid4()), Verdict.AC, _WEEKDAY_NOON + timedelta(hours=2))
+    await compute_badge_awards(session, full_reconcile=False)
 
     assert ArenaBadge.CLEAN_CODE in await _badges(session, target)
 

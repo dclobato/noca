@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,6 +23,7 @@ from starlette.background import BackgroundTask
 
 from shared.services.admin_audit import record_admin_action
 from web.config import settings
+from web.database import get_db
 from web.dependencies import get_uberadmin
 from web.models.contest import Contest
 from web.models.users import UberAdmin
@@ -35,7 +36,7 @@ from web.services.contest_backup_service import (
     import_contest_backup,
 )
 from web.services.contest_service import get_contest_by_id
-from web.services.password_service import password_matches
+from web.services.password_confirm_throttle import confirm_password, render_lockout
 
 router = APIRouter(prefix="/uberadmin", tags=["uberadmin"])
 UberAdminDep = Annotated[UberAdmin, Depends(get_uberadmin)]
@@ -114,10 +115,10 @@ async def uberadmin_export_contest_form(
     request: Request,
     contest_id: str,
     uberadmin: UberAdminDep,
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """Render the contest backup export options form."""
-    async with request.app.state.db_session() as session:
-        contest = await get_contest_by_id(session, contest_id)
+    contest = await get_contest_by_id(session, contest_id)
     if contest is None:
         return _templates(request).TemplateResponse(
             request, "uberadmin/export_contest.html", {"contest": None}, status_code=404
@@ -146,69 +147,82 @@ async def uberadmin_export_contest(
     include_password_hashes: Annotated[str, Form()] = "no",
     include_media: Annotated[str, Form()] = "no",
     reconfirm_password: Annotated[str, Form()] = "",
+    session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Build and stream the contest backup archive as a file download."""
     want_hashes = include_password_hashes == "yes"
     want_media = include_media == "yes"
 
-    async with request.app.state.db_session() as session:
-        await _prepare_export_snapshot(session)
-        contest = await get_contest_by_id(session, contest_id)
-        if contest is None:
-            return _templates(request).TemplateResponse(
-                request, "uberadmin/export_contest.html", {"contest": None}, status_code=404
-            )
+    await _prepare_export_snapshot(session)
+    contest = await get_contest_by_id(session, contest_id)
+    if contest is None:
+        return _templates(request).TemplateResponse(
+            request, "uberadmin/export_contest.html", {"contest": None}, status_code=404
+        )
 
-        try:
-            ensure_contest_exportable(contest)
-        except ContestBackupError as exc:
-            return _templates(request).TemplateResponse(
+    try:
+        ensure_contest_exportable(contest)
+    except ContestBackupError as exc:
+        return _templates(request).TemplateResponse(
+            request,
+            "uberadmin/export_contest.html",
+            {"current_user": uberadmin, "contest": contest, "error": str(exc)},
+            status_code=409,
+        )
+
+    if want_hashes:
+        confirmation = await confirm_password(
+            request, session, actor=uberadmin, password=reconfirm_password, action="contest_export_hashes"
+        )
+        if confirmation.locked:
+            return render_lockout(
                 request,
-                "uberadmin/export_contest.html",
-                {"current_user": uberadmin, "contest": contest, "error": str(exc)},
-                status_code=409,
+                retry_after_seconds=confirmation.retry_after_seconds,
+                back_url=str(request.url_for("uberadmin_export_contest_form", contest_id=contest_id)),
+                back_label="Back to the export form",
             )
+    else:
+        confirmation = None
+    if confirmation is not None and not confirmation.ok:
+        return _templates(request).TemplateResponse(
+            request,
+            "uberadmin/export_contest.html",
+            {
+                "current_user": uberadmin,
+                "contest": contest,
+                "error": "Password reconfirmation failed. Exporting password hashes requires your password.",
+            },
+            status_code=422,
+        )
 
-        if want_hashes and not password_matches(uberadmin, reconfirm_password):
-            return _templates(request).TemplateResponse(
-                request,
-                "uberadmin/export_contest.html",
-                {
-                    "current_user": uberadmin,
-                    "contest": contest,
-                    "error": "Password reconfirmation failed. Exporting password hashes requires your password.",
-                },
-                status_code=422,
-            )
+    handle, temp_name = tempfile.mkstemp(suffix=".zip", prefix="noca-contest-backup-")
+    os.close(handle)
+    dest_path = Path(temp_name)
+    try:
+        await build_contest_backup(
+            session,
+            contest,
+            dest_path,
+            include_password_hashes=want_hashes,
+            include_media=want_media,
+        )
+        if await _record_export_audit(
+            session, request, uberadmin, contest, want_hashes=want_hashes, want_media=want_media
+        ):
+            await session.commit()
+    except ContestBackupError as exc:
+        dest_path.unlink(missing_ok=True)
+        return _templates(request).TemplateResponse(
+            request,
+            "uberadmin/export_contest.html",
+            {"current_user": uberadmin, "contest": contest, "error": str(exc)},
+            status_code=422,
+        )
+    except Exception:
+        dest_path.unlink(missing_ok=True)
+        raise
 
-        handle, temp_name = tempfile.mkstemp(suffix=".zip", prefix="noca-contest-backup-")
-        os.close(handle)
-        dest_path = Path(temp_name)
-        try:
-            await build_contest_backup(
-                session,
-                contest,
-                dest_path,
-                include_password_hashes=want_hashes,
-                include_media=want_media,
-            )
-            if await _record_export_audit(
-                session, request, uberadmin, contest, want_hashes=want_hashes, want_media=want_media
-            ):
-                await session.commit()
-        except ContestBackupError as exc:
-            dest_path.unlink(missing_ok=True)
-            return _templates(request).TemplateResponse(
-                request,
-                "uberadmin/export_contest.html",
-                {"current_user": uberadmin, "contest": contest, "error": str(exc)},
-                status_code=422,
-            )
-        except Exception:
-            dest_path.unlink(missing_ok=True)
-            raise
-
-        filename = backup_filename(contest.login_slug)
+    filename = backup_filename(contest.login_slug)
 
     return FileResponse(
         path=str(dest_path),
@@ -239,6 +253,7 @@ async def uberadmin_import_contest(
     backup_file: Annotated[UploadFile, File()],
     new_name: Annotated[str, Form()] = "",
     new_slug: Annotated[str, Form()] = "",
+    session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Restore a contest from an uploaded backup archive under a new name/slug."""
     handle, temp_name = tempfile.mkstemp(suffix=".zip", prefix="noca-contest-import-")
@@ -246,16 +261,15 @@ async def uberadmin_import_contest(
     try:
         await _save_upload_limited(backup_file, handle)
 
-        async with request.app.state.db_session() as session:
-            result = await import_contest_backup(
-                session,
-                zip_path,
-                actor_uberadmin=uberadmin,
-                new_name=new_name,
-                new_slug=new_slug,
-                testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-                statement_dir=settings.PROBLEM_STATEMENT_DIR,
-            )
+        result = await import_contest_backup(
+            session,
+            zip_path,
+            actor_uberadmin=uberadmin,
+            new_name=new_name,
+            new_slug=new_slug,
+            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+            statement_dir=settings.PROBLEM_STATEMENT_DIR,
+        )
     except ContestBackupError as exc:
         return _templates(request).TemplateResponse(
             request,

@@ -94,8 +94,13 @@ startup and periodic reconciler rebuild missing queue state for non-terminal
 judgments and place recovered submissions on `judge:queue:pending`. The
 stale-job reaper handles abandoned inflight work. Attempt-token fences prevent
 an older worker from writing results or cleaning up state owned by a replacement
-attempt. New submissions and direct rejudge requests use
-`judge:queue:priority`; the pending queue is the conservative recovery target.
+attempt. New contest submissions and contest rejudge requests use
+`judge:queue:priority`; Arena submissions and Arena rejudges use
+`judge:queue:pending`, which is also the conservative recovery target. The two
+mass rejudge actions (Web's limit-change batches, Arena's `rejudge-all`) are
+idempotent -- a batch row is consumed once, and Arena skips any submission
+whose judgment is still in flight -- and sit behind a per-problem cooldown, so
+a repeated request never stacks duplicate jobs on either queue.
 Judge-side failures transition the judgment to `FAILED`; they do not become
 contestant verdicts or publish final-verdict events.
 

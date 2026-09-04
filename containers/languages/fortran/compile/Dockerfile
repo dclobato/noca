@@ -8,7 +8,7 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned family: debian:bookworm-slim + gfortran=4:12.2.0-3
+# Pinned family: debian:trixie-slim + gfortran=4:14.2.0-1
 
 ARG JUDGE_COMPILE_BASE_REF=noca/judge-compile-base:latest
 FROM ${JUDGE_COMPILE_BASE_REF}
@@ -17,8 +17,8 @@ LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 USER root
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends "gfortran=4:12.2.0-3" \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends "gfortran=4:14.2.0-1" \
     && rm -rf /var/lib/apt/lists/*
 
 USER judge

@@ -117,6 +117,176 @@
     color: var(--noca-brand);
 }
 
+/* A section title that toggles its caption is wrapped in a button, and .btn
+   pins its own --bs-btn-font-size (1rem) -- which silently rendered the nine
+   collapsible section titles a size smaller than the three plain ones that
+   inherit the h4 heading size. Inherit both size and line-height so every
+   section title on the page reads at the same level regardless of whether it
+   carries a caption toggle. */
+.noca-report-heading-btn {
+    font-size: inherit;
+    line-height: inherit;
+}
+
+/* Reports site picker: a grid of clickable tiles inside a Bootstrap collapse
+   (see `#reports-site-collapse`, closed by default) below a flush-left
+   toggle button, one tile per contest site plus "All Sites", each a plain
+   navigation link (full page reload -- the report is server-rendered per
+   scope, not refetched via JS) to the same page with `?site=<id>`. Unlike
+   the static highlight cards below, these tiles are genuinely interactive,
+   so they keep hover/focus affordance; the active tile is marked with the
+   brand border and a faint brand-tinted fill rather than color alone, per
+   DESIGN.md's status-chip rule -- the name and count stay legible either
+   way. Left-aligned (no `margin-inline: auto`) to stay under the flush-left
+   toggle rather than jumping to page-center when expanded. */
+.noca-reports-site-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: var(--noca-space-sm);
+    max-width: 64rem;
+}
+
+.noca-reports-site-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: var(--noca-space-sm) var(--noca-space-md);
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.25rem;
+    background-color: var(--noca-surface-container-lowest);
+    color: var(--noca-on-surface);
+    text-decoration: none;
+    text-align: center;
+}
+
+.noca-reports-site-tile:hover,
+.noca-reports-site-tile:focus-visible {
+    border-color: var(--noca-brand);
+    color: var(--noca-on-surface);
+    outline: none;
+}
+
+.noca-reports-site-tile--active {
+    border-color: var(--noca-brand);
+    background-color: color-mix(in srgb, var(--noca-brand) 8%, var(--noca-surface-container-lowest));
+}
+
+.noca-reports-site-tile-name {
+    font-weight: 600;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+}
+
+.noca-reports-site-tile-count {
+    color: var(--noca-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+/* Reports highlight cards: a 5-card KPI grid (3 per row, wrapping to a
+   shorter last row) opening the report suite, mirroring arena's
+   problem-set-report status-summary cards (same grid/padding/border shape)
+   but static rather than clickable -- these summarize, they don't link
+   anywhere -- so hover/focus states are intentionally absent. Operational
+   card geometry per DESIGN.md: clearest surface, subtle outline, 0.25rem
+   corners, minimal elevation. */
+.noca-report-highlights {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--noca-space-sm);
+    max-width: 64rem;
+    margin-inline: auto;
+}
+
+@media (max-width: 991.98px) {
+    .noca-report-highlights {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 575.98px) {
+    .noca-report-highlights {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Problems-solved distribution: the histogram with the five-number summary
+   drawn over it. Held to the same 64rem measure as the highlight cards
+   above it so the Performance block reads as one column rather than as a
+   band of cards followed by a wider chart. */
+.noca-report-distribution {
+    max-width: 64rem;
+    margin-inline: auto;
+}
+
+.noca-report-distribution-chart {
+    width: 100%;
+    min-width: 0;
+    height: 22rem;
+}
+
+.noca-report-highlight-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: var(--noca-space-sm);
+    min-width: 0;
+    padding: var(--noca-space-md);
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.25rem;
+    background-color: var(--noca-surface-container-lowest);
+}
+
+.noca-report-highlight-icon {
+    font-size: 1.5rem;
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-report-highlight-card--success .noca-report-highlight-icon {
+    color: var(--noca-success);
+}
+
+.noca-report-highlight-card--warning .noca-report-highlight-icon {
+    color: var(--noca-warning);
+}
+
+.noca-report-highlight-card--info .noca-report-highlight-icon {
+    color: var(--noca-info);
+}
+
+.noca-report-highlight-card--danger .noca-report-highlight-icon {
+    color: var(--noca-danger);
+}
+
+.noca-report-highlight-card--brand .noca-report-highlight-icon {
+    color: var(--noca-brand);
+}
+
+.noca-report-highlight-body {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.noca-report-highlight-value {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    line-height: 1.1;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+.noca-report-highlight-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.noca-report-highlight-detail {
+    color: var(--noca-on-surface-variant);
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
 /* Report table headers/footers: DESIGN.md's table-header component
    (surface-container tone + muted text) via Bootstrap's own --bs-table-*
    custom properties, which every cell already reads unconditionally.
@@ -130,35 +300,84 @@
     --bs-table-color: var(--noca-on-surface-variant);
 }
 
-/* Problem Summary is the report suite's anchor table: its Total column
-   carries the page's key totals, so it earns the one bolded, brand-colored
-   numeral column — restrained to this single table per the Signal Rarity
-   Rule rather than repeated on every table's own total column. */
+/* Runs Distribution's transposed header row: one problem per row lets the
+   table hold as many problems as a contest has without widening, so its
+   seven stat names sit as columns instead and are rotated to stay narrow.
+   `writing-mode: vertical-rl` turns the glyphs 90° clockwise; the added
+   180° rotation flips the block so the text reads bottom-to-top -- 90°
+   counter-clockwise from horizontal, the conventional orientation for a
+   rotated spreadsheet-style column header (as opposed to the top-to-bottom
+   reading `vertical-rl` gives on its own). `vertical-align: bottom` keeps a
+   short label (e.g. "Runs") flush with the row beneath it rather than
+   floating at the top of the tallest header's height. */
+.noca-th-vertical {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    vertical-align: bottom;
+    text-align: left;
+    padding-bottom: var(--noca-space-sm);
+}
+
+/* Problem Summary is the report suite's anchor table: its Total row's Runs
+   cell carries the page's key total, so it earns the one bolded,
+   brand-colored numeral — restrained to this single table per the Signal
+   Rarity Rule rather than repeated on every table's own total. */
 .noca-reports-key-total {
     color: var(--noca-brand-container);
     font-weight: 700;
 }
 
-/* Report captions: cap prose to a readable measure (same 65ch idea as
-   arena's problem-set-report description) instead of stretching to the
-   flex column's full shrink-to-fit width, which otherwise grows to fit an
-   unwrapped caption and reads far wider than the table it describes. */
-.noca-reports-caption {
-    max-width: 65ch;
-    margin-inline: auto;
+/* Spacing between report sections. Bootstrap's largest gap utility (gap-5,
+   3rem) left each section's heading sitting close under the previous
+   section's table or chart, so the page read as one long run of tables
+   rather than as eleven separate reports. Its own class instead, because
+   the scale stops at gap-5. */
+.noca-reports-sections {
+    gap: 5.5rem;
 }
 
-/* Problem legend (Reports): up to 3 problems per line */
-.noca-legend-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.5rem 1.5rem;
-    max-width: 48rem;
+/* Report tables: skip layout for tables scrolled out of view. The reports page
+   lays out six tables at once, and the team-by-problem one alone is
+   teams x problems cells of three nodes each -- thousands of text runs that
+   every relayout (a window resize, a hover) has to revisit. When a browser
+   accessibility consumer is attached (a screen reader, or an extension that
+   requests the tree) each of those runs is re-serialized on every layout too,
+   which made a resize visibly stall. `auto` keeps a rendered table's real
+   height as its placeholder, so the scrollbar does not jump as tables enter
+   and leave the viewport. Charts are deliberately NOT wrapped: ECharts sizes
+   its canvas from the container at init, and a skipped container measures
+   0 x 0 with no resize event to recover from. */
+.noca-report-table {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 20rem;
 }
 
-.noca-legend-grid > span {
-    min-width: 0;
-    overflow-wrap: anywhere;
+/* Problem identity in the first report table: balloon with the problem's
+   title beneath it. This is where the page says what each letter means,
+   now that the standalone "Problems" legend is gone, so the title has to
+   fit -- it is set smaller than the table text and kept on one line, and a
+   title too long for the column is truncated with an ellipsis rather than
+   wrapping, which would make every row in the table two lines tall. The
+   full title stays available as the balloon's alt text and the cell's
+   tooltip. */
+.noca-problem-named {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.125rem;
+    max-width: 11rem;
+}
+
+.noca-problem-named-title {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--noca-on-surface-variant);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Narrow, wrapping team-name column (Reports: Runs by Team and Problem) */

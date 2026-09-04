@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,7 @@ COPY shared /app/shared
 COPY scripts/__init__.py /app/scripts/__init__.py
 COPY scripts/fetch_assets.py /app/scripts/fetch_assets.py
 COPY scripts/asset_manifest.py /app/scripts/asset_manifest.py
+COPY scripts/brazilian_flag_assets.py /app/scripts/brazilian_flag_assets.py
 
 RUN --mount=type=cache,target=/tmp/uv-cache \
     uv sync --frozen --no-dev --package noca-shared

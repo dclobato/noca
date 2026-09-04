@@ -27,6 +27,8 @@ const URLS = {
   reset: "/c/x/control/reset",
   jump: "/c/x/control/jump-team",
   jumpPending: "/c/x/control/jump-pending",
+  showMedia: "/c/x/control/show-team-media",
+  hideMedia: "/c/x/control/hide-team-media",
   leaseClaim: "/c/x/control/controller-lease/claim",
   leaseHeartbeat: "/c/x/control/controller-lease/heartbeat",
   leaseRelease: "/c/x/control/controller-lease/release",
@@ -108,6 +110,8 @@ function buildDocument() {
     reset: URLS.reset,
     jump: URLS.jump,
     "jump-pending": URLS.jumpPending,
+    "show-media": URLS.showMedia,
+    "hide-media": URLS.hideMedia,
     "lease-claim": URLS.leaseClaim,
     "lease-heartbeat": URLS.leaseHeartbeat,
     "lease-release": URLS.leaseRelease,
@@ -127,6 +131,7 @@ function buildDocument() {
     ["control-jump-team", "select"],
     ["control-ownership-status", "span"],
     ["control-ownership-detail", "span"],
+    ["control-projectors", "span"],
     ["control-takeover", "button"],
     ["control-ownership-retry", "button"],
     ["control-takeover-modal", "div"],
@@ -151,6 +156,8 @@ function buildDocument() {
     ["control-back-ten", "button"],
     ["control-jump", "button"],
     ["control-jump-pending", "button"],
+    ["control-media", "button"],
+    ["control-media-team", "span"],
   ].forEach(([id, tagName]) => add(id, tagName));
 
   return {
@@ -323,6 +330,57 @@ async function main() {
     assert.strictEqual(jumpCall.init.body, undefined);
   });
   console.log("control DOM contract: Jump to next pending sends a bodiless command");
+
+  // ── The media label must track the projector, not every state fetch ────────
+  await withWindow(async ({ calls, responders }) => {
+    const { doc, elements } = buildDocument();
+    responders.routes[URLS.meta] = () => Promise.resolve(jsonResponse(200, { sites: [] }));
+    responders.routes[URLS.state] = () => Promise.resolve(jsonResponse(200, SEEKING_PROJECTION));
+    responders.routes[URLS.showMedia] = () => Promise.resolve({ ok: true, status: 204 });
+    responders.routes[URLS.hideMedia] = () => Promise.resolve({ ok: true, status: 204 });
+    responders.routes[URLS.step] = () =>
+      Promise.resolve(jsonResponse(200, { ...SEEKING_PROJECTION, revealed_count: 1 }));
+    responders.routes[URLS.leaseClaim] = () => Promise.resolve(jsonResponse(200, LEASE_TIMINGS));
+    responders.routes[URLS.leaseRelease] = () =>
+      Promise.resolve(jsonResponse(200, { ...LEASE_TIMINGS, status: "released" }));
+
+    controlApi.boot(doc);
+    elements["control-secret"].value = "operator-secret";
+    elements["control-secret-form"].dispatch("submit");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const media = elements["control-media"];
+    assert.strictEqual(media.hidden, false, "a focused team makes the cue available");
+    assert.strictEqual(media.textContent, "Show media");
+
+    media.dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(calls.find((call) => call.url === URLS.showMedia), "the first press shows");
+    assert.strictEqual(media.textContent, "Hide media", "a confirmed cue flips the label");
+
+    // An explicit Reload state returns the *same* projection. The projector
+    // closes its overlay only when the ceremony moves, so the photograph is
+    // still up — and a label that flipped back here would send `show` again on
+    // the operator's next press instead of taking it down.
+    elements["control-reload"].dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(media.textContent, "Hide media", "an unchanged reload must not reset the label");
+
+    media.dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(calls.find((call) => call.url === URLS.hideMedia), "the next press hides, not re-shows");
+    assert.strictEqual(media.textContent, "Show media");
+
+    // A ceremony that actually moves *does* reset it, in step with the
+    // projector's own auto-hide.
+    media.dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(media.textContent, "Hide media");
+    elements["control-step"].dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(media.textContent, "Show media", "movement resets the label");
+  });
+  console.log("control DOM contract: the media label tracks the projector, not every state fetch");
 }
 
 main().catch((error) => {

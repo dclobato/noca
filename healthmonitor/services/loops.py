@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,9 +9,11 @@
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from healthmonitor.services.presence_probe import ServiceState, read_service_statuses
 from healthmonitor.services.service_registry import MONITORED_SERVICES
+from healthmonitor.services.uptime_cache import UptimeHistoryCache
 from healthmonitor.services.uptime_stats import reap_expired_slots, record_probe
 from shared.services.valkey_service import ValkeyRuntime, prune_all_stale_workers
 
@@ -24,6 +26,7 @@ async def run_prober_loop(
     *,
     interval_seconds: int,
     retention_days: int,
+    uptime_cache: UptimeHistoryCache[Any] | None = None,
 ) -> None:
     """Probe every monitored service and record the result until shutdown.
 
@@ -35,6 +38,8 @@ async def run_prober_loop(
         stop_event: Setting this event terminates the loop.
         interval_seconds: Seconds between probes.
         retention_days: Retention window forwarded to the slot writer.
+        uptime_cache: Optional ``/uptime.json`` cache invalidated after each
+            recorded pass so the new probe is visible on the next request.
     """
     while not stop_event.is_set():
         try:
@@ -49,6 +54,8 @@ async def run_prober_loop(
                         up=status.state is ServiceState.AVAILABLE,
                         retention_days=retention_days,
                     )
+                if uptime_cache is not None:
+                    uptime_cache.invalidate()
                 logger.debug(
                     "Probe recorded: %s",
                     ", ".join(f"{s.service.worker_class.value}={s.state.value}" for s in statuses),

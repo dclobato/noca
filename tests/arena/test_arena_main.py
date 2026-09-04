@@ -57,6 +57,8 @@ class _FakeJWTService:
 
 
 class _FakeEmailService:
+    delivery_mode = "queue"
+
     def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
 
@@ -96,6 +98,7 @@ def _configure_lifespan_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(main_module, "wait_for_db", AsyncMock())
     monkeypatch.setattr(main_module, "wait_for_valkey", AsyncMock())
+    monkeypatch.setattr(main_module, "wait_for_mailer", AsyncMock())
     monkeypatch.setattr(main_module, "validate_crypto_environment", lambda: None)
     monkeypatch.setattr(main_module, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.setattr(main_module, "SecretsConfig", _FakeSecretsConfig)

@@ -19,8 +19,8 @@ ARG SWIFT_STATIC_SDK_CHECKSUM=3fd798bef6f4408f1ea5a6f94ce4d4052830c4326ab85ebc04
 
 # The Swift base image ships neither curl nor wget. Install curl so the SDK bundle
 # can be fetched with retry + resume below.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge

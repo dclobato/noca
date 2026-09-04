@@ -35,9 +35,10 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing, suppress
 from typing import Final, Protocol
 
-from shared.reveal_schema import RevealStateChangedEvent
+from shared.reveal_schema import RevelationEvent
 
 __all__ = [
+    "EVENT_REVEAL_MEDIA_CUE",
     "EVENT_REVEAL_READY",
     "EVENT_REVEAL_STATE_CHANGED",
     "RevealEventSource",
@@ -52,12 +53,20 @@ EVENT_REVEAL_READY = "reveal_ready"
 EVENT_REVEAL_STATE_CHANGED = "reveal_state_changed"
 """One ceremony-changed nudge. Metadata only; the client refetches state."""
 
-_QUEUE_MAXSIZE: Final = 64
-"""Bound on nudges buffered for one slow client.
+EVENT_REVEAL_MEDIA_CUE = "reveal_media_cue"
+"""One presentation cue: raise or lower a team's media overlay.
 
-A nudge carries no state, so dropping one is harmless as long as *some* later
-signal makes the client refetch. The pump therefore discards the oldest entry
-rather than growing without limit or blocking the subscriber."""
+Deliberately a *separate* event name rather than a nudge with a flag, because
+the client's reaction is the opposite one: a nudge means "refetch authoritative
+state", while a cue changes no state and must trigger no fetch at all."""
+
+_QUEUE_MAXSIZE: Final = 64
+"""Bound on frames buffered for one slow client.
+
+Neither frame carries state, so dropping one is harmless: a nudge is recovered
+by the next nudge or by the client's own reconciliation, and a dropped media cue
+costs one press of the operator's button. The pump therefore discards the oldest
+entry rather than growing without limit or blocking the subscriber."""
 
 _SUBSCRIBE_TIMEOUT_SECONDS: Final = 10.0
 """How long to wait for the subscription before giving up on this connection.
@@ -75,8 +84,8 @@ class RevealEventSource(Protocol):
         scope: str,
         *,
         on_subscribed: Callable[[], None] | None = ...,
-    ) -> AsyncGenerator[RevealStateChangedEvent]:
-        """Yield ceremony nudges, signalling when the subscription is live."""
+    ) -> AsyncGenerator[RevelationEvent]:
+        """Yield ceremony frames, signalling when the subscription is live."""
         ...
 
 
@@ -84,8 +93,8 @@ async def iter_ready_then_events(
     runtime: RevealEventSource,
     contest_id: str,
     scope: str,
-) -> AsyncGenerator[RevealStateChangedEvent | None]:
-    """Yield ``None`` once the subscription is live, then each nudge.
+) -> AsyncGenerator[RevelationEvent | None]:
+    """Yield ``None`` once the subscription is live, then each frame.
 
     The ``None`` sentinel is the coverage signal the route turns into a
     ``reveal_ready`` event. Keeping it a sentinel rather than a second yield type
@@ -97,10 +106,12 @@ async def iter_ready_then_events(
         scope: Canonical ceremony scope (a site id, or ``"global"``).
 
     Yields:
-        ``None`` exactly once, then one event per published nudge.
+        ``None`` exactly once, then one event per published frame — a
+        state-changed nudge or a transient media cue. The route decides which
+        SSE event name each becomes; this module stays free of that vocabulary.
     """
     subscribed = asyncio.Event()
-    queue: asyncio.Queue[RevealStateChangedEvent] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    queue: asyncio.Queue[RevelationEvent] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     finished = asyncio.Event()
 
     async with aclosing(runtime.iter_revelation_events(contest_id, scope, on_subscribed=subscribed.set)) as events:
@@ -110,9 +121,10 @@ async def iter_ready_then_events(
             try:
                 async for event in events:
                     if queue.full():
-                        # Drop the oldest nudge rather than block the subscriber:
-                        # every nudge means the same thing ("refetch"), so the
-                        # newest one is sufficient and none of them carry state.
+                        # Drop the oldest frame rather than block the subscriber:
+                        # nothing on this channel carries state, so the newest
+                        # frames are the ones worth keeping. A client this far
+                        # behind is already reconciling from the store.
                         with suppress(asyncio.QueueEmpty):
                             queue.get_nowait()
                     queue.put_nowait(event)

@@ -80,6 +80,7 @@
         if (!birthDate) {
             parentalEmailGroup.classList.add("d-none");
             parentalEmailInput.required = false;
+            setMinorUsernameNote(false);
             return;
         }
 
@@ -87,6 +88,19 @@
         const needsConsent = age >= 13 && age < 18;
         parentalEmailGroup.classList.toggle("d-none", !needsConsent);
         parentalEmailInput.required = needsConsent;
+        setMinorUsernameNote(needsConsent);
+    }
+
+    // The username note's 13-17 half shares this bracket with the guardian-email
+    // field, so the rule specific to minors appears at the moment it becomes
+    // relevant rather than as standing text everyone learns to skip. It is only
+    // an explanation -- the server decides the actual shield from the stored date
+    // of birth, never from what the browser worked out here.
+    function setMinorUsernameNote(visible) {
+        const minorNote = document.getElementById("signup-username-note-minor");
+        if (minorNote) {
+            minorNote.classList.toggle("d-none", !visible);
+        }
     }
 
     function parseDateInput(value) {

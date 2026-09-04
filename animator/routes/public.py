@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
@@ -25,7 +25,10 @@ from animator.dependencies import (
     DbSession,
     DetachedEnabledContest,
     EnabledContest,
+    FeedCache,
     PublicScopeDep,
+    enforce_public_rate_limit,
+    enforce_sse_connection_caps,
 )
 from animator.models.responses import (
     ContestMetaResponse,
@@ -33,7 +36,8 @@ from animator.models.responses import (
     ScoreboardSnapshotResponse,
 )
 from animator.routes.team_media import media_base_url
-from animator.services.contest_feed_service import build_meta_response, build_snapshot_response
+from animator.services.contest_feed_service import build_snapshot_response_cached
+from animator.services.contest_meta_service import build_meta_response, build_meta_response_cached
 from animator.services.event_stream_service import EVENT_SCOREBOARD_REFRESH, AnimatorEventStream
 
 router = APIRouter(prefix="/c/{slug}", tags=["animator-public"])
@@ -44,14 +48,16 @@ async def contest_page(
     request: Request,
     contest: EnabledContest,
     db: DbSession,
+    cache: FeedCache,
 ) -> Response:
     """Render the presentation launcher for an enabled contest.
 
     The global scope is prominent, followed by one entry per site. Every entry
     links to the scoped scoreboard, reveal projector, and reveal controller.
-    Site data comes from the same metadata builder used by the public feed.
+    Site data comes from the same metadata builder used by the public feed,
+    through the same cache entry.
     """
-    meta = await build_meta_response(db, contest)
+    meta = await build_meta_response(db, contest, cache=cache)
     slug = contest.login_slug
 
     def scoped_url(route_name: str, scope: str) -> str:
@@ -102,11 +108,12 @@ async def scoreboard_page(
     and ``PublicScopeDep`` applies the same non-enumerating validation as the
     reveal projector.
     """
-    # The client renderer builds per-problem <img> URLs, so it needs the asset
-    # mount base. Derive it from the color-only routes and strip the dummy last
-    # segment, so a reverse-proxy sub-path mount is honored (like the feed URLs).
+    # The client renderer builds each problem's header artwork URL, so it needs
+    # the asset mount base. Derive it from the color-only routes and strip the
+    # dummy last segment, so a reverse-proxy sub-path mount is honored (like the
+    # feed URLs). There is no star base: the first-solve mark is a glyph coloured
+    # from the per-column stylesheet, not a served asset.
     balloon_base = str(request.url_for("animator_balloon", color="_")).rsplit("/", 1)[0]
-    star_base = str(request.url_for("animator_star", color="_")).rsplit("/", 1)[0]
     medal_base = str(request.url_for("animator_medal", band="_")).rsplit("/", 1)[0]
     slug = contest.login_slug
     return request.app.state.templates.TemplateResponse(  # type: ignore[no-any-return]
@@ -123,34 +130,69 @@ async def scoreboard_page(
             "photo_base": media_base_url(request, "animator_team_photo", slug),
             "poll_fallback_seconds": settings.POLL_FALLBACK_SECONDS,
             "balloon_base": balloon_base,
-            "star_base": star_base,
             "medal_base": medal_base,
         },
     )
 
 
-@router.get("/meta", name="animator_contest_meta", response_model=ContestMetaResponse)
-async def contest_meta(contest: EnabledContest, db: DbSession) -> ContestMetaResponse:
-    """Return contest identity, problem labels/colors, timing, freeze, and sites."""
-    return await build_meta_response(db, contest)
+@router.get(
+    "/meta",
+    name="animator_contest_meta",
+    response_model=ContestMetaResponse,
+    dependencies=[Depends(enforce_public_rate_limit)],
+)
+async def contest_meta(
+    contest: EnabledContest,
+    db: DbSession,
+    cache: FeedCache,
+    response: Response,
+) -> ContestMetaResponse:
+    """Return contest identity, problem labels/colors, timing, freeze, and sites.
+
+    Served from the per-process feed cache; ``Cache-Control`` carries the
+    seconds the entry has left so browsers can honor it too.
+    """
+    meta, max_age = await build_meta_response_cached(db, contest, cache=cache)
+    response.headers["Cache-Control"] = f"public, max-age={max_age}"
+    return meta
 
 
-@router.get("/snapshot", name="animator_contest_snapshot", response_model=ScoreboardSnapshotResponse)
+@router.get(
+    "/snapshot",
+    name="animator_contest_snapshot",
+    response_model=ScoreboardSnapshotResponse,
+    dependencies=[Depends(enforce_public_rate_limit)],
+)
 async def contest_snapshot(
     contest: EnabledContest,
     db: DbSession,
     scope: PublicScopeDep,
+    cache: FeedCache,
+    response: Response,
 ) -> ScoreboardSnapshotResponse:
     """Return a scoped public ICPC scoreboard snapshot and refresh token.
 
     The resolved scope's medal cutoffs are passed explicitly: ``site_id`` alone
     would force the builder to load every site again just to reach the selected
     one's cutoffs, which the scope resolution already had in hand.
+
+    Served from the per-process feed cache, so ``version`` stays constant while
+    the entry lives and changes only when the snapshot is rebuilt — after a
+    verdict or submission event, a phase change, or the TTL.
     """
-    return await build_snapshot_response(db, contest, site_id=scope.site_id, cutoffs=scope.medal_cutoffs)
+    snapshot, max_age = await build_snapshot_response_cached(
+        db, contest, site_id=scope.site_id, cutoffs=scope.medal_cutoffs, cache=cache
+    )
+    response.headers["Cache-Control"] = f"public, max-age={max_age}"
+    return snapshot
 
 
-@router.get("/events", response_class=EventSourceResponse, name="animator_contest_events")
+@router.get(
+    "/events",
+    response_class=EventSourceResponse,
+    name="animator_contest_events",
+    dependencies=[Depends(enforce_sse_connection_caps)],
+)
 async def contest_events(request: Request, contest: DetachedEnabledContest) -> AsyncIterator[ServerSentEvent]:
     """Stream ``submission``, ``verdict``, refresh, and timer events.
 
@@ -159,6 +201,10 @@ async def contest_events(request: Request, contest: DetachedEnabledContest) -> A
     idle-only comment heartbeat, and structured disconnect teardown. No verdict logs
     leave the server, and the authoritative ``/snapshot`` remains the source of
     truth (clients refetch it on ``scoreboard_refresh`` and ``submission``).
+
+    ``enforce_sse_connection_caps`` runs first, before the contest gate: the
+    process-wide ``NOCA_ANIMATOR_MAX_SSE_CLIENTS`` ceiling answers ``503`` and the
+    per-IP ``animator:sse`` lease answers ``429``, both released on disconnect.
 
     The ``DetachedEnabledContest`` gate resolves and releases its database session
     before the first yield (so the long-lived stream holds no pooled connection) and

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -24,14 +24,15 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.auth_common import (
     AUTH_RATE_LIMITER,
     _auth_rate_limit_settings,
-    _flash_password_age_warning,
-    _issue_login_token,
     _login_failure_message,
-    _set_login_cookie,
+    complete_arena_login,
     enforce_resend_throttle,
+    record_email_delivery_event,
+    render_login_gate_failure,
 )
+from arena.routes.auth_google_common import existing_account_next_path
+from arena.routes.auth_throttle import throttled_response
 from arena.services import arena_auth_service, user_email_service, user_service
-from arena.services.session_service import post_login_redirect_url
 from shared.age_check import AgeStatus, check_age
 from shared.services.auth_rate_limit import (
     build_auth_throttle_identity,
@@ -40,6 +41,7 @@ from shared.services.auth_rate_limit import (
     reset_auth_throttle,
 )
 from shared.services.network_utils import NetworkService
+from shared.services.request_rate_limit import get_client_ip
 from shared.services.security_events import record_request_security_event
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,19 @@ def _html(response: Any) -> HTMLResponse:
 def _base_url(request: Request) -> str:
     """Return the public base URL used to build email links."""
     return settings.ARENA_URL_BASE or str(request.base_url).rstrip("/")
+
+
+def _email_actor_key(request: Request) -> str:
+    """Budget identity of an anonymous requester: the proxy-corrected client IP."""
+    return f"ip:{get_client_ip(request) or 'unknown'}"
+
+
+_LOGIN_FAILURE_REASONS: dict[user_service.UserOperationStatus, str] = {
+    user_service.UserOperationStatus.USER_INACTIVE: "inactive",
+    user_service.UserOperationStatus.PARENTAL_CONSENT_REQUIRED: "parental_consent_required",
+    user_service.UserOperationStatus.AGE_RECONFIRMATION_REQUIRED: "age_reconfirmation_required",
+    user_service.UserOperationStatus.UNDERAGE_BLOCKED: "underage_blocked",
+}
 
 
 def _redirect_to(request: Request, endpoint: str) -> RedirectResponse:
@@ -78,29 +93,6 @@ def _user_needs_parental_consent(usuario: Any) -> bool:
     )
 
 
-async def _record_email_delivery_event(
-    session: AsyncSession,
-    request: Request,
-    *,
-    user_id: str | None,
-    actor_label: str | None = None,
-    purpose: str,
-    source: str,
-    sent: bool,
-) -> None:
-    """Record a security event for an auth-related email delivery attempt."""
-    await record_request_security_event(
-        session,
-        request,
-        module="arena",
-        event_type=f"{purpose}_email_{'sent' if sent else 'failed'}",
-        severity="info" if sent else "warning",
-        actor_user_id=user_id,
-        actor_label=actor_label,
-        metadata={"purpose": purpose, "source": source},
-    )
-
-
 def _arena_actor_label(user: Any | None) -> str | None:
     """Return the login identifier (email) used to identify an Arena actor."""
     if user is None:
@@ -119,8 +111,15 @@ def _pending_parental_context(usuario: Any) -> dict[str, Any]:
 
 @router.get("/login", response_class=HTMLResponse, name="arena_login")
 async def arena_login(request: Request, next: str | None = None) -> HTMLResponse:
-    """Render the Arena login page."""
+    """Render the Arena login page.
+
+    While a Google-first signup is parked to be folded into an existing account
+    (``pending_google_existing_uid``), an absent ``next`` defaults to that flow's
+    confirmation page, so the ordinary post-login chain delivers the user there.
+    """
     templates = request.app.state.arena_templates
+    if next is None:
+        next = existing_account_next_path(request)
     return _html(templates.TemplateResponse(request, "auth/login.html", {"next": next}))
 
 
@@ -190,87 +189,18 @@ async def arena_login_submit(
         geo_service=geo_service,
     )
 
-    if result.status == user_service.UserOperationStatus.USER_INACTIVE:
-        await _record_login_failure(request, session, throttle_identity, "login", "inactive", user=result.user)
-        if result.user is not None and not result.user.email_confirmado:
-            request.session["pending_resend_uid"] = result.user.id
-            flash(
-                "Your email address has not been confirmed. Check your inbox or request a new link below.",
-                FlashCategory.WARNING,
-            )
-            return _html(
-                templates.TemplateResponse(
-                    request,
-                    "auth/login.html",
-                    {"show_resend": True},
-                    status_code=200,
-                )
-            )
-        if result.user is not None and _user_needs_parental_consent(result.user):
-            request.session["pending_parental_uid"] = result.user.id
-            flash(
-                "This account is waiting for parent or legal guardian consent.",
-                FlashCategory.WARNING,
-            )
-            return _html(
-                templates.TemplateResponse(
-                    request,
-                    "auth/login.html",
-                    _pending_parental_context(result.user),
-                    status_code=200,
-                )
-            )
-        flash("Your account has been deactivated. Please contact support.", FlashCategory.DANGER)
-        return _redirect_to(request, "arena_login")
-
-    if result.status == user_service.UserOperationStatus.PARENTAL_CONSENT_REQUIRED and result.user is not None:
-        await _record_login_failure(
-            request,
-            session,
-            throttle_identity,
-            "login",
-            "parental_consent_required",
-            user=result.user,
-        )
-        request.session["pending_parental_uid"] = result.user.id
-        flash(_login_failure_message(result.status), FlashCategory.WARNING)
-        return _html(
-            templates.TemplateResponse(
-                request,
-                "auth/login.html",
-                _pending_parental_context(result.user),
-                status_code=200,
-            )
-        )
-
-    if result.status == user_service.UserOperationStatus.AGE_RECONFIRMATION_REQUIRED and result.user is not None:
-        await _record_login_failure(
-            request,
-            session,
-            throttle_identity,
-            "login",
-            "age_reconfirmation_required",
-            user=result.user,
-        )
-        request.session["pending_age_uid"] = result.user.id
-        flash(_login_failure_message(result.status), FlashCategory.WARNING)
-        return _html(
-            templates.TemplateResponse(
-                request,
-                "auth/login.html",
-                {"show_age_reconfirmation": True},
-                status_code=200,
-            )
-        )
-
-    if result.status == user_service.UserOperationStatus.UNDERAGE_BLOCKED:
-        await _record_login_failure(request, session, throttle_identity, "login", "underage_blocked", user=result.user)
-        flash(_login_failure_message(result.status), FlashCategory.DANGER)
-        return _redirect_to(request, "arena_login")
-
     if result.status != user_service.UserOperationStatus.SUCCESS or result.user is None:
-        await _record_login_failure(request, session, throttle_identity, "login", result.status.name, user=result.user)
-        flash(_login_failure_message(result.status), FlashCategory.DANGER)
+        await _record_login_failure(
+            request,
+            session,
+            throttle_identity,
+            "login",
+            _LOGIN_FAILURE_REASONS.get(result.status, result.status.name),
+            user=result.user,
+        )
+        gate_response = render_login_gate_failure(request, flash, templates=templates, result=result)
+        if gate_response is not None:
+            return gate_response
         return _redirect_to(request, "arena_login")
 
     usuario = result.user
@@ -281,63 +211,17 @@ async def arena_login_submit(
     )
     await session.commit()
 
-    if not usuario.aceitou_termos_privacidade:
-        request.session["pending_tos_uid"] = str(usuario.id)
-        flash(
-            "Please review and accept our Terms of Service and Privacy Policy to continue.",
-            FlashCategory.WARNING,
-        )
-        return _redirect_to(request, "arena_accept_terms")
-
-    session_started_at = int(datetime.now(UTC).timestamp()) if remember_me else None
-
-    if usuario.usa_2fa:
-        token_2fa = arena_auth_service.set_pending_2fa_token(
-            usuario,
-            jwt_service,
-            remember_me=remember_me,
-            next_page=next,
-            session_started_at=session_started_at,
-        )
-        request.session["pending_2fa_token"] = token_2fa
-        logger.info("2FA required for user %s — redirecting to 2FA page", usuario.id)
-        return _redirect_to(request, "arena_2fa")
-
-    if usuario.precisa_trocar_senha:
-        token_pw = arena_auth_service.set_pending_password_change_token(
-            usuario,
-            jwt_service,
-            remember_me=remember_me,
-            next_page=next,
-            session_started_at=session_started_at,
-        )
-        request.session["pending_pw_change_token"] = token_pw
-        logger.info("Forced password change for user %s — redirecting to change-password page", usuario.id)
-        return _redirect_to(request, "arena_change_password")
-
-    _flash_password_age_warning(usuario, flash)
-
-    token = _issue_login_token(
-        jwt_service=jwt_service,
-        usuario=usuario,
-        remember_me=remember_me,
-        session_started_at=session_started_at,
-    )
-
-    logger.info("Successful login for user %s from %s", usuario.id, ip_address)
-    await record_request_security_event(
-        session,
+    logger.info("Password authentication succeeded for user %s from %s", usuario.id, ip_address)
+    return await complete_arena_login(
         request,
-        module="arena",
-        event_type="auth_success",
-        actor_user_id=usuario.id,
-        actor_label=_arena_actor_label(usuario),
-        metadata={"action": "login", "method": "password", "remember_me": remember_me},
+        session,
+        flash,
+        usuario=usuario,
+        jwt_service=jwt_service,
+        remember_me=remember_me,
+        next_url=next,
+        method="password",
     )
-    await session.commit()
-    response = RedirectResponse(url=post_login_redirect_url(usuario, next, request), status_code=303)
-    _set_login_cookie(response, token=token, remember_me=remember_me)
-    return response
 
 
 async def _record_login_failure(
@@ -392,10 +276,11 @@ async def arena_resend_activation(
             jwt_service=request.app.state.jwt_service,
             email_service=request.app.state.email_service,
             url_base=_base_url(request),
+            actor_key=_email_actor_key(request),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Activation email resend failed for user %s: %s", uid, exc)
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=uid,
@@ -409,7 +294,7 @@ async def arena_resend_activation(
     if result.user is not None and (
         result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
     ):
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=result.user.id,
@@ -456,10 +341,11 @@ async def arena_resend_parental_consent(
             jwt_service=request.app.state.jwt_service,
             email_service=request.app.state.email_service,
             url_base=_base_url(request),
+            actor_key=_email_actor_key(request),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Parental-consent email resend failed for user %s: %s", uid, exc)
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=uid,
@@ -473,7 +359,7 @@ async def arena_resend_parental_consent(
     if result.user is not None and (
         result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
     ):
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=result.user.id,
@@ -518,10 +404,11 @@ async def arena_update_parental_email(
             jwt_service=request.app.state.jwt_service,
             email_service=request.app.state.email_service,
             url_base=_base_url(request),
+            actor_key=_email_actor_key(request),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Parental-consent email update failed for user %s: %s", uid, exc)
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=uid,
@@ -535,7 +422,7 @@ async def arena_update_parental_email(
     if result.user is not None and (
         result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
     ):
-        await _record_email_delivery_event(
+        await record_email_delivery_event(
             session,
             request,
             user_id=result.user.id,
@@ -560,11 +447,20 @@ async def arena_update_date_of_birth(
     session: AsyncSession = Depends(get_db),
     date_of_birth: str = Form(""),
 ) -> Response:
-    """Regularise a legacy account that does not have a date of birth."""
+    """Regularise a legacy account that does not have a date of birth.
+
+    A pending-session write with no secret to verify, so it carries only the
+    per-IP attempt cap; the check runs after the pending-uid gate so a request
+    with no pending flow never consumes the window.
+    """
     uid: str | None = request.session.get("pending_age_uid")
     if not uid:
         flash("No pending age confirmation found. Please log in to try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
+
+    retry_after = await enforce_resend_throttle(request, session, action="update_date_of_birth")
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_login")
 
     try:
         parsed_date_of_birth = _parse_date_of_birth(date_of_birth)
@@ -595,7 +491,16 @@ async def arena_logout(
     flash: FlashDep,
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Log the current user out of the Arena."""
+    """Log the current user out of the Arena.
+
+    A pending Google-link marker is deliberately **left in place**. It names the
+    account the link was started for, and the callback verifies that against the
+    request's current authenticated user before attaching anything -- so a
+    logged-out callback is refused outright. Clearing the marker here would make
+    that same callback indistinguishable from an ordinary login, sending an
+    unknown Google identity down the signup path and creating a stray second
+    Arena account instead of a clean refusal.
+    """
     jwt_service = request.app.state.jwt_service
     token: str | None = request.cookies.get("arena_access_token")
     actor_user_id: str | None = None

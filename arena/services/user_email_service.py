@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,9 +29,10 @@ from arena.services.user_registration_service import (
 from arena.services.user_service import (
     UserOperationStatus,
     UserServiceResult,
-    _utcnow,
     confirmar_email,
+    grant_parental_consent,
 )
+from shared.age_check import AgeStatus, check_age
 from shared.services.email_service import EmailService
 from shared.services.email_validation import EmailValidationService
 
@@ -44,6 +45,8 @@ async def revalidar_email(
     jwt_service: JWTService,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> UserServiceResult:
     """Re-send the email confirmation link for an unconfirmed account.
 
@@ -53,6 +56,7 @@ async def revalidar_email(
         jwt_service: Arena JWT service for token creation.
         email_service: Email delivery service.
         url_base: Base URL used to build the confirmation link.
+        actor_key: Budget identity of the requester (the client IP).
 
     Returns:
         UserServiceResult: ``SUCCESS`` when the email was dispatched.
@@ -68,7 +72,7 @@ async def revalidar_email(
             error_message="Email is already confirmed",
         )
     token = _gerar_token_confirmacao_email(usuario, jwt_service)
-    sent = _enviar_email_confirmacao(usuario, token, email_service, url_base)
+    sent = await _enviar_email_confirmacao(usuario, token, email_service, url_base, actor_key=actor_key)
     if not sent:
         return UserServiceResult(
             status=UserOperationStatus.SEND_EMAIL_ERROR,
@@ -86,6 +90,8 @@ async def revalidar_consentimento_responsavel(
     jwt_service: JWTService,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> UserServiceResult:
     """Re-send the parental consent link for a pending account.
 
@@ -95,6 +101,7 @@ async def revalidar_consentimento_responsavel(
         jwt_service: Arena JWT service for token creation.
         email_service: Email delivery service.
         url_base: Base URL used to build the consent link.
+        actor_key: Budget identity of the requester (the client IP).
 
     Returns:
         UserServiceResult: ``SUCCESS`` on dispatch or if consent is already given.
@@ -112,7 +119,9 @@ async def revalidar_consentimento_responsavel(
             error_message="Parent/legal guardian email is missing",
         )
     token = _gerar_token_consentimento_responsavel(usuario, jwt_service)
-    sent = _enviar_email_consentimento_responsavel_interno(usuario, token, email_service, url_base)
+    sent = await _enviar_email_consentimento_responsavel_interno(
+        usuario, token, email_service, url_base, actor_key=actor_key
+    )
     if not sent:
         return UserServiceResult(
             status=UserOperationStatus.SEND_EMAIL_ERROR,
@@ -130,8 +139,18 @@ async def atualizar_email_responsavel(
     jwt_service: JWTService,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> UserServiceResult:
     """Store a parent/legal guardian email and send a consent link.
+
+    Bumps ``consent_generation``, which is what strips authority from the **previous**
+    guardian: every revocation link minted for them becomes inert. That bump is the whole
+    security effect of this path, and deliberately the only one. The account is not
+    deactivated and its sessions are not invalidated, because there is nothing here to
+    suspend -- this route is reachable only from the pending-parental login flow, so
+    consent is already withheld, and the consent gate already refuses both a new login and
+    a live session on every request.
 
     Args:
         user_id: UUID string of the target user.
@@ -140,6 +159,7 @@ async def atualizar_email_responsavel(
         jwt_service: Arena JWT service for token creation.
         email_service: Email delivery service.
         url_base: Base URL used to build the consent link.
+        actor_key: Budget identity of the requester (the client IP).
 
     Returns:
         UserServiceResult: ``SUCCESS`` on dispatch, or an error status.
@@ -155,6 +175,7 @@ async def atualizar_email_responsavel(
     usuario.email_responsavel_legal = normalized
     usuario.consentimento_responsavel = False
     usuario.dta_consentimento_responsavel = None
+    usuario.consent_generation += 1
     await session.flush()
     return await revalidar_consentimento_responsavel(
         user_id=usuario.id,
@@ -162,6 +183,7 @@ async def atualizar_email_responsavel(
         jwt_service=jwt_service,
         email_service=email_service,
         url_base=url_base,
+        actor_key=actor_key,
     )
 
 
@@ -206,21 +228,42 @@ async def validar_email_por_token(
     return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
 
 
-async def validar_consentimento_responsavel_por_token(
+async def resolver_consentimento_por_token(
     token: str,
     session: AsyncSession,
     jwt_service: JWTService,
+    *,
+    lock: bool = False,
 ) -> UserServiceResult:
-    """Confirm parental consent using the JWT sent to the guardian.
+    """Resolve a parental-consent grant token to its account, mutating nothing.
+
+    The single validation gate for both halves of the grant flow: the ``GET`` review
+    page calls it unlocked to decide what to render, and the ``POST`` re-runs it under
+    a row lock (through :func:`validar_consentimento_responsavel_por_token`) before
+    granting, so the page and the action can never disagree about whether a link may
+    act, and the ``POST`` never trusts a validation the ``GET`` performed.
+
+    One age rule applies here and deliberately nothing more: a token naming an account
+    currently in the **blocked** under-13 band is refused, because a stale link could
+    otherwise restore the consent flag that a date-of-birth change to under 13 cleared
+    -- and ``ativar_conta_se_pronta`` tests only email and consent, so that restore
+    would re-activate a prohibited account. An *adult* account still resolves: the
+    grant is surplus for an adult but harmless, and this link is the only self-service
+    recovery for an account whose holder turned 18 while consent was still pending
+    (that state falls out of the pending-parental login screen, yet activation keeps
+    demanding the consent flag). The token carries no consent-epoch claim -- the epoch
+    binds *revocation* links; a grant link is bounded by its own expiry instead.
 
     Args:
         token: PARENTAL_CONSENT JWT sent in the consent email.
         session: Active async database session.
         jwt_service: Arena JWT service for token validation.
+        lock: When ``True``, take a row lock so the caller can re-validate and mutate
+            without another request slipping between the check and the write.
 
     Returns:
-        UserServiceResult: ``SUCCESS`` with the user on confirmation, or an
-            error status.
+        UserServiceResult: ``SUCCESS`` with the user when the link may act, or an
+            error status. Never mutates the account.
     """
     claims = jwt_service.validar(token)
     if not claims.valid:
@@ -234,14 +277,52 @@ async def validar_consentimento_responsavel_por_token(
         return UserServiceResult(status=UserOperationStatus.INVALID_TOKEN, error_message="Wrong token action")
     if claims.sub is None:
         return UserServiceResult(status=UserOperationStatus.INVALID_TOKEN, error_message="Missing user id")
-    result = await session.execute(select(ArenaUser).where(ArenaUser.id == claims.sub))
+    query = select(ArenaUser).where(ArenaUser.id == claims.sub)
+    if lock:
+        query = query.with_for_update()
+    result = await session.execute(query)
     usuario = result.scalar_one_or_none()
     if usuario is None:
         return UserServiceResult(status=UserOperationStatus.USER_NOT_FOUND, error_message="User not found")
-    if usuario.consentimento_responsavel:
-        return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
-    usuario.consentimento_responsavel = True
-    usuario.dta_consentimento_responsavel = _utcnow()
-    await session.flush()
-    logger.info("Parental consent confirmed via token for %s", usuario.email)
+    if usuario.dta_nascimento is not None and check_age(usuario.dta_nascimento) is AgeStatus.BLOCKED:
+        return UserServiceResult(
+            status=UserOperationStatus.INVALID_TOKEN,
+            error_message="Account holder is under the minimum age",
+        )
     return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
+
+
+async def validar_consentimento_responsavel_por_token(
+    token: str,
+    session: AsyncSession,
+    jwt_service: JWTService,
+) -> UserServiceResult:
+    """Confirm parental consent using the JWT sent to the guardian.
+
+    Resolves the token through :func:`resolver_consentimento_por_token` **under a row
+    lock** and grants inside it, so two guardians clicking the same link at once cannot
+    both observe ``transitioned=True`` and have the caller send two confirmation emails
+    carrying two revocation links.
+
+    Args:
+        token: PARENTAL_CONSENT JWT sent in the consent email.
+        session: Active async database session.
+        jwt_service: Arena JWT service for token validation.
+
+    Returns:
+        UserServiceResult: ``SUCCESS`` with the user on confirmation, or an
+            error status. On ``SUCCESS``, ``extra_data["transitioned"]`` reports whether
+            this call actually granted consent; it is ``False`` for a re-opened link, and
+            the caller must not notify or audit in that case.
+    """
+    resolved = await resolver_consentimento_por_token(token, session, jwt_service, lock=True)
+    if resolved.status != UserOperationStatus.SUCCESS or resolved.user is None:
+        return resolved
+    transitioned = await grant_parental_consent(resolved.user, session)
+    if transitioned:
+        logger.info("Parental consent confirmed via token for %s", resolved.user.email)
+    return UserServiceResult(
+        status=UserOperationStatus.SUCCESS,
+        user=resolved.user,
+        extra_data={"transitioned": transitioned},
+    )

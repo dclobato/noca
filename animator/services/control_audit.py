@@ -94,6 +94,8 @@ _PATH_COMMANDS: Final = {
     "start-reveal": "start",
     "jump-team": "jump",
     "jump-pending": "jump_pending",
+    "show-team-media": "show_team_media",
+    "hide-team-media": "hide_team_media",
 }
 
 _STATUS_OUTCOMES: Final = {
@@ -101,6 +103,9 @@ _STATUS_OUTCOMES: Final = {
     405: "method_not_allowed",
     422: "invalid_request",
 }
+# Outcomes a layer names explicitly rather than deriving from the status include
+# ``control_disabled``, ``invalid_credential``, and ``throttled`` (the per-IP
+# operator-token lockout, which keeps the credential failure's ``403``).
 """Outcomes for refusals no layer named — chiefly the shared contest gate's
 ``404`` and FastAPI's own body validation."""
 

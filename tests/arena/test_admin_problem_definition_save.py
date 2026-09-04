@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
 from arena.services import admin_problem_service, admin_problem_tc_service
+from shared.db_schema.arena import arena_problems
 from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType
 from shared.services.testcase_files import get_problem_testcase_dir
 from tests.arena._admin_problem_app import build_admin_app, create_language, create_user, login_token
@@ -307,6 +308,74 @@ async def test_editorial_release_policy_is_saved_and_defaults_to_never(session: 
 
 
 @pytest.mark.asyncio
+async def test_expected_difficulty_is_saved_and_cleared(session: AsyncSession) -> None:
+    """An anchor is stored as its internal value; an empty choice stores no estimate."""
+    client, judge_id = await _client(session, "arena-definition-expected-difficulty@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    assert (await _reload(session, problem_id)).expected_difficulty is None
+
+    async with client:
+        response = await client.post(_page(problem_id), data=_base_form() | {"expected_difficulty": "70"})
+        assert response.status_code == 303
+        assert (await _reload(session, problem_id)).expected_difficulty == 70
+
+        response = await client.post(_page(problem_id), data=_base_form() | {"expected_difficulty": ""})
+
+    assert response.status_code == 303
+    assert (await _reload(session, problem_id)).expected_difficulty is None
+
+
+@pytest.mark.asyncio
+async def test_stored_off_anchor_expected_difficulty_survives_an_unrelated_save(session: AsyncSession) -> None:
+    """An imported value off the worded anchors keeps its own option and is not wiped.
+
+    The column stores any value in ``[1, 100]``, so a package may carry one the
+    select does not offer. Without an option of its own the browser would submit
+    the first option -- "No estimate" -- and a Save of any other field would
+    silently discard the author's estimate.
+    """
+    client, judge_id = await _client(session, "arena-definition-expected-difficulty-imported@test.example")
+    problem_id = await _make_problem(session, judge_id)
+    (await _reload(session, problem_id)).expected_difficulty = 42
+    await session.commit()
+
+    async with client:
+        form = await client.get(_page(problem_id))
+        assert form.status_code == 200
+        assert 'value="42"' in form.text
+        assert "Imported value (4.2)" in form.text
+
+        kept = await client.post(_page(problem_id), data=_base_form() | {"expected_difficulty": "42"})
+        assert kept.status_code == 303
+        assert (await _reload(session, problem_id)).expected_difficulty == 42
+
+        other = await client.post(_page(problem_id), data=_base_form() | {"expected_difficulty": "43"})
+
+    assert other.status_code == 422
+    assert "Choose a valid expected difficulty." in other.text
+    assert (await _reload(session, problem_id)).expected_difficulty == 42
+
+
+@pytest.mark.asyncio
+async def test_invalid_expected_difficulty_reopens_the_metadata_tab(session: AsyncSession) -> None:
+    """A value that is not one of the anchors is rejected before save."""
+    client, judge_id = await _client(session, "arena-definition-expected-difficulty-invalid@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(_page(problem_id), data=_base_form() | {"expected_difficulty": "42"})
+
+    assert response.status_code == 422
+    before_metadata = response.text.split('id="tab-metadata"')[0]
+    assert "show active" in before_metadata[-120:]
+    assert "Choose a valid expected difficulty." in response.text
+    assert 'aria-describedby="expected-difficulty-server-error expected-difficulty-help"' in response.text
+    assert 'id="expected-difficulty-server-error"' in response.text
+    assert (await _reload(session, problem_id)).expected_difficulty is None
+
+
+@pytest.mark.asyncio
 async def test_invalid_editorial_release_policy_reopens_its_tab(session: AsyncSession) -> None:
     """An unknown policy is rejected before save and reopens the Editorial tab."""
     client, judge_id = await _client(session, "arena-definition-editorial-policy-invalid@test.example")
@@ -460,3 +529,35 @@ async def test_the_editor_links_to_the_judgment_pages(session: AsyncSession) -> 
     assert 'value="disable"' in response.text
     assert "Save and enable" in response.text
     assert "Save and disable" in response.text
+
+
+async def _generations(session: AsyncSession, problem_id: str) -> tuple[int, int]:
+    """Return ``(public_export_generation, artifact_generation)`` straight from the table."""
+    row = (
+        await session.execute(
+            select(arena_problems.c.public_export_generation, arena_problems.c.artifact_generation).where(
+                arena_problems.c.id == problem_id
+            )
+        )
+    ).one()
+    return int(row[0]), int(row[1])
+
+
+@pytest.mark.asyncio
+async def test_saving_the_definition_invalidates_the_public_export(session: AsyncSession) -> None:
+    """Arena's definition editor commits without a swap, so it must bump the counter itself.
+
+    A renamed problem would otherwise keep serving its old package from the
+    cache (#204). The recovery fence is untouched: nothing was promoted.
+    """
+    client, judge_id = await _client(session, "arena-definition-export@test.example")
+    problem_id = await _make_problem(session, judge_id)
+    public_before, artifact_before = await _generations(session, problem_id)
+
+    async with client:
+        response = await client.post(_page(problem_id), data=_base_form() | {"title": "Renamed"})
+
+    assert response.status_code == 303
+    public_after, artifact_after = await _generations(session, problem_id)
+    assert public_after == public_before + 1
+    assert artifact_after == artifact_before

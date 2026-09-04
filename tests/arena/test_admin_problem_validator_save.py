@@ -28,6 +28,7 @@ from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblem
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema import languages as languages_table
+from shared.db_schema.arena import arena_problems
 from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
 from shared.services.problem_editor_header import publish_state_actions
 from tests.arena.test_admin_problems import _build_admin_app, _create_user, _login_token
@@ -406,3 +407,43 @@ async def test_the_upload_returns_to_the_page_that_owns_the_validator(
 
     assert response.status_code == 303  # type: ignore[attr-defined]
     assert response.headers["location"].endswith("/judgment/validator")  # type: ignore[attr-defined]
+
+
+async def _generations(session: AsyncSession, problem_id: str) -> tuple[int, int]:
+    """Return ``(public_export_generation, artifact_generation)`` straight from the table."""
+    row = (
+        await session.execute(
+            select(arena_problems.c.public_export_generation, arena_problems.c.artifact_generation).where(
+                arena_problems.c.id == problem_id
+            )
+        )
+    ).one()
+    return int(row[0]), int(row[1])
+
+
+@pytest.mark.asyncio
+async def test_staging_a_validator_invalidates_the_public_export(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Staging a validator demotes public cases and resurfaces interactions (#204)."""
+    app = _build_admin_app(session)
+    app.state.valkey_runtime = object()
+    monkeypatch.setattr("arena.routes.admin_problem_validator.enqueue_custom_validator_validation_job", AsyncMock())
+    language_id = await _add_language(session)
+    judge = await _create_user(session, email="v-export@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
+    problem = await _make_problem(session, judge.id, is_sample=True)
+    token = _login_token(app, judge)
+    public_before, artifact_before = await _generations(session, problem.id)
+
+    response = await _post_validator(
+        app,
+        token,
+        problem.id,
+        {**_base_form(), "validator_language_id": language_id},
+        files={"validator_source_file": ("validator.py", b"print('ok')\n", "text/x-python")},
+    )
+
+    assert response.status_code == 303  # type: ignore[attr-defined]
+    public_after, artifact_after = await _generations(session, problem.id)
+    assert public_after == public_before + 1
+    assert artifact_after == artifact_before

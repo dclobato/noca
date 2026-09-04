@@ -1,0 +1,26 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}— Announcement Management{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-body">
+                {% with new_url=request.url_for("uberadmin_announcement_new"),
+                    delete_url_name="uberadmin_announcement_delete",
+                    detail_url_name="announcement_detail" %}
+                    {% include "_partials/announcement_admin_list.html" %}
+                {% endwith %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

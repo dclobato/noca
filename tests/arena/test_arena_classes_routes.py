@@ -12,7 +12,7 @@ import logging
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from _tc_helpers import make_arena_test_case
@@ -76,7 +76,7 @@ TODAY = date.today()
 
 def _mock_email_svc() -> MagicMock:
     """Return a fresh mock EmailService that always reports success."""
-    return MagicMock(send_email=MagicMock(return_value=MagicMock(success=True)))
+    return MagicMock(send_email=AsyncMock(return_value=MagicMock(success=True)))
 
 
 def _build_app(session: AsyncSession) -> FastAPI:
@@ -621,6 +621,7 @@ async def test_problem_set_list_page_renders_rows(session: AsyncSession) -> None
         cookies={"arena_access_token": _token(app, judge)},
     ) as client:
         response = await client.get(f"/classes/{arena_class.id}/problem-sets")
+    request_finished_at = datetime.now(UTC)
 
     assert response.status_code == 200
     assert "Week 1" in response.text
@@ -636,7 +637,19 @@ async def test_problem_set_list_page_renders_rows(session: AsyncSession) -> None
     )
     assert start_match is not None
     default_start = datetime.fromisoformat(start_match.group(1)).replace(tzinfo=UTC)
-    assert timedelta(minutes=1) <= default_start - request_started_at <= timedelta(minutes=2)
+    # The route offers `now + 2 minutes` and the datetime-local input truncates
+    # seconds, so the value is `floor_to_minute(server_now + 2 minutes)`. Bracket
+    # the request and compare against the same truncation applied to each end,
+    # rather than bounding a raw delta: the server rendered at some instant inside
+    # this window, so its truncated default must fall inside the truncated window.
+    #
+    # A raw `<= 2 minutes` bound is wrong whenever the render crosses a wall-clock
+    # minute boundary, because truncation then discards a whole extra minute and
+    # the delta reads as 2 min + epsilon. That happens about `latency / 60` of the
+    # time, which is rare alone and regular under a loaded parallel suite.
+    earliest = (request_started_at + timedelta(minutes=2)).replace(second=0, microsecond=0)
+    latest = (request_finished_at + timedelta(minutes=2)).replace(second=0, microsecond=0)
+    assert earliest <= default_start <= latest
 
 
 @pytest.mark.asyncio

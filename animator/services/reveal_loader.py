@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -193,6 +194,10 @@ def initialize_reveal_session(dataset: RevealDataset) -> RevealSessionState:
         frozen_submission_ids=build_frozen_submission_ids(dataset),
         step_log=(),
         focused_team_id=None,
+        # A new universe is a new identity: this is what lets every replica key
+        # the dataset cache on the same value and what makes a restart elsewhere
+        # a cache miss here rather than a stale projection.
+        dataset_generation=uuid4().hex,
     )
 
 

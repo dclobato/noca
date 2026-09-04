@@ -215,6 +215,13 @@ arena_problems = Table(
         comment="Natural language of the problem statement (ISO 639-1); NULL when unknown.",
     ),
     Column(
+        "expected_difficulty",
+        Integer,
+        nullable=True,
+        default=None,
+        comment="Author-declared expected difficulty on the internal 1-100 scale; NULL when not estimated.",
+    ),
+    Column(
         "validator_type",
         SAEnum(ProblemValidatorType, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
@@ -227,6 +234,14 @@ arena_problems = Table(
         default=0,
         server_default="0",
         comment="Monotonic fence bumped by each editor save that promotes artifacts.",
+    ),
+    Column(
+        "public_export_generation",
+        _artifact_generation_type,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Monotonic counter bumped by every change that alters the public problem package.",
     ),
     _created_at_column(),
     _updated_at_column(),
@@ -241,6 +256,10 @@ arena_problems = Table(
     CheckConstraint("memory_limit_kb >= 1", name="ck_arena_problems_memory_limit_positive"),
     CheckConstraint("pids_limit >= 1", name="ck_arena_problems_pids_limit_positive"),
     CheckConstraint("output_limit_in_bytes >= 1", name="ck_arena_problems_output_limit_positive"),
+    CheckConstraint(
+        "expected_difficulty IS NULL OR expected_difficulty BETWEEN 1 AND 100",
+        name="ck_arena_problems_expected_difficulty_range",
+    ),
 )
 
 arena_problem_custom_validators = Table(

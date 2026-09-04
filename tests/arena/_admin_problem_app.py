@@ -47,6 +47,18 @@ from web.models.language import Language
 TEST_JWT_SECRET = "test-secret-key-for-admin-problem-tests-32b!"
 
 
+class OfflineValkeyRuntime:
+    """A runtime whose Valkey is unreachable: scripts answer ``None`` and deletes are no-ops."""
+
+    is_available = False
+
+    async def eval(self, script: str, numkeys: int, *args: str) -> object | None:
+        return None
+
+    async def delete(self, *keys: str) -> None:
+        return None
+
+
 def build_admin_app(session: AsyncSession) -> FastAPI:
     """Build a minimal Arena FastAPI app for problem admin route tests."""
     app = FastAPI()
@@ -56,6 +68,9 @@ def build_admin_app(session: AsyncSession) -> FastAPI:
     install_arena_templates(app)
     mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
+    # No Valkey in these tests: every limiter and the rejudge cooldown see an outage and
+    # fall back to their process-local state.
+    app.state.valkey_runtime = OfflineValkeyRuntime()
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
             {

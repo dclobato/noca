@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -70,7 +70,7 @@ def _fake_service(return_value: object) -> MagicMock:
 
 def _mock_email_service() -> MagicMock:
     """Return a mock EmailService recording send_email calls."""
-    return MagicMock(send_email=MagicMock(return_value=MagicMock(success=True)))
+    return MagicMock(send_email=AsyncMock(return_value=MagicMock(success=True)))
 
 
 async def _get_row(session: AsyncSession, user_id: str) -> ArenaUserReputation | None:

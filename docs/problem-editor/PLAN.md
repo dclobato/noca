@@ -731,9 +731,9 @@ documentation-impact rules:
   enforced; `docs/custom-validator/OUTPUT_CHECKER_VALIDATOR.md` — mark the
   package-representation section adopted for the discriminator, pending for
   `checker_semantics`.
-- `docs/BACKLOG.md` — mark strategy persistence, immutability, and the
-  applicable package work complete; keep checker runtime,
-  `checker_semantics`, and diagnostics pending.
+- Gitea issues — close the ones covering strategy persistence, immutability,
+  and the applicable package work; keep checker runtime,
+  `checker_semantics`, and diagnostics open.
 - `web/docs/ROUTES.md` + `URL_FOR_REFERENCE.md` and the Arena pair — new
   chooser routes, changed create paths, deprecated satellite routes. Update
   route documentation only for routes actually added, changed, deprecated,

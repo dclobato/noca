@@ -51,23 +51,30 @@
   var sseUrl = wrapper.getAttribute('data-sse-url');
   if (!sseUrl || !window.EventSource) return;
 
-  var es = new EventSource(sseUrl);
   var pendingStatuses = null;
   var refreshInFlight = false;
 
-  es.onmessage = function (e) {
-    if (!parseVerdictEvent(e.data)) return;
-
+  function refreshList() {
     var currentWrapper = getWrapper();
     if (!currentWrapper || refreshInFlight) return;
 
     pendingStatuses = readStatuses(currentWrapper);
     refreshInFlight = true;
     htmx.trigger(currentWrapper, 'verdict-update');
-  };
+  }
 
-  // Let the browser handle reconnection automatically via the built-in
-  // EventSource retry mechanism, exactly like runs-sse.js.
+  function onVerdictMessage(e) {
+    if (!parseVerdictEvent(e.data)) return;
+    refreshList();
+  }
+
+  // Same contract as runs-sse.js: the browser retries transient failures,
+  // NocaSse surfaces and retries a refused connection (429 from the SSE lease).
+  if (window.NocaSse) {
+    NocaSse.open(sseUrl, { onMessage: onVerdictMessage, onRecovered: refreshList });
+  } else {
+    new EventSource(sseUrl).onmessage = onVerdictMessage;
+  }
 
   document.addEventListener('htmx:afterSwap', function (evt) {
     if (!evt.detail || !evt.detail.target || evt.detail.target.id !== 'problems-list') return;

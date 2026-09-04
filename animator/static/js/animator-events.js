@@ -7,6 +7,11 @@
 // Session-local recent-event rail for the Animator scoreboard. Submission
 // events render immediately; verdicts wait for the paired authoritative
 // snapshot so a solve can use the more specific balloon/first-solver wording.
+// The rail appears with the board rather than with its first event: an empty
+// rail carrying "No activity yet" tells a spectator the ticker is working and
+// the contest is quiet, which a missing rail does not. The first post-start
+// snapshot also seeds it with the server-built `recent_events` backlog, so a
+// projector opened mid-contest starts with history instead of a blank strip.
 // Exported as UMD: `window.AnimatorEvents` / `module.exports`.
 (function (root, factory) {
   "use strict";
@@ -21,6 +26,7 @@
   "use strict";
 
   var MAX_EVENTS = 30;
+  var EMPTY_MESSAGE = "No activity yet";
 
   function getCell(snapshot, teamId, problemId) {
     var standings = snapshot && Array.isArray(snapshot.standings) ? snapshot.standings : [];
@@ -39,6 +45,22 @@
       }
     }
     return null;
+  }
+
+  // The one place a rail sentence is written. Both the live path and the
+  // server-supplied seed go through it, so a reloaded page and a page that
+  // watched the same event happen read identically.
+  function composeMessage(kind, teamName, problemLabel, verdict) {
+    if (kind === "first") {
+      return teamName + " is first solver for " + problemLabel;
+    }
+    if (kind === "balloon") {
+      return teamName + " got balloon for " + problemLabel;
+    }
+    if (kind === "submitted") {
+      return teamName + " submitted " + problemLabel;
+    }
+    return teamName + " got " + verdict + " for " + problemLabel;
   }
 
   function acceptedCandidate(events) {
@@ -65,6 +87,8 @@
     var teamNames = {};
     var problemLabels = {};
     var startMs = null;
+    var placeholder = null;
+    var seeded = false;
 
     function setVisible() {
       if (container) {
@@ -79,12 +103,46 @@
       return Math.max(0, Math.floor((options.now() - startMs) / 60000));
     }
 
+    // "idle" is not a speed: it parks the placeholder at rest so the empty
+    // rail reads as a label rather than as a single item sliding by forever.
     function setPace() {
       if (!list) {
         return;
       }
-      var pace = entries.length <= 5 ? "short" : entries.length <= 15 ? "medium" : "long";
+      var pace = "idle";
+      if (entries.length > 0) {
+        pace = entries.length <= 5 ? "short" : entries.length <= 15 ? "medium" : "long";
+      }
       list.setAttribute("data-pace", pace);
+    }
+
+    function clearPlaceholder() {
+      if (placeholder && list) {
+        list.removeChild(placeholder);
+      }
+      placeholder = null;
+    }
+
+    // Reveal the rail as soon as the board has something to show. The
+    // placeholder is dropped by the first real event, so the trim in `append`
+    // never has to reason about a non-event row sitting at the head of the list.
+    function activate() {
+      if (!list) {
+        return;
+      }
+      setVisible();
+      if (entries.length > 0 || placeholder) {
+        return;
+      }
+      var item = doc.createElement("li");
+      item.setAttribute("class", "animator-events-item animator-events-item--empty");
+      var text = doc.createElement("span");
+      text.setAttribute("class", "animator-events-text");
+      text.textContent = EMPTY_MESSAGE;
+      item.appendChild(text);
+      list.appendChild(item);
+      placeholder = item;
+      setPace();
     }
 
     function append(minute, message, key) {
@@ -92,6 +150,7 @@
         return;
       }
       knownEvents[key] = true;
+      clearPlaceholder();
       entries.push({ key: key, minute: minute, message: message });
       var item = doc.createElement("li");
       item.setAttribute("class", "animator-events-item");
@@ -115,6 +174,40 @@
       if (options.reducedMotion && options.reducedMotion.matches && container) {
         container.scrollLeft = container.scrollWidth;
       }
+    }
+
+    // The dot beside the heading glows red only while the contest can still
+    // produce activity. A scheduled or finished contest keeps the rail and the
+    // marquee -- a contest with no freeze can be judged after the clock stops --
+    // but the "live now" signal would be a lie, so it goes grey.
+    function setLive(live) {
+      if (container) {
+        container.setAttribute("data-live", live ? "true" : "false");
+      }
+    }
+
+    // Seed the rail from the snapshot's server-built backlog, once. Entries
+    // arrive oldest first and carry the same keys the live stream uses, so an
+    // event that is both seeded and streamed is rendered once. Re-seeding on a
+    // later snapshot would resurrect entries the 30-item window had dropped, so
+    // the first post-start snapshot is the only one that seeds.
+    function seed(snapshot) {
+      if (seeded) {
+        return;
+      }
+      seeded = true;
+      var items = snapshot && Array.isArray(snapshot.recent_events) ? snapshot.recent_events : [];
+      items.forEach(function (item) {
+        if (!item || !item.key || !item.team_name || !item.problem_label) {
+          return;
+        }
+        var minute = Number(item.minute);
+        append(
+          isNaN(minute) ? 0 : minute,
+          composeMessage(item.kind, String(item.team_name), String(item.problem_label), item.verdict),
+          String(item.key),
+        );
+      });
     }
 
     function indexSnapshot(snapshot) {
@@ -153,7 +246,11 @@
       if (!team || !label) {
         return;
       }
-      append(currentMinute(), team + " submitted " + label, "submission:" + data.submission_id);
+      append(
+        currentMinute(),
+        composeMessage("submitted", team, label, null),
+        "submission:" + data.submission_id,
+      );
     }
 
     function observeVerdict(data) {
@@ -183,6 +280,8 @@
 
     function reconcile(previous, snapshot) {
       indexSnapshot(snapshot);
+      seed(snapshot);
+      activate();
       if (!previous || pendingVerdicts.length === 0) {
         return;
       }
@@ -215,22 +314,17 @@
           return;
         }
         knownEvents[event.key] = false;
-        var kind = specialByEvent[event.key];
-        var message;
-        if (kind === "first") {
-          message = team + " is first solver for " + label;
-        } else if (kind === "balloon") {
-          message = team + " got balloon for " + label;
-        } else {
-          message = team + " got " + data.verdict + " for " + label;
-        }
-        append(event.minute, message, event.key);
+        var kind = specialByEvent[event.key] || "verdict";
+        append(event.minute, composeMessage(kind, team, label, data.verdict), event.key);
       });
       pendingVerdicts = [];
     }
 
     return {
+      activate: activate,
       configure: configure,
+      seed: seed,
+      setLive: setLive,
       observeSubmission: observeSubmission,
       observeVerdict: observeVerdict,
       reconcile: reconcile,
@@ -243,5 +337,5 @@
     };
   }
 
-  return { MAX_EVENTS: MAX_EVENTS, createEventRail: createEventRail };
+  return { MAX_EVENTS: MAX_EVENTS, EMPTY_MESSAGE: EMPTY_MESSAGE, createEventRail: createEventRail };
 });

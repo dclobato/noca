@@ -1,0 +1,246 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.noca-task-printout-page {
+    min-height: 100vh;
+    background: var(--noca-surface-container-low);
+    color: var(--noca-on-surface);
+    color-scheme: light;
+}
+
+.noca-task-printout-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--noca-space-sm);
+    padding: var(--noca-space-sm) var(--noca-space-md);
+    border-bottom: 1px solid var(--noca-outline-variant);
+    background: var(--noca-surface-container-lowest);
+}
+
+.noca-task-printout-sheet {
+    width: min(100% - 2rem, 72rem);
+    margin: 2rem auto;
+    padding: 2rem;
+    background: var(--noca-surface-container-lowest);
+    box-shadow: 0 12px 28px var(--noca-shadow-tint);
+}
+
+.noca-task-printout-delivery {
+    padding: 1.5rem;
+    border: 0.2rem solid var(--noca-on-surface);
+}
+
+.noca-task-printout-delivery h1 {
+    margin: 0 0 1.25rem;
+    font-family: var(--noca-font-heading);
+    font-size: clamp(1.75rem, 4vw, 2.75rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+}
+
+.noca-task-printout-destination {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 1fr));
+    border-top: 1px solid var(--noca-on-surface);
+}
+
+.noca-task-printout-destination > div {
+    min-width: 0;
+    padding: 1rem 1.25rem 0 0;
+}
+
+.noca-task-printout-destination > div + div {
+    padding-left: 1.25rem;
+    border-left: 1px solid var(--noca-on-surface);
+}
+
+.noca-task-printout-label,
+.noca-task-printout-meta dt {
+    margin-bottom: 0.35rem;
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.noca-task-printout-value {
+    overflow-wrap: anywhere;
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.noca-task-printout-team-account {
+    display: block;
+    margin-top: 0.25rem;
+    font-family: var(--noca-font-mono);
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.noca-task-printout-missing {
+    display: inline-block;
+    padding: 0.15rem 0.35rem;
+    border: 1px solid currentcolor;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.noca-task-printout-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 1.5rem 0 0;
+    border: 1px solid var(--noca-outline);
+}
+
+.noca-task-printout-meta > div {
+    min-width: 0;
+    padding: 0.85rem 1rem;
+}
+
+.noca-task-printout-meta > div:nth-child(n + 4) {
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.noca-task-printout-meta dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+.noca-task-printout-source {
+    margin-top: 2rem;
+}
+
+.noca-task-printout-source h2 {
+    margin: 0 0 0.75rem;
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.noca-task-printout-lines {
+    margin: 0;
+    padding: 1rem 1rem 1rem 4.5rem;
+    border: 1px solid var(--noca-outline);
+    background: var(--noca-surface-container-low);
+    font-family: var(--noca-font-mono);
+    font-size: 0.8125rem;
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    line-height: 1.5;
+}
+
+.noca-task-printout-lines li {
+    min-height: 1.5em;
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--noca-outline);
+}
+
+.noca-task-printout-lines li::marker {
+    color: var(--noca-on-surface-variant);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+.noca-task-printout-lines code {
+    color: inherit;
+    font: inherit;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+    white-space: pre-wrap;
+}
+
+.noca-task-printout-lines ::selection {
+    background: rgb(var(--noca-brand-rgb) / 24%);
+}
+
+@media (max-width: 767.98px) {
+    .noca-task-printout-sheet {
+        width: 100%;
+        margin: 0;
+        padding: 1rem;
+        box-shadow: none;
+    }
+
+    .noca-task-printout-destination,
+    .noca-task-printout-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .noca-task-printout-destination > div + div {
+        padding-left: 0;
+        border-top: 1px solid var(--noca-on-surface);
+        border-left: 0;
+    }
+
+    .noca-task-printout-meta > div + div {
+        border-top: 1px solid var(--noca-outline-variant);
+    }
+}
+
+@page {
+    size: A4 portrait;
+    margin: 12mm;
+}
+
+@media print {
+    .noca-task-printout-page {
+        min-height: 0;
+        background: var(--noca-surface-container-lowest);
+        color: var(--noca-on-surface);
+    }
+
+    .noca-task-printout-sheet {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+    }
+
+    .noca-task-printout-delivery,
+    .noca-task-printout-meta {
+        break-inside: avoid;
+    }
+
+    .noca-task-printout-delivery {
+        padding: 8mm;
+        border-color: var(--noca-on-surface);
+    }
+
+    .noca-task-printout-delivery h1 {
+        font-size: 22pt;
+    }
+
+    .noca-task-printout-value {
+        font-size: 12pt;
+    }
+
+    .noca-task-printout-meta {
+        border-color: var(--noca-outline);
+    }
+
+    .noca-task-printout-lines {
+        padding: 3mm 3mm 3mm 12mm;
+        border-color: var(--noca-outline);
+        background: var(--noca-surface-container-lowest);
+        font-size: 8.5pt;
+    }
+
+    .noca-task-printout-lines li {
+        break-inside: avoid;
+        border-left-color: var(--noca-outline);
+    }
+}

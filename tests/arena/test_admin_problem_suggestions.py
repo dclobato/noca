@@ -23,7 +23,8 @@ from arena.services.problem_search_service import ProblemSuggestionField
 from shared.enumerations import ArenaRole, ProblemValidatorType
 
 _ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT = _ROOT / "arena" / "static" / "js" / "admin-problem-form.js"
+_SCRIPT = _ROOT / "arena" / "static" / "js" / "arena-suggest-combobox.js"
+_CONTROLLER = _ROOT / "arena" / "static" / "js" / "arena-combo-listbox.js"
 
 
 async def _create_problem(
@@ -84,7 +85,7 @@ async def test_suggestions_endpoint_requires_an_editor_and_validates_queries(
     """The endpoint requires a problem editor and exposes only the fixed query contract."""
     app = _build_admin_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        assert (await client.get("/admin/problems/suggestions?field=source&q=ab")).status_code == 401
+        assert (await client.get("/admin/problems/suggestions?field=source&q=abc")).status_code == 401
 
     member = await _create_user(session, email="suggestions-member@noca.invalid")
     editor = await _create_user(
@@ -100,17 +101,20 @@ async def test_suggestions_endpoint_requires_an_editor_and_validates_queries(
         base_url="http://testserver",
         cookies={"arena_access_token": member_token},
     ) as client:
-        assert (await client.get("/admin/problems/suggestions?field=source&q=ab")).status_code == 403
+        assert (await client.get("/admin/problems/suggestions?field=source&q=abc")).status_code == 403
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
         cookies={"arena_access_token": editor_token},
     ) as client:
-        assert (await client.get("/admin/problems/suggestions?q=ab")).status_code == 422
-        assert (await client.get("/admin/problems/suggestions?field=title&q=ab")).status_code == 422
-        assert (await client.get("/admin/problems/suggestions?field=license&q=ab")).status_code == 200
+        assert (await client.get("/admin/problems/suggestions?q=abc")).status_code == 422
+        assert (await client.get("/admin/problems/suggestions?field=title&q=abc")).status_code == 422
+        assert (await client.get("/admin/problems/suggestions?field=license&q=abc")).status_code == 200
         assert (await client.get("/admin/problems/suggestions?field=source&q=a")).status_code == 422
+        # Three characters is the shortest query a trigram index can answer, so
+        # it is the route's minimum rather than a service-level empty result.
+        assert (await client.get("/admin/problems/suggestions?field=source&q=ab")).status_code == 422
         assert (
             await client.get("/admin/problems/suggestions", params={"field": "source", "q": "x" * 257})
         ).status_code == 422
@@ -251,11 +255,11 @@ async def test_sqlite_suggestions_filter_trim_deduplicate_and_treat_wildcards_li
         """Search as the test's admin owner."""
         return await _suggestions(session, field=field, query=query, caller_id=owner.id, is_admin=True)
 
-    assert await scoped_suggestions("source", "ga") == ["Gamma", "gamma"]
+    assert await scoped_suggestions("source", "gam") == ["Gamma", "gamma"]
     assert await scoped_suggestions("source", "50%_off") == ["50%_off"]
     assert await scoped_suggestions("author", "Owner") == ["Owner-backed Name Studio"]
     assert await scoped_suggestions("license", "by-sa") == ["CC BY-SA 4.0"]
-    assert await scoped_suggestions("license", "%_") == ["Custom%_License"]
+    assert await scoped_suggestions("license", "Custom%_") == ["Custom%_License"]
     assert await scoped_suggestions("source", "  ") == []
     assert await scoped_suggestions("source", "Unlisted source") == []
     created = await _create_problem(
@@ -276,8 +280,77 @@ async def test_sqlite_suggestions_filter_trim_deduplicate_and_treat_wildcards_li
 
 
 @pytest.mark.asyncio
+async def test_sqlite_suggestions_match_each_term_independently(session: AsyncSession) -> None:
+    """Every term matches as its own substring, so partial terms and any order work.
+
+    Full-text matching compares whole lexemes, so an unfinished term (`Loca`)
+    matches nothing, and whole-query substring matching needs the typed text to
+    be contiguous in the stored value -- which "2023 Loca" is not, since
+    " / Fase " sits between. Matching the terms independently covers both.
+
+    The portable path is per-term substring matching *alone*, so the exclusions
+    below are exactly this branch's AND semantics. On PostgreSQL the same branch
+    is one arm of a UNION and can only add candidates; the full-text and trigram
+    arms keep their own reach, which is why the PostgreSQL suite demonstrates
+    the exclusion with a term no arm can match.
+    """
+    owner = await _create_user(
+        session,
+        name="Term Owner",
+        email="suggestions-terms@noca.invalid",
+        role=ArenaRole.ARENA_ADMIN,
+    )
+    await _create_problem(
+        session,
+        owner_id=owner.id,
+        title="Interif problem",
+        source="VI Maratona de Programação InterIF - 2023 / Fase Local",
+        author="Jorge Francisco Cutigi (IFSP, São Carlos)",
+    )
+    await _create_problem(
+        session,
+        owner_id=owner.id,
+        title="Other edition",
+        source="VII Maratona de Programação InterIF - 2024 / Fase Final",
+    )
+    await session.flush()
+
+    async def scoped(field: ProblemSuggestionField, query: str) -> list[str]:
+        """Search as the test's admin owner."""
+        return await _suggestions(session, field=field, query=query, caller_id=owner.id, is_admin=True)
+
+    interif_2023 = "VI Maratona de Programação InterIF - 2023 / Fase Local"
+    cutigi = "Jorge Francisco Cutigi (IFSP, São Carlos)"
+
+    # A partial trailing term, which no whole-lexeme or contiguous-substring
+    # branch can match. Every term needs three letters or digits first, so the
+    # two states before that are declined rather than answered by scanning.
+    assert await scoped("source", "2023 L") == []
+    assert await scoped("source", "2023 Lo") == []
+    assert await scoped("source", "2023 Loc") == [interif_2023]
+    assert await scoped("source", "2023 Loca") == [interif_2023]
+    # Order is irrelevant, and a term may match inside a word.
+    assert await scoped("source", "Loca 2023") == [interif_2023]
+    assert await scoped("source", "aratona 2023") == [interif_2023]
+    assert await scoped("author", "cutigi carlos") == [cutigi]
+    assert await scoped("author", "utigi arlos") == [cutigi]
+    # AND, not OR: one unmatched term excludes the row even when the others hit.
+    # (Portable path only -- see the docstring.)
+    assert await scoped("source", "2023 Final") == []
+    assert await scoped("author", "cutigi birigui") == []
+    # Repeated whitespace collapses rather than producing an empty term that
+    # would match everything.
+    assert await scoped("source", "2023   Local") == [interif_2023]
+    # A term keeps treating the user's own wildcards literally, and one made of
+    # characters pg_trgm discards carries no trigram at all.
+    assert await scoped("source", "2023 %%%") == []
+    assert await scoped("source", "---") == []
+    assert await scoped("source", "²²²") == []
+
+
+@pytest.mark.asyncio
 async def test_form_wires_suggestions_in_create_and_edit_modes(session: AsyncSession) -> None:
-    """Both forms expose native datalists while keeping their existing free-text inputs."""
+    """Both forms expose the suggestion comboboxes while keeping free-text inputs."""
     app = _build_admin_app(session)
     editor = await _create_user(
         session,
@@ -298,18 +371,22 @@ async def test_form_wires_suggestions_in_create_and_edit_modes(session: AsyncSes
 
     for response in (create_response, edit_response):
         assert response.status_code == 200
+        # A native datalist re-filters the server's answer by substring, which
+        # discarded out-of-order matches; the form must render its own listbox.
+        assert "<datalist" not in response.text
         assert all(
             value in response.text
             for value in (
-                'list="source-suggestions"',
-                'list="author-suggestions"',
-                'list="license-suggestions"',
+                'aria-controls="source-suggestions"',
+                'aria-controls="author-suggestions"',
+                'aria-controls="license-suggestions"',
             )
         )
         assert response.text.count('data-suggestions-field="source"') == 1
         assert response.text.count('data-suggestions-field="author"') == 1
         assert response.text.count('data-suggestions-field="license"') == 1
         assert response.text.count('data-suggestions-url="http://testserver/admin/problems/suggestions"') == 3
+        assert response.text.count('role="combobox"') == 4
         assert all(
             value in response.text
             for value in (
@@ -318,32 +395,32 @@ async def test_form_wires_suggestions_in_create_and_edit_modes(session: AsyncSes
                 'id="license-suggestions"',
             )
         )
+        # Three suggestion listboxes plus the category picker, which shares the
+        # same self-rendered dropdown.
+        assert response.text.count('class="arena-combo-dropdown"') == 4
+        assert "arena-suggest-combobox.js" in response.text
 
 
-def test_suggestion_script_debounces_aborts_per_input_and_uses_safe_option_nodes() -> None:
-    """The external client code keeps autocomplete advisory and isolated per text input."""
-    script = _SCRIPT.read_text(encoding="utf-8")
-    suggestion_section = script.split("// ── Problem metadata suggestions", 1)[1].split(
-        "// ── Category autocomplete", 1
-    )[0]
+def test_suggestion_scripts_never_refilter_or_write_raw_html() -> None:
+    """The client displays exactly what the server ranked, as text nodes.
 
-    assert all(
-        value in suggestion_section
-        for value in (
-            'querySelectorAll("input[data-suggestions-url][data-suggestions-field]").forEach',
-            "let timer = null",
-            "let controller = null",
-            "new AbortController()",
-            "controller.abort()",
-            "query.length < 2",
-            "clearSuggestions()",
-            "if (!response.ok)",
-            "requestController === controller",
-            "}, 250);",
-            "datalist.replaceChildren()",
-            'document.createElement("option")',
-            "option.value = suggestion",
-            "datalist.appendChild(option)",
-        )
-    )
-    assert "innerHTML" not in suggestion_section
+    Debounce, cancellation, ARIA state, and selection are behavior, covered by
+    the Node contract test in `test_combo_listbox_js.py`. What source text can
+    still prove is the pair of properties that made this widget necessary: the
+    client applies no filter of its own (the native `<datalist>` substring
+    filter is exactly what discarded out-of-order server matches), and option
+    text -- server data -- is never written as raw HTML.
+    """
+    for script in (_SCRIPT, _CONTROLLER):
+        source = script.read_text(encoding="utf-8")
+        # Assignment form only: the modules name `innerHTML` in a comment
+        # explaining why they do not write to it.
+        assert "innerHTML =" not in source, f"{script.name} must build options as text nodes"
+        for refilter in (".includes(", ".startsWith(", ".indexOf("):
+            assert refilter not in source, f"{script.name} must not filter the server's ranked answer"
+
+    controller = _CONTROLLER.read_text(encoding="utf-8")
+    # The close-cancels-pending-work contract, stated once so a refactor that
+    # drops it fails here as well as in the behavior test.
+    assert "cancelPending();" in controller
+    assert "controller.abort();" in controller

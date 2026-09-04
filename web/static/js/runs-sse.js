@@ -154,12 +154,11 @@
   var sseUrl = wrapper.getAttribute('data-sse-url');
   if (!sseUrl || !window.EventSource) return;
 
-  var es = new EventSource(sseUrl);
   var pendingTopMarker = null;
   var pendingEvents = [];
   var refreshInFlight = false;
 
-  es.onmessage = function (e) {
+  function onVerdictMessage(e) {
     var parsedEvent = parseVerdictEvent(e.data);
     if (!parsedEvent) return;
 
@@ -175,11 +174,23 @@
     pendingTopMarker = getTopMarker(currentWrapper);
     refreshInFlight = true;
     htmx.trigger(currentWrapper, 'verdict-update');
-  };
+  }
 
-  // Let the browser handle reconnection automatically via the built-in
-  // EventSource retry mechanism.  Logging the error is sufficient; closing the
-  // connection here would permanently stop SSE updates on transient failures.
+  // NocaSse leaves transient failures to the browser's own reconnection and
+  // handles the one case it never retries -- a refused connection (429 from
+  // the SSE lease), which it surfaces and retries with backoff. On recovery
+  // the list is refreshed once, since verdicts may have landed meanwhile.
+  if (window.NocaSse) {
+    NocaSse.open(sseUrl, {
+      onMessage: onVerdictMessage,
+      onRecovered: function () {
+        var currentWrapper = getWrapper();
+        if (currentWrapper) htmx.trigger(currentWrapper, 'verdict-update');
+      }
+    });
+  } else {
+    new EventSource(sseUrl).onmessage = onVerdictMessage;
+  }
 
   document.addEventListener('htmx:afterSwap', function (evt) {
     if (!evt.detail || !evt.detail.target || evt.detail.target.id !== 'runs-list-wrapper') return;

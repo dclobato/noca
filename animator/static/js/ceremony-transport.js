@@ -21,6 +21,12 @@
 //   5. a stream error replaces the EventSource with bounded backoff instead of
 //      relying on browser-specific recovery from a terminal connection.
 //
+// The one event that breaks rule 3 is `reveal_media_cue`, and it does so because
+// it is not a state signal at all: it is the operator asking the projector to
+// raise or lower a team's media overlay, it changes nothing in the store, and
+// fetching in response to it would buy a round trip per button press and return
+// exactly the state already on screen. It is handed straight to `onMediaCue`.
+//
 // Phase 14's ceremony.js consumes this module (subscribing through onState) or
 // replaces it wholesale; nothing here touches the DOM, so it stays testable
 // headlessly with an injected fetch and EventSource. Exported as UMD:
@@ -39,6 +45,7 @@
 
   var EVENT_STATE_CHANGED = "reveal_state_changed";
   var EVENT_READY = "reveal_ready";
+  var EVENT_MEDIA_CUE = "reveal_media_cue";
 
   // Retry schedule for a failed state request, in milliseconds. A ceremony is a
   // live event: a projector that gave up after one 503 stays blank until someone
@@ -176,9 +183,10 @@
   }
 
   // deps: { fetchState, EventSourceCtor, eventsUrl, onState, onError,
-  //         onConnectionError, schedule }
+  //         onConnectionError, onMediaCue, schedule }
   function createRevealTransport(deps) {
     var notifyState = deps.onState || function () {};
+    var onMediaCue = deps.onMediaCue || function () {};
     var onError = deps.onError || function () {};
     var onConnectionError = deps.onConnectionError || onError;
     var source = null;
@@ -246,6 +254,25 @@
         }
         fetcher.trigger();
       });
+      // Deliberately no fetcher.trigger() here: a cue carries its own complete
+      // payload and moves no ceremony state, so refetching would be a wasted
+      // round trip on every press of the operator's button. A malformed frame is
+      // dropped rather than thrown, keeping one bad publish from tearing down a
+      // projector's stream mid-ceremony.
+      candidate.addEventListener(EVENT_MEDIA_CUE, function (event) {
+        if (source !== candidate) {
+          return;
+        }
+        var cue = null;
+        try {
+          cue = JSON.parse(event.data);
+        } catch (error) {
+          return;
+        }
+        if (cue && (cue.action === "show" || cue.action === "hide")) {
+          onMediaCue(cue);
+        }
+      });
       // Reconcile on `reveal_ready`, NOT on `onopen`. The response headers — and
       // therefore `open` — are written before the server's Valkey subscription
       // exists, so a mutation published in that window would reach neither this
@@ -312,6 +339,7 @@
   return {
     EVENT_STATE_CHANGED: EVENT_STATE_CHANGED,
     EVENT_READY: EVENT_READY,
+    EVENT_MEDIA_CUE: EVENT_MEDIA_CUE,
     RETRY_DELAYS_MS: RETRY_DELAYS_MS,
     createStateFetcher: createStateFetcher,
     createRevealTransport: createRevealTransport,

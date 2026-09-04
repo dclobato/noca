@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -7,7 +7,8 @@
 """Data access for the Arena badge-assignment loop.
 
 Holds the cursor/state row access, the Accepted-submission batch query, the
-per-(user, problem) history loader, and the badge-insert helper. Kept separate
+per-(user, problem) history loader, and the badge insert/revoke helpers. Kept
+separate
 from the rule evaluators (``arena_badge_rules``) and the orchestration
 (``arena_badges``) so each module stays small and focused.
 """
@@ -17,9 +18,9 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Join, Row, and_, select, update
+from sqlalchemy import CursorResult, Join, Row, and_, delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,6 +115,51 @@ async def award_badge(session: AsyncSession, user_id: str, badge: ArenaBadge) ->
     )
     result = await session.execute(stmt)
     return result.first() is not None
+
+
+async def revoke_badge_except(session: AsyncSession, badge: ArenaBadge, keep_user_ids: set[str]) -> int:
+    """Delete every holder of ``badge`` outside ``keep_user_ids``. Caller commits.
+
+    Only a dynamic badge — one whose criterion a user can stop satisfying as the
+    catalogue grows — may be revoked, and only from a full-reconcile pass that
+    evaluated the entire history: an incremental pass sees a subset of the
+    problems and would revoke everyone it did not look at.
+
+    Args:
+        session: Active async session (transaction owned by the caller).
+        badge: Badge to reconcile.
+        keep_user_ids: Users that still satisfy the criterion.
+
+    Returns:
+        Number of badge rows deleted.
+    """
+    stmt = delete(arena_user_badges).where(arena_user_badges.c.badge == badge.value)
+    if keep_user_ids:
+        stmt = stmt.where(arena_user_badges.c.user_id.notin_(keep_user_ids))
+    result = cast(CursorResult[Any], await session.execute(stmt))
+    return int(result.rowcount or 0)
+
+
+async def fetch_all_ac_metrics(session: AsyncSession) -> list[Row[Any]]:
+    """Return (problem_id, user_id, max_wall_time_ms, max_memory_kb) for every AC.
+
+    One query over all Accepted history, grouped by the caller. Used by the
+    CLEAN_CODE reconciliation, which must rank each problem's whole solver
+    population rather than only the users touched this cycle.
+    """
+    active = active_arena_judgment_subquery()
+    return list(
+        (
+            await session.execute(
+                select(
+                    _submissions.c.problem_id,
+                    _submissions.c.user_id,
+                    _judgments.c.max_wall_time_ms,
+                    _judgments.c.max_memory_kb,
+                ).select_from(ac_join(active))
+            )
+        ).all()
+    )
 
 
 async def fetch_ac_events(

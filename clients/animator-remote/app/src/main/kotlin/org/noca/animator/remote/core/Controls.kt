@@ -23,6 +23,7 @@ data class ControlVisibility(
     val backVisible: Boolean,
     val jumpVisible: Boolean,
     val jumpPendingVisible: Boolean,
+    val mediaVisible: Boolean,
 ) {
     companion object {
         /** Nothing is actionable — an unreadable or unloadable ceremony state. */
@@ -34,6 +35,7 @@ data class ControlVisibility(
             backVisible = false,
             jumpVisible = false,
             jumpPendingVisible = false,
+            mediaVisible = false,
         )
     }
 }
@@ -74,5 +76,49 @@ fun controlsForState(
         backVisible = true,
         jumpVisible = revealing,
         jumpPendingVisible = revealing && projection.nextCell == null,
+        // Gated on a focused team, not on the phase: the cue names no team of
+        // its own, so the server has nothing to read without a cursor. It
+        // survives into `done` on purpose — the champion's photo is the moment
+        // the control exists for, and by then the ceremony has stopped stepping.
+        mediaVisible = projection.focusedTeamId != null,
     )
+}
+
+/**
+ * The three fields that make a projection a *different* moment in the ceremony.
+ *
+ * A direct port of `ceremonySignature` in
+ * `animator/static/js/ceremony-media-cue.js`, kept name-for-name for the same
+ * reason `controlsForState` is: the projector closes its media overlay when this
+ * value changes, and both operator panels reset their Show/Hide label on it. A
+ * second definition of "the ceremony moved" would drift, and the symptom is a
+ * button describing the opposite of what is on the projector.
+ *
+ * Counts and focus cover every command — a step moves one or both, a back moves
+ * them the other way, and reset/start move the phase. Comparing this rather than
+ * the whole projection is what keeps an unchanged reload, or a nudge-driven
+ * refresh that returns identical state, from reading as a change and clearing a
+ * label while the overlay is still up.
+ */
+fun ceremonySignature(projection: RevealProjection?): String {
+    if (projection == null) {
+        return "none"
+    }
+    return "${projection.phase}|${projection.revealedCount}|${projection.focusedTeamId ?: ""}"
+}
+
+/**
+ * How the projector readout is worded.
+ *
+ * A port of `projectorCopy` in `animator/static/js/control-ownership.js`, so
+ * the two controllers name the same fact the same way. `null` is the server
+ * saying it could not tell, which is deliberately not worded as zero: an
+ * outage and an empty hall are different facts, and the operator on stage has
+ * no other way to tell them apart.
+ */
+fun projectorLabel(count: Int?): String = when (count) {
+    null -> "Projector count unavailable"
+    0 -> "No projectors connected"
+    1 -> "1 projector connected"
+    else -> "$count projectors connected"
 }

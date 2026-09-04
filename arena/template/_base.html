@@ -48,6 +48,14 @@
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='confirm-submit.js') }}?v={{ app_version }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='submit-once.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-sse.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-form-draft.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='htmx-poll-backoff.js') }}?v={{ app_version }}"
+                defer></script>
         {% block extra_head %}{% endblock %}
     </head>
     <body>
@@ -120,7 +128,7 @@
                                         data-arena-user-menu-toggle>
                                     <span class="avatar-wrapper avatar-wrapper--sm"
                                           data-user-id="{{ current_user.id }}">
-                                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
+                                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ current_user.avatar_revision }}"
                                              alt="{{ current_user.nome }}"
                                              class="arena-avatar"
                                              title="{{ current_user.nome }}">
@@ -139,7 +147,9 @@
                                         {{ render_icon(icon="account_circle", classes="arena-user-menu-icon") }}
                                         <span>Profile</span>
                                     </a>
-                                    <form method="post" action="{{ request.url_for("arena_logout") }}">
+                                    <form method="post"
+                                          action="{{ request.url_for("arena_logout") }}"
+                                          data-noca-draft-clear>
                                         <button type="submit" class="arena-user-menu-item">
                                             {{ render_icon(icon="logout", classes="arena-user-menu-icon") }}
                                             <span>Logout</span>
@@ -241,6 +251,11 @@
                                 </a>
                             </div>
                         {% endif %}
+                        <a href="{{ request.url_for("arena_announcement_list") }}"
+                           class="nav-link {% block nav_announcements %}{% endblock %}">
+                            {{ render_icon(icon="campaign") }}
+                            <span>Announcements</span>
+                        </a>
                         {% if current_user and current_user.role.value == 'ARENA_ADMIN' %}
                             <a href="{{ request.url_for("arena_admin_dashboard") }}"
                                class="nav-link {% block nav_admin_dashboard %}{% endblock %}">
@@ -256,6 +271,10 @@
                                     <a href="{{ request.url_for("arena_admin_dashboard_security_events") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_dashboard_security_events %}{% endblock %}">
                                         <span>Security Events</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_lockouts") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_lockouts %}{% endblock %}">
+                                        <span>Sign-in lockouts</span>
                                     </a>
                                     <a href="{{ request.url_for("arena_admin_user_list") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_users %}{% endblock %}">
@@ -277,9 +296,17 @@
                                        class="nav-link nav-link-sub {% block nav_admin_dashboard_ai_usage %}{% endblock %}">
                                         <span>AI Usage</span>
                                     </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_terms") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_terms %}{% endblock %}">
+                                        <span>Terms of Service</span>
+                                    </a>
                                     <a href="{{ request.url_for("arena_admin_category_list") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_categories %}{% endblock %}">
                                         <span>Manage categories</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_announcement_list") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_announcements %}{% endblock %}">
+                                        <span>Manage announcements</span>
                                     </a>
                                 </div>
                             {% endif %}
@@ -288,7 +315,9 @@
                 </nav>
                 <div class="arena-sidebar-bottom">
                     {% if current_user %}
-                        <form method="post" action="{{ request.url_for("arena_logout") }}">
+                        <form method="post"
+                              action="{{ request.url_for("arena_logout") }}"
+                              data-noca-draft-clear>
                             <button type="submit" class="nav-link">
                                 {{ render_icon(icon="logout") }}
                                 <span>Logout</span>
@@ -312,6 +341,13 @@
             </main>
         </div>
         {% include "_partials/_footer.html" %}
+        {# The mandatory-announcement pop-up: present on every page a logged-in user
+           loads while an acknowledgment is pending, set on the request by the
+           `load_pending_required_announcement` dependency. #}
+        {% set pending = pending_required_announcement_for(request) %}
+        {% if current_user and pending %}
+            {% include "_partials/_announcement_required_modal.html" %}
+        {% endif %}
         <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
         <script src="{{ request.url_for("arena_static_js", path="arena-layout.js") }}?v={{ app_version }}"></script>
         {% if current_user %}
@@ -321,6 +357,15 @@
                heartbeat is also what keeps the sliding session alive while the user
                reads or types without navigating. `data-presence-enabled` governs the
                green-dot refresh alone. #}
+            {# Browser drafts (`noca-form-draft.js`) are scoped to the account
+               that wrote them and deleted only once the server confirms the
+               save landed; both facts are rendered here for every page. #}
+            {% set draft_owner = form_draft_owner(request) %}
+            {% if draft_owner %}
+                <div data-noca-draft-owner="{{ draft_owner }}" hidden></div>
+            {% endif %}
+            {% set draft_confirmed = form_draft_confirmed(request) %}
+            {% if draft_confirmed %}<div data-noca-draft-confirmed="{{ draft_confirmed }}" hidden></div>{% endif %}
             {% set heartbeat = heartbeat_config(request) %}
             <div data-noca-presence
                  data-heartbeat-url="{{ heartbeat.heartbeat_url }}"

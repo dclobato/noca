@@ -1,0 +1,60 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+{% extends "_auth_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}&mdash; Link Google Account{% endblock %}
+{% block auth_content %}
+    <div class="container arena-auth-flow-page my-auto">
+        <div class="arena-auth-flow-shell">
+            <aside class="arena-auth-flow-welcome">
+                <div class="arena-auth-flow-welcome-copy">
+                    <p class="arena-auth-flow-welcome-title">One account, two doors.</p>
+                    <p class="arena-auth-flow-welcome-text">
+                        You're signed in. Link the Google account you started with, and either sign-in opens this account.
+                    </p>
+                </div>
+                <img class="arena-auth-flow-mascot"
+                     src="{{ request.url_for('arena_static_img', path='welcome.webp') }}"
+                     alt="">
+            </aside>
+            <main class="arena-auth-card arena-auth-flow-card">
+                <div class="arena-auth-flow-heading">
+                    <h1 class="arena-auth-title">Link your Google account</h1>
+                    <p class="arena-auth-subtitle">
+                        Signed in as <strong>{{ account_email }}</strong>.
+                    </p>
+                </div>
+                <div class="arena-auth-identity-strip">
+                    <img src="{{ request.url_for("arena_static_img", path="google.svg") }}"
+                         alt=""
+                         width="16"
+                         height="16">
+                    <span>Google account <strong>{{ google_email }}</strong></span>
+                </div>
+                <p class="arena-2fa-help">
+                    Linking lets anyone who can sign in to that Google account open this Arena account.
+                    Continue only if it is yours. The unfinished Google sign-up will be discarded; nothing
+                    else about your account changes.
+                </p>
+                <form method="post"
+                      action="{{ request.url_for("arena_google_link_existing_submit") }}"
+                      class="arena-auth-flow-form">
+                    <button type="submit"
+                            name="decision"
+                            value="link"
+                            class="btn arena-btn-primary arena-auth-flow-submit w-100">
+                        Link Google account
+                        {{ render_icon(icon="link", classes="arena-auth-flow-submit-icon") }}
+                    </button>
+                    <button type="submit"
+                            name="decision"
+                            value="cancel"
+                            class="btn btn-outline-secondary w-100 mt-2">Not now</button>
+                </form>
+            </main>
+        </div>
+    </div>
+{% endblock %}

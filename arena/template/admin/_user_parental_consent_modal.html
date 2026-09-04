@@ -1,0 +1,82 @@
+{# Password-confirmation modal for the parental-consent toggle.
+
+   Kept in its own partial rather than inline: user_profile.html is already far past the
+   AGENTS.md size bound, and this control needs the same re-confirmation its privileged
+   siblings use because withdrawing consent suspends the account and ends its sessions.
+
+   It states the same effects, in the same order, as the guardian's own withdrawal page:
+   both doors call one write path (`user_service.revoke_parental_consent`), so an
+   administrator must not be shown a lighter account of what it does. #}
+{% from "_macros.html" import render_icon with context %}
+<div class="modal fade"
+     id="confirmParentalConsentModal"
+     tabindex="-1"
+     aria-labelledby="confirmParentalConsentLabel"
+     aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmParentalConsentLabel">
+                    {{ 'Withdraw parental consent' if target_user.consentimento_responsavel else 'Grant parental consent' }}
+                </h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <form method="post"
+                  action="{{ request.url_for('arena_admin_user_toggle_parental_consent', user_id=target_user.id) }}">
+                {{ back_fields() }}
+                <div class="modal-body">
+                    {% if target_user.consentimento_responsavel %}
+                        <p class="arena-consent-account">
+                            Withdraw parental consent for <strong>{{ target_user.nome }}</strong>?
+                        </p>
+                        <ul class="arena-consent-effects">
+                            <li class="arena-consent-effect">
+                                {{ render_icon(icon="lock") }}
+                                <span>{{ target_user.nome }} will no longer be able to log in.</span>
+                            </li>
+                            <li class="arena-consent-effect">
+                                {{ render_icon(icon="logout") }}
+                                <span>Any session open right now ends.</span>
+                            </li>
+                            <li class="arena-consent-effect">
+                                {{ render_icon(icon="visibility_off") }}
+                                <span>The name stops appearing on every public page.</span>
+                            </li>
+                        </ul>
+                        <p class="arena-consent-keeps">
+                            {{ render_icon(icon="inventory_2") }}
+                            <span><strong>Nothing is deleted.</strong> Submissions, results and history are kept.</span>
+                        </p>
+                    {% else %}
+                        <p class="arena-consent-account">
+                            Grant parental consent for <strong>{{ target_user.nome }}</strong>? The account becomes
+                            active again once its remaining gates are clear.
+                        </p>
+                    {% endif %}
+                    <p class="arena-admin-field-note">
+                        Either way, any withdrawal link already sent to the parent or legal guardian stops working.
+                    </p>
+                    <label class="form-label" for="confirm-pw-parental-consent">Your password</label>
+                    <input type="password"
+                           class="form-control"
+                           id="confirm-pw-parental-consent"
+                           name="confirm_password"
+                           autocomplete="current-password"
+                           required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit"
+                            class="btn btn-sm {{ 'btn-danger' if target_user.consentimento_responsavel else 'btn-success' }}">
+                        {{ 'Withdraw consent' if target_user.consentimento_responsavel else 'Grant consent' }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

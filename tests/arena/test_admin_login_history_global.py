@@ -310,6 +310,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         ("/admin/dashboard", "arena_admin_dashboard"),
         ("/admin/dashboard/service-status", "arena_admin_dashboard_service_status"),
         ("/admin/dashboard/ai-usage", "arena_admin_dashboard_ai_usage"),
+        ("/admin/dashboard/terms", "arena_admin_dashboard_terms"),
     ]:
         app.add_api_route(path, lambda: Response("stub"), name=name)  # type: ignore[arg-type]
 
@@ -388,7 +389,7 @@ async def test_login_history_route_renders_flag_and_detailed_location(session: A
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/admin/dashboard/login-history")
     assert response.status_code == 200
-    assert "img/flags/br.svg" in response.text
+    assert "img/state-flags/BR.svg" in response.text
     assert "Brazil" in response.text
     assert "São Paulo" in response.text
     assert 'data-login-source-port="54321"' in response.text

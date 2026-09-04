@@ -31,6 +31,7 @@ from animator.database import create_engine, create_session_factory
 from animator.error_handlers import register_error_handlers
 from animator.routes.assets import router as assets_router
 from animator.routes.control import router as control_router
+from animator.routes.control_media import router as control_media_router
 from animator.routes.control_page import router as control_page_router
 from animator.routes.controller_lease import router as controller_lease_router
 from animator.routes.health import router as health_router
@@ -39,6 +40,8 @@ from animator.routes.public import router as public_router
 from animator.routes.reveal_public import router as reveal_public_router
 from animator.routes.team_media import router as team_media_router
 from animator.services.event_stream_service import AnimatorEventStream
+from animator.services.feed_cache import AnimatorFeedCache
+from animator.services.sse_capacity import SseCapacity
 from shared.app_logging import configure_logging
 from shared.enumerations import Environment
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
@@ -89,6 +92,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.db_session = create_session_factory(engine)
     logger.info("- Database connection pool opened")
 
+    # Created ahead of the Valkey branch: the feeds must keep working without
+    # Valkey, in which case the cache relies on its TTLs alone.
+    feed_cache = AnimatorFeedCache()
+    app.state.feed_cache = feed_cache
+    # Valkey-independent ceiling on open SSE clients, shared by both streams.
+    app.state.sse_capacity = SseCapacity(settings.MAX_SSE_CLIENTS)
+
     valkey_runtime: ValkeyRuntime | None = None
     event_stream: AnimatorEventStream | None = None
     presence_stop: asyncio.Event | None = None
@@ -103,7 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.valkey_runtime = valkey_runtime
         logger.info("- Valkey runtime started")
 
-        event_stream = AnimatorEventStream(valkey_runtime)
+        event_stream = AnimatorEventStream(valkey_runtime, on_contest_changed=feed_cache.invalidate_contest)
         await event_stream.start()
         app.state.event_stream = event_stream
         logger.info("- Animator event stream started")
@@ -259,6 +269,7 @@ app.include_router(team_media_router)
 app.include_router(control_page_router)
 app.include_router(controller_lease_router)
 app.include_router(control_router)
+app.include_router(control_media_router)
 
 
 def main() -> None:

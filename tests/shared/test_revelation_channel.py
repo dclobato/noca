@@ -20,7 +20,10 @@ import valkey.asyncio as aivalkey
 from shared.reveal_schema import (
     GLOBAL_SCOPE,
     REVEAL_EVENT_VERSION,
+    RevealMediaAction,
+    RevealMediaCueEvent,
     RevealStateChangedEvent,
+    parse_revelation_event,
 )
 from shared.services.valkey_service import (
     REVELATION_CHANNEL_PREFIX,
@@ -33,6 +36,21 @@ from shared.services.valkey_service import (
 )
 from shared.services.valkey_service.runtime import ValkeyRuntime
 from web.config import settings
+
+
+def _make_cue(
+    contest_id: str,
+    scope: str,
+    action: RevealMediaAction,
+    team_id: str | None,
+) -> RevealMediaCueEvent:
+    return RevealMediaCueEvent(
+        contest_id=contest_id,
+        scope=scope,
+        action=action,
+        team_id=team_id,
+        published_at=datetime.now(UTC),
+    )
 
 
 def _make_event(contest_id: str, scope: str) -> RevealStateChangedEvent:
@@ -145,6 +163,65 @@ def test_event_forbids_extra_fields() -> None:
     payload["surprise"] = "x"
     with pytest.raises(ValueError):
         RevealStateChangedEvent.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# The channel's second payload: transient media cues
+# ---------------------------------------------------------------------------
+
+
+def test_media_cue_round_trips_through_json() -> None:
+    cue = _make_cue("c", GLOBAL_SCOPE, "show", "team-1")
+    restored = RevealMediaCueEvent.model_validate_json(cue.model_dump_json())
+    assert restored == cue
+    assert restored.event_version == REVEAL_EVENT_VERSION
+
+
+def test_the_two_payloads_cannot_be_mistaken_for_each_other() -> None:
+    """The whole compatibility argument for discriminating by shape, pinned.
+
+    Both models forbid extra fields and their required fields are disjoint, so
+    trying them in turn cannot mis-assign a frame. This is what lets the channel
+    carry a second payload **without** adding a discriminator field to
+    :class:`RevealStateChangedEvent` — which would be a breaking change, since an
+    already-deployed replica's ``extra="forbid"`` would reject every new nudge
+    and silently freeze its projectors mid-ceremony.
+    """
+    nudge = _make_event("c", GLOBAL_SCOPE)
+    cue = _make_cue("c", GLOBAL_SCOPE, "show", "team-1")
+
+    with pytest.raises(ValueError):
+        RevealStateChangedEvent.model_validate_json(cue.model_dump_json())
+    with pytest.raises(ValueError):
+        RevealMediaCueEvent.model_validate_json(nudge.model_dump_json())
+
+
+def test_parse_revelation_event_returns_the_right_model() -> None:
+    nudge = _make_event("c", GLOBAL_SCOPE)
+    cue = _make_cue("c", GLOBAL_SCOPE, "hide", None)
+
+    assert parse_revelation_event(nudge.model_dump_json()) == nudge
+    assert parse_revelation_event(cue.model_dump_json()) == cue
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not json at all",
+        "{}",
+        '{"event_version": 2, "contest_id": "c", "scope": "global", "action": "show", '
+        '"team_id": null, "published_at": "2026-01-01T00:00:00Z"}',
+        '{"contest_id": "c", "scope": "global", "action": "sideways", '
+        '"team_id": null, "published_at": "2026-01-01T00:00:00Z"}',
+    ],
+)
+def test_parse_revelation_event_returns_none_for_anything_else(payload: str) -> None:
+    """A frame this build cannot read is dropped, never raised.
+
+    That is what lets a newer producer add a payload shape without a lockstep
+    deploy: an older replica simply ignores the frame it does not understand.
+    """
+    assert parse_revelation_event(payload) is None
 
 
 @pytest.mark.asyncio

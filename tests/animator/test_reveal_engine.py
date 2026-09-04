@@ -339,7 +339,10 @@ async def test_problem_traversal_follows_ordinals_not_label_strings() -> None:
         teams=[team],
         problems=problems,
         submissions=runs,
-        judgments={"s-aa": JudgmentRecord(final_verdict=Verdict.WA), "s-z": JudgmentRecord(final_verdict=Verdict.WA)},
+        judgments={
+            "s-aa": JudgmentRecord(id="j-aa", final_verdict=Verdict.WA),
+            "s-z": JudgmentRecord(id="j-z", final_verdict=Verdict.WA),
+        },
         site_names={},
     )
     state = RevealSessionState(

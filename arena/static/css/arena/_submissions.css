@@ -99,6 +99,55 @@ body.arena-editor-resizing {
     margin-bottom: 0;
 }
 
+/* Side-by-side line diff of the first differing lines (see output_diff.py) */
+.arena-output-diff {
+    overflow-x: auto;
+}
+
+.arena-output-diff-table {
+    font-size: 0.875rem;
+    table-layout: fixed;
+    min-width: 32rem;
+}
+
+.arena-output-diff-no {
+    width: 3rem;
+    color: var(--bs-secondary-color);
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    text-align: right;
+    user-select: none;
+    vertical-align: top;
+}
+
+.arena-output-diff-cell {
+    vertical-align: top;
+}
+
+.arena-output-diff-pre {
+    font-size: inherit;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+}
+
+.arena-output-diff-changed,
+.arena-output-diff-extra {
+    background: var(--bs-danger-bg-subtle);
+}
+
+.arena-output-diff-missing {
+    background: var(--bs-success-bg-subtle);
+}
+
+.arena-output-diff-whitespace {
+    background: var(--bs-warning-bg-subtle);
+}
+
+.arena-output-diff-equal {
+    color: var(--bs-secondary-color);
+}
+
 /* ── Teacher feedback on a submission ───────────────────────────────────── */
 .arena-feedback-text {
     white-space: pre-wrap;

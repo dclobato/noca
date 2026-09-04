@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 def _arena_backend_context(request: Request) -> dict[str, object]:
     """Return Arena template context with its backend-error illustration."""
     return {
-        "error_image_url": request.url_for("arena_static_img", path="500.png"),
+        "error_image_url": request.url_for("arena_static_img", path="500.webp"),
     }
 
 
@@ -73,7 +73,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
 def _render_404(request: Request) -> Response:
     """Render the branded Arena page-not-found response."""
-    img_url = request.url_for("arena_static_img", path="404.png")
+    img_url = request.url_for("arena_static_img", path="404.webp")
     templates: Jinja2Templates = request.app.state.arena_templates
     return cast(
         Response,

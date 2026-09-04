@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -56,6 +56,7 @@ class UserOperationStatus(Enum):
         PARENTAL_CONSENT_REQUIRED: The account requires parent/legal guardian consent.
         AGE_RECONFIRMATION_REQUIRED: The account needs date-of-birth regularisation.
         UNDERAGE_BLOCKED: The user is younger than the minimum allowed age.
+        USERNAME_CONFLICT: A unique username could not be allocated.
         UNKNOWN: An unexpected error occurred.
     """
 
@@ -73,6 +74,7 @@ class UserOperationStatus(Enum):
     PARENTAL_CONSENT_REQUIRED = 11
     AGE_RECONFIRMATION_REQUIRED = 12
     UNDERAGE_BLOCKED = 13
+    USERNAME_CONFLICT = 14
     UNKNOWN = 99
 
 
@@ -97,12 +99,41 @@ class UserServiceResult:
     extra_data: dict[str, Any] | None = None
 
 
+def _clear_public_identity_flags(usuario: ArenaUser) -> None:
+    """Clear both public-identity opt-ins for an account entering the age shield.
+
+    Read-side masking alone is not enough, which is the whole reason this exists:
+    a 13-17 year-old whose ``public_profile`` is merely *hidden* would have their
+    profile **auto-publish** on the morning of their eighteenth birthday, when the
+    mask lifts and the stored ``True`` is suddenly honoured. Turning 18 must only
+    unblock the toggle, never flip it. So the stored flags are cleared, and the
+    user opts back in explicitly if they still want to.
+
+    Args:
+        usuario: Arena user transitioning into the shielded band.
+    """
+    usuario.public_profile = False
+    usuario.full_name_public = False
+
+
 async def regularizar_data_nascimento(
     user_id: str,
     dta_nascimento: date,
     session: AsyncSession,
 ) -> UserServiceResult:
     """Store a missing date of birth and apply age-gate defaults.
+
+    A non-``ALLOWED`` outcome clears both public-identity opt-ins, for the reason
+    given in :func:`_clear_public_identity_flags`. It deliberately does **not**
+    invalidate sessions, unlike :func:`update_date_of_birth`: that is a
+    consent-revocation concern owned by the guardian-revocation work, and it would
+    buy nothing here, since ``get_current_arena_user`` re-checks ``ativo`` and the
+    consent gate on every request, so a surviving JWT already grants nothing.
+
+    ``consent_generation`` is bumped on **both** branches because each is a
+    consent-state transition -- the ``ALLOWED`` branch grants consent just as the
+    other revokes it -- and the epoch's purpose is to bind a guardian's revocation
+    link to exactly one such state.
 
     Args:
         user_id: UUID string of the target user.
@@ -129,6 +160,8 @@ async def regularizar_data_nascimento(
     else:
         usuario.consentimento_responsavel = False
         usuario.dta_consentimento_responsavel = None
+        _clear_public_identity_flags(usuario)
+    usuario.consent_generation += 1
     await session.flush()
     return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
 
@@ -142,6 +175,12 @@ async def update_date_of_birth(
 
     The parental-consent fields are left unchanged for adults because they are
     not part of the adult access gate.
+
+    A change *into* the shielded band additionally clears both public-identity
+    opt-ins; see :func:`_clear_public_identity_flags` for why masking them at read
+    time would not be enough. ``consent_generation`` is bumped on every effective
+    change, so a guardian revocation link minted against an earlier epoch cannot
+    be replayed after the account's age standing has moved.
 
     Args:
         usuario: Arena user whose date of birth is being changed.
@@ -169,11 +208,79 @@ async def update_date_of_birth(
     if status in {AgeStatus.BLOCKED, AgeStatus.NEEDS_PARENTAL_CONSENT}:
         usuario.consentimento_responsavel = False
         usuario.dta_consentimento_responsavel = None
+        _clear_public_identity_flags(usuario)
         await invalidate_sessions(usuario, session)
 
+    usuario.consent_generation += 1
     await session.flush()
     logger.warning("Updated date of birth for %s (age_status=%s)", usuario.email, status.name)
     return status
+
+
+async def grant_parental_consent(usuario: ArenaUser, session: AsyncSession) -> bool:
+    """Record parent/legal guardian consent, bumping the consent epoch.
+
+    The single write path for granting consent, shared by the guardian token flow and
+    the admin toggle so both bump ``consent_generation``. The bump is what mints a new
+    revocation epoch: the link in the confirmation email that follows a grant carries the
+    post-grant value, and every link issued before it becomes inert.
+
+    Args:
+        usuario: Arena user whose guardian is granting consent.
+        session: Active async database session.
+
+    Returns:
+        bool: ``True`` when this call performed the transition, ``False`` when consent
+            was already granted. Callers must use this to decide whether to notify or
+            record an event, so a re-opened link neither re-emails nor re-audits.
+    """
+    if usuario.consentimento_responsavel:
+        return False
+    usuario.consentimento_responsavel = True
+    usuario.dta_consentimento_responsavel = _utcnow()
+    usuario.consent_generation += 1
+    await session.flush()
+    logger.info("Parental consent granted for %s (consent_generation=%d)", usuario.email, usuario.consent_generation)
+    return True
+
+
+async def revoke_parental_consent(usuario: ArenaUser, session: AsyncSession) -> bool:
+    """Withdraw parent/legal guardian consent and suspend the account.
+
+    The single write path for revocation, shared by the guardian token flow and the admin
+    toggle so the two cannot drift in security effect. Composed from existing primitives:
+    the consent fields are cleared, the account is deactivated, live JWTs are killed by
+    bumping ``session_version`` (``desativar_conta`` does not do this on its own, so
+    callers pair the two), both public-identity opt-ins are cleared, and the consent epoch
+    is bumped so every outstanding revocation link becomes inert.
+
+    **Revocation suspends; it does not erase.** Submissions, verdicts, badges, ratings and
+    class memberships are untouched -- erasure is a separate right with its own flow.
+    Recovery is a fresh consent grant, either through
+    ``POST /auth/resend-parental-consent`` or the admin toggle.
+
+    ``ranking_visible`` is deliberately **not** touched. The public user ranking already
+    drops the row through ``ativo``, while the affiliation aggregation in
+    ``shared/services/arena_rating.py`` filters on ``ranking_visible`` alone -- so clearing
+    it would move a third party's affiliation rating as a side effect of one family's
+    consent decision.
+
+    Args:
+        usuario: Arena user whose guardian is withdrawing consent.
+        session: Active async database session.
+
+    Returns:
+        bool: Always ``True``.
+    """
+    usuario.consentimento_responsavel = False
+    usuario.dta_consentimento_responsavel = None
+    await desativar_conta(usuario, session)
+    await invalidate_sessions(usuario, session)
+    _clear_public_identity_flags(usuario)
+    usuario.consent_generation += 1
+    await session.flush()
+    logger.warning("Parental consent revoked for %s (consent_generation=%d)", usuario.email, usuario.consent_generation)
+    return True
 
 
 async def ativar_conta(usuario: ArenaUser, session: AsyncSession) -> bool:

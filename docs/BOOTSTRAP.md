@@ -7,12 +7,12 @@ clone. It also covers the standalone `landingpage` Caddy container.
 
 The repo supports two real startup modes:
 
-- local development: run `web`, `arena`, `autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` directly on the host
+- local development: run `web`, `arena`, `autojudge`, `rating`, `aiassistant`, `mailer`, `healthmonitor`, and `animator` directly on the host
 - container runtime: run `web`, `arena`, `autojudge`, `rating`, `aiassistant`,
   `healthmonitor`, `animator`, and `landingpage` from Docker images
 
 For day-to-day development, the intended workflow is host-run `web`, `arena`,
-`autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator`, with
+`autojudge`, `rating`, `aiassistant`, `mailer`, `healthmonitor`, and `animator`, with
 PostgreSQL and Valkey running in Docker containers and accessed via the host
 network.
 
@@ -39,11 +39,25 @@ uv sync --all-packages
 uv lock
 ```
 
-2. Copy the tracked environment template:
+2. Copy the tracked environment templates. Configuration is split into layers --
+one file per coherent group of settings, composed per service (see
+[ENV_LAYERS.md](ENV_LAYERS.md)). A development install running everything on one
+host can flatten them into a single `.env`, which is what the console-script
+entrypoints read:
 
 ```bash
-cp .env.full .env
+cat .env.common.full .env.database.full .env.http.full .env.webarena.full \
+    .env.email.full .env.storage.full .env.workers.full .env.aireview.full \
+    .env.web.full .env.arena.full .env.autojudge.full .env.rating.full \
+    .env.aiassistant.full .env.mailer.full .env.healthmonitor.full \
+    .env.animator.full .env.compose.full .env.devtools.full > .env
 ```
+
+A container deployment keeps them separate instead and lists each service's stack
+in `env_file:`, as `docker-compose.yml.sample` does. The sample stack bind-mounts
+`problem_statements`, `problem_testcases`, and `email_log` directly below the
+project directory. Keep `NOCA_DATA_ROOT=.` so `scripts/backup_noca.sh` archives
+the live directories it expects.
 
 Set the required database, Valkey, and storage variables in `.env`, plus the
 public URL variables needed by your environment. Also set
@@ -69,7 +83,7 @@ uv run python scripts/fetch_assets.py
 cp docker-compose.yml.sample docker-compose-db-valkey.yml
 # Then edit the file:
 # - keep only the postgres and valkey services (remove caddy, web, arena,
-#   autojudge, rating, aiassistant, healthmonitor, animator, and landingpage)
+#   autojudge, rating, aiassistant, mailer, healthmonitor, animator, and landingpage)
 # - add ports:
 #   postgres: - 5432:5432
 #   valkey:   - 6379:6379
@@ -105,7 +119,15 @@ uv run python scripts/arena/upsert_arena_categories.py scripts/arena/categories-
 To seed Portuguese categories instead, use
 `scripts/arena/categories-pt.txt`.
 
-8. Start the web app:
+8. Start the mailer worker first -- the web app and Arena wait for it at startup
+   (they queue every email for it), and with `NOCA_SEND_EMAIL=false` it simply
+   prints each email to its log:
+
+```bash
+uv run noca-mailer
+```
+
+9. Start the web app:
 
 ```bash
 uv run noca-web
@@ -239,7 +261,7 @@ Important variable guidance:
 | `NOCA_DB_PASSWORD` | Must match the password stored in the PostgreSQL data volume |
 | `NOCA_DB_SERVER` | Use `127.0.0.1` on WSL2; avoid `localhost` because `asyncpg` may prefer IPv6 first |
 | `NOCA_DB_NAME` | Database name, typically `noca` |
-| `NOCA_DATA_ROOT` | Root for local data directories, for example `.docker` |
+| `NOCA_DATA_ROOT` | Compose-only root for bind-mounted data. The sample container stack uses `.` to match `scripts/backup_noca.sh`; direct development paths can remain under `.docker`. |
 | `NOCA_WEB_PROBLEM_STATEMENT_DIR` | Usually `<NOCA_DATA_ROOT>/problem_statements` |
 | `NOCA_PROBLEM_TESTCASE_DIR` | Usually `<NOCA_DATA_ROOT>/problem_test_cases`; shared root for web, arena, and autojudge (subdirs `contest/` and `arena/`). Must support atomic same-directory renames; hardlinks are used when available (see above) |
 | `NOCA_VALKEY_USER` | Leave empty in development when using the local container without auth |
@@ -411,6 +433,43 @@ What happens during worker startup:
    `NOCA_WORKER_COMMAND_SECRET` is set, it also starts a pause/resume and
    trigger command loop.
 
+### Mailer bootstrap on the host
+
+Run:
+
+```bash
+uv run noca-mailer
+```
+
+What the worker requires before startup:
+
+- reachable PostgreSQL (pause-state reconciliation only)
+- reachable Valkey
+- its own email settings (`NOCA_SEND_EMAIL`, `NOCA_EMAIL_PROVIDER`,
+  `NOCA_SMTP_*`) -- the only place in NOCA they exist; with sending disabled or
+  the mock provider it drains the queue into its log
+
+What happens during worker startup:
+
+1. `mailer.worker:main()` configures logging and starts the async worker.
+2. The worker builds the email provider, then connects to PostgreSQL and Valkey.
+3. It starts its async loops: the dequeue loop (paced to
+   `NOCA_MAILER_MAX_PER_MINUTE`), the stale-job reaper loop, the heartbeat and
+   worker-presence loops, and the pause/resume command loop when
+   `NOCA_WORKER_COMMAND_SECRET` is set.
+
+Web and Arena always hand their email to this worker and **wait for it at
+startup** (`wait_for_mailer`, bounded by `NOCA_STARTUP_TIMEOUT_SECONDS`), so
+start it before them. In development, with `NOCA_SEND_EMAIL=false`, it prints
+each email to its log instead of sending it. Once the servers are up a mailer
+restart is harmless: sends only need Valkey, and queued mail waits.
+
+There is no circular dependency with migrations: the web/arena container
+entrypoints migrate the schema *before* the app -- and this wait -- starts, and
+the mailer's `wait_for_migrations` clears on that. Do not add a compose
+`depends_on` from `web`/`arena` to the mailer's healthcheck: the mailer only
+becomes healthy after a steward migrated.
+
 ### Host-run worker checklist:
 
 - Valkey is reachable (`NOCA_VALKEY_*`)
@@ -475,7 +534,7 @@ Common issues:
 ## Container Bootstrap
 
 The container runtime is slightly different because `web`, `arena`,
-`autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` have
+`autojudge`, `rating`, `aiassistant`, `mailer`, `healthmonitor`, and `animator` have
 entrypoint scripts.
 
 The `landingpage` container has its own smaller entrypoint. It validates the
@@ -548,6 +607,14 @@ Operational consequence:
    `scripts/wait_for_migrations.py`
 4. exec the worker command
 
+### Mailer container bootstrap
+
+`containers/mailer/entrypoint.sh` performs the same sequence as the AI
+assistant one: wait for PostgreSQL, wait for Valkey, wait for the schema to
+reach the latest migration via `scripts/wait_for_migrations.py`, then exec the
+worker command (`noca-mailer`). The worker never migrates: it reads PostgreSQL
+only to reconcile its pause state.
+
 ### Health monitor container bootstrap
 
 `containers/healthmonitor/entrypoint.sh` performs this sequence:
@@ -585,7 +652,7 @@ Operational consequence:
 
 ## Versioning
 
-All eight workspace members derive their version from the root `pyproject.toml` via
+All nine workspace members derive their version from the root `pyproject.toml` via
 Hatchling's `regex` version source. There is one place to bump the version:
 
 ```toml
@@ -610,7 +677,7 @@ version changes):
 ```bash
 uv sync --all-packages --reinstall-package noca-shared --reinstall-package noca-web \
   --reinstall-package noca-arena --reinstall-package noca-autojudge \
-  --reinstall-package noca-rating --reinstall-package noca-aiassistant \
+  --reinstall-package noca-rating --reinstall-package noca-aiassistant --reinstall-package noca-mailer \
   --reinstall-package noca-healthmonitor --reinstall-package noca-animator
 ```
 
@@ -624,6 +691,7 @@ The current bootstrap behavior is defined in:
 - `arena/main.py` for host-run arena startup
 - `rating/worker.py` for host-run rating worker startup
 - `aiassistant/worker.py` for host-run AI assistant startup
+- `mailer/worker.py` for host-run mailer startup
 - `healthmonitor/main.py` for host-run health monitor startup
 - `landingpage/Caddyfile` and `containers/landingpage/entrypoint.sh` for the
   standalone landing-page runtime
@@ -633,6 +701,7 @@ The current bootstrap behavior is defined in:
 - `containers/arena/entrypoint.sh` for containerized arena bootstrap
 - `containers/rating/entrypoint.sh` for containerized rating worker bootstrap
 - `containers/aiassistant/entrypoint.sh` for containerized AI assistant bootstrap
+- `containers/mailer/entrypoint.sh` for containerized mailer bootstrap
 - `containers/autojudge/entrypoint.sh` for containerized autojudge worker bootstrap
 - `containers/healthmonitor/entrypoint.sh` for containerized health monitor
   bootstrap (Valkey-only: it never touches PostgreSQL or migrations)

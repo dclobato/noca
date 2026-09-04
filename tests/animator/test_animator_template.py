@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import animator.main as animator_main
+from animator.services.feed_cache import AnimatorFeedCache
 from tests.animator._feed_seed import make_contest, seed_dataset
 from web.models.site import Site
 from web.models.users import UberAdmin
@@ -56,6 +57,7 @@ def _wire_app(engine: AsyncEngine) -> None:
     static mount referenced by ``_base.html`` (so ``request.url_for`` resolves).
     httpx's ASGITransport does not run the lifespan, so state is set here.
     """
+    animator_main.app.state.feed_cache = AnimatorFeedCache()
     animator_main.app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     animator_main.app.state.templates = _build_templates()
 
@@ -124,7 +126,6 @@ async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: 
     # The asset mount bases let the client build per-problem balloon/star <img>
     # URLs served by the animator's own /assets route.
     assert 'data-balloon-base="http://test/assets/balloon"' in html
-    assert 'data-star-base="http://test/assets/star"' in html
     # The medal base drives the podium watermark, which the live board renders
     # from the same primitives the reveal projector uses.
     assert 'data-medal-base="http://test/assets/medal"' in html
@@ -392,7 +393,7 @@ def test_scoreboard_header_is_sticky_and_opaque() -> None:
     assert "background-color: var(--noca-surface-container)" in header
 
 
-def test_problem_columns_share_one_fixed_width_and_neutral_result_backgrounds() -> None:
+def test_problem_columns_share_one_fixed_width_and_solved_cells_carry_their_balloon() -> None:
     css = _board_css()
     header = _rule_body(css, ".animator-problem-col")
     cell = _rule_body(css, ".animator-cell")
@@ -404,8 +405,16 @@ def test_problem_columns_share_one_fixed_width_and_neutral_result_backgrounds() 
     ]:
         assert declaration in header
         assert declaration in cell
-    assert "background-color: transparent" in _rule_body(css, ".animator-cell--solved")
-    assert "background-color: transparent" in _rule_body(css, ".animator-cell--attempted")
+    # A solved cell is tinted with the problem's own balloon colour, not with a
+    # semantic green: what it reports is which balloon the team won. The fallback
+    # covers a problem whose stored colour failed validation, and the mix is
+    # against a theme-scoped surface so no dark override is needed.
+    solved = _rule_body(css, ".animator-cell--solved")
+    assert "var(--noca-cell-balloon, var(--noca-success))" in solved
+    assert "var(--noca-surface)" in solved
+    # An unsolved attempt has no balloon to name, so there the colour is the
+    # semantics -- and it stays weaker than the solved tint.
+    assert "var(--noca-danger)" in _rule_body(css, ".animator-cell--attempted")
 
 
 def test_team_site_typography_is_explicit_and_shared() -> None:
@@ -444,8 +453,8 @@ def test_row_movement_and_cell_highlights_use_independent_timings() -> None:
     row = _rule_body(board, ".animator-scoreboard tbody tr")
     cell = _rule_body(board, ".animator-cell")
 
-    assert "--animator-row-motion-duration: 1s" in root
-    assert "--animator-row-motion-easing: ease" in root
+    assert "--animator-row-motion-duration: 5s" in root
+    assert "--animator-row-motion-easing: cubic-bezier(0.65, 0, 0.35, 1)" in root
     assert "transition-duration: var(--animator-row-motion-duration), 0.45s, 0.45s" in row
     assert "transition-timing-function: var(--animator-row-motion-easing), ease, ease" in row
     assert "transition-duration: 0.45s" in cell
@@ -467,3 +476,43 @@ def _rule_body(css: str, selector: str) -> str:
     start = css.index(needle) + len(needle)
     end = css.index("}", start)
     return css[start:end].strip()
+
+
+def test_an_ended_contest_watches_for_its_release_instead_of_streaming() -> None:
+    """Do not hold a live stream open for a contest that has nothing to stream.
+
+    Releasing a scoreboard publishes no event -- ``release_scoreboard`` writes a
+    flag, audits it and pre-warms a cache -- ``timer_tick`` deliberately triggers
+    no refetch, and once the pre-end judging queue drains no verdict fires
+    either. An SSE connection left open on an ended, still-frozen board would sit
+    there delivering nothing under a badge reading "Live", and the release would
+    never arrive: a projector would keep showing frozen standings until somebody
+    reloaded it.
+    """
+    js_dir = _STATIC_DIR / "js"
+    app_js = (js_dir / "animator.js").read_text(encoding="utf-8")
+    status_js = (js_dir / "animator-connection-status.js").read_text(encoding="utf-8")
+
+    # Three end states, not two: released final, ended-but-frozen, and streaming.
+    assert "watchForRelease" in app_js
+    assert "cancelReleaseWatch" in app_js
+    # The ended branch must not start the live transport.
+    ended_branch = app_js[
+        app_js.index("} else if (ended) {") : app_js.index("} else {", app_js.index("} else if (ended) {"))
+    ]
+    assert "watchForRelease" in ended_branch
+    assert "startLive" not in ended_branch
+
+    # A reload or retry must not leave a previous watch polling forever.
+    load_body = app_js[app_js.index("function load(refs, timer, board, appliers, onSubmission, connectionStatus) {") :]
+    assert "cancelReleaseWatch();" in load_body[: load_body.index("Promise.all")]
+
+    # The badge says what is actually happening, and "waiting" is not degraded:
+    # nothing is wrong, so it must not start the outage clock.
+    assert '"Waiting for results"' in status_js
+    degraded = status_js[
+        status_js.index("var DEGRADED_STATUSES = {") : status_js.index(
+            "};", status_js.index("var DEGRADED_STATUSES = {")
+        )
+    ]
+    assert "waiting" not in degraded

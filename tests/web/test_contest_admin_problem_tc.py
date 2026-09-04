@@ -174,3 +174,13 @@ def test_problem_detail_template_includes_shared_image_figure() -> None:
 
     assert "_partials/problem_image_figure.html" in template
     assert "problem.problem_image_base64" in template
+
+
+def test_problem_detail_header_credits_the_author() -> None:
+    """The problem header should show author credit instead of the contest name."""
+    template = Path("web/template/contest/problem_detail.html").read_text(encoding="utf-8")
+
+    assert "{% if problem.author %}" in template
+    assert 'render_icon(icon="person", classes="me-1")' in template
+    assert "By {{ problem.author }}" in template
+    assert "{{ contest.contest_name }}" not in template

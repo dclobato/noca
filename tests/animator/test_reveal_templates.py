@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import animator.main as animator_main
 from animator.config import settings
+from animator.services.feed_cache import AnimatorFeedCache
 from tests.animator._reveal_seed import Ceremony, seed_ceremony
 from web.models.users import UberAdmin
 
@@ -64,6 +65,7 @@ def _build_templates() -> Jinja2Templates:
 
 def _wire_app(engine: AsyncEngine) -> FastAPI:
     """Attach a test session factory and templates to the real animator app."""
+    animator_main.app.state.feed_cache = AnimatorFeedCache()
     animator_main.app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     animator_main.app.state.templates = _build_templates()
     return animator_main.app
@@ -121,7 +123,6 @@ async def test_projector_wires_scope_and_media_bases(session: AsyncSession, uber
     assert f'data-audio-base="http://test/c/{ceremony.slug}/teams"' in html
     assert f'data-meta-url="http://test/c/{ceremony.slug}/meta"' in html
     assert 'data-balloon-base="http://test/assets/balloon"' in html
-    assert 'data-star-base="http://test/assets/star"' in html
     assert 'data-medal-base="http://test/assets/medal"' in html
     # No ceremony state is embedded; it is fetched.
     assert "reveal_log" not in html
@@ -366,8 +367,8 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
     assert "overflow" in css
     root = css[css.index(".ceremony-root {") :]
     root = root[: root.index("}")]
-    assert "--animator-row-motion-duration: 3s" in root
-    assert "--animator-row-motion-easing: cubic-bezier(0.22, 1, 0.36, 1)" in root
+    assert "--animator-row-motion-duration: 5s" in root
+    assert "--animator-row-motion-easing: cubic-bezier(0.65, 0, 0.35, 1)" in root
     # The compositor hint is applied by animator-animate.js to the rows actually
     # moving, for the length of the move. A stylesheet rule cannot express that,
     # and a blanket one would promote every row of the board to its own layer
@@ -407,11 +408,15 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
         assert f'[data-medal="{band}"]' not in shared_css
     watermark = shared_css[shared_css.index(".animator-medal-watermark {") :]
     watermark = watermark[: watermark.index("}")]
+    # The watermark is deliberately oversized so the team cell clips it, and it is
+    # non-interactive. Its size is expressed as one token rather than a constant:
+    # a fixed 7rem read as "oversized" against the old 93px row and would read as a
+    # full-height band against the compact one, so it has to track the row's type.
     for declaration in [
         "position: absolute",
-        "inset-inline-end: -2.8rem",
-        "width: 7rem",
-        "height: 7rem",
+        "inset-inline-end: calc(var(--animator-medal-watermark-size) * -0.4)",
+        "width: var(--animator-medal-watermark-size)",
+        "height: var(--animator-medal-watermark-size)",
         "opacity: 0.25",
         "pointer-events: none",
     ]:
@@ -467,7 +472,6 @@ def test_ceremony_passes_all_problem_asset_bases_to_shared_renderer() -> None:
     source = (_STATIC_DIR / "js" / "ceremony.js").read_text(encoding="utf-8")
 
     assert 'balloonBase: root.getAttribute("data-balloon-base")' in source
-    assert 'starBase: root.getAttribute("data-star-base")' in source
 
 
 def test_cell_semantics_have_a_single_owner() -> None:
@@ -480,8 +484,14 @@ def test_cell_semantics_have_a_single_owner() -> None:
     js_dir = _STATIC_DIR / "js"
     live_renderer = (js_dir / "animator-render.js").read_text(encoding="utf-8")
     reveal_renderer = (js_dir / "ceremony-render.js").read_text(encoding="utf-8")
-    assert "formatCellText" in live_renderer
+    # The live renderer must route wording through the formatter rather than
+    # rebuild it. `formatAttemptLine` is the unit that carries the attempt count
+    # and its penalty together; naming it here is what keeps the renderer from
+    # going back to concatenating `"+" + attempts + " (" + penalty + "')"` inline.
+    assert "format.formatAttemptLine" in live_renderer
     assert "scoreboardRender.fillProblemCell" in reveal_renderer
+    for source in [live_renderer, reveal_renderer]:
+        assert '" (" +' not in source, "the penalty run is the formatter's to build"
     for source in [live_renderer, reveal_renderer]:
         assert "attempts - 1" not in source
         assert "attempts-1" not in source

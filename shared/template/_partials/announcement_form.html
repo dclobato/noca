@@ -1,0 +1,83 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Create-announcement form, shared by the Web and Arena surfaces. The body
+  textarea is taken over by the statement editor core through
+  `announcement-editor.js` (same EasyMDE toolbar and preview as a problem
+  statement, plus the link action); the wrapping page loads EasyMDE, Marked,
+  DOMPurify, KaTeX, the core and the glue. The textarea carries no `required`
+  attribute on purpose: EasyMDE hides it, and a hidden required control makes
+  the browser refuse to submit without saying why; the server validates the
+  body and re-renders this form with the messages instead.
+
+  Required context:
+    create_url  POST target
+    back_url    where Cancel returns to
+    form        mapping with `title` and `body` (re-filled after a refusal),
+                plus `required` when the surface offers the flag
+    errors      list of user-facing messages (empty on first render)
+  Optional context:
+    allow_required  render the "users must acknowledge" checkbox (Arena only;
+                    Web fixes the flag to false and never passes this)
+#}
+{% from "_macros.html" import render_icon with context %}
+<form id="announcement-form" method="post" action="{{ create_url }}">
+    {% if errors %}
+        <div class="alert alert-danger" role="alert" id="announcement-form-errors">
+            <ul class="mb-0">
+                {% for message in errors %}<li>{{ message }}</li>{% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    <div class="mb-3">
+        <label class="form-label" for="announcement-title">Title</label>
+        <input type="text"
+               class="form-control"
+               id="announcement-title"
+               name="title"
+               value="{{ form.title }}"
+               maxlength="256"
+               required
+               autocomplete="off"
+               {% if errors %}aria-describedby="announcement-form-errors"{% endif %}>
+    </div>
+    <div class="mb-3">
+        <label class="form-label" for="announcement-body-editor">Body (Markdown)</label>
+        <textarea class="form-control"
+                  id="announcement-body-editor"
+                  name="body"
+                  rows="16">{{ form.body | e }}</textarea>
+        <div class="form-text">
+            Markdown with LaTeX, Mermaid diagrams and external links. Raw HTML and
+            images are not allowed. A published announcement cannot be edited, only removed.
+        </div>
+    </div>
+    {% if allow_required %}
+        <div class="mb-3">
+            <div class="form-check">
+                <input type="checkbox"
+                       class="form-check-input"
+                       id="announcement-required"
+                       name="required"
+                       value="on"
+                       {% if form.required %}checked{% endif %}>
+                <label class="form-check-label" for="announcement-required">Users must acknowledge this announcement</label>
+            </div>
+            <div class="form-text" id="announcement-required-help">
+                A mandatory announcement is shown to every user until they acknowledge it.
+                This choice cannot be changed after publication.
+            </div>
+        </div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary">
+            {{ render_icon(icon="publish") }}
+            Publish
+        </button>
+        <a href="{{ back_url }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>

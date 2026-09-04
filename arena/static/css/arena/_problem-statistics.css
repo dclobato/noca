@@ -1,0 +1,106 @@
+/*
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+*/
+
+/* Problem statistics page: header, solver facts, heatmap toolbar and scroll. */
+
+/* ── Problem statistics header ───────────────────────────────────────────── */
+/*    Matches .arena-submission-heading: a bare, page-level title outside any
+      card, the same size established for a single-record detail page. */
+
+.arena-problem-stats-heading h1 {
+    margin: 0.25rem 0 0;
+    font-family: var(--noca-font-heading);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.arena-problem-stats-heading-meta {
+    /* Filled after the payload arrives; an empty <p> generates no line box, so
+       reserve its height here and the heading does not jump when it resolves. */
+    min-height: 1.3125rem;
+    margin: 0.375rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+@media (max-width: 767.98px) {
+    .arena-problem-stats-heading h1 {
+        font-size: 1.25rem;
+    }
+}
+
+/* ── Solver facts (type mirrors .arena-public-profile-facts) ────────────── */
+/*    One fact per row: each value is a solver name over a timestamp, which
+      needs the card's full width far more than it needs a neighbour. */
+
+.arena-problem-stats-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    margin: 0;
+}
+
+.arena-problem-stats-facts > div {
+    min-width: 0;
+}
+
+.arena-problem-stats-facts dt {
+    margin-bottom: 0.25rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.arena-problem-stats-facts dd {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+/* Attempts histogram: eight bins, no legend, so shorter than the wall-time bar. */
+.arena-stats-chart--attempts {
+    height: 320px;
+}
+
+/* ── Submission heatmap: year selector and horizontal scroll ────────────── */
+
+.arena-problem-stats-heatmap-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.arena-heatmap-scroll {
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+}
+
+.arena-heatmap-scroll:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+/* ── Chart status line ──────────────────────────────────────────────────── */
+
+.arena-problem-stats-status {
+    margin: 0.5rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}

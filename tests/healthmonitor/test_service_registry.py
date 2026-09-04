@@ -55,4 +55,5 @@ def test_display_order_is_stable() -> None:
         WorkerClass.RATING,
         WorkerClass.AIASSISTANT,
         WorkerClass.ANIMATOR,
+        WorkerClass.MAILER,
     ]

@@ -17,10 +17,12 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from httpx import ASGITransport, AsyncClient
 
+from healthmonitor import dependencies
 from healthmonitor.routes.dashboard import router as dashboard_router
 from healthmonitor.routes.health import router as health_router
 from healthmonitor.services.presence_probe import ServiceState
 from healthmonitor.services.service_registry import MONITORED_SERVICES
+from healthmonitor.services.uptime_cache import UptimeHistoryCache
 from healthmonitor.services.uptime_stats import SLOTS_PER_WINDOW
 
 _HEALTHMON_DIR = Path(__file__).resolve().parents[2] / "healthmonitor"
@@ -52,12 +54,21 @@ class _EmptyValkeyRuntime:
     async def hmget(self, key: str, fields: list[str]) -> list[str | None]:
         return [None] * len(fields)
 
+    async def eval(self, script: str, numkeys: int, *args: str) -> object | None:
+        # A disconnected ValkeyRuntime answers None; the limiter then falls back in-process.
+        return None
 
-def _build_app(valkey_runtime: Any) -> tuple[FastAPI, dict[str, Any]]:
+    async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
+        self.batch_calls = getattr(self, "batch_calls", 0) + 1
+        return [await self.hmget(key, fields) for key in keys]
+
+
+def _build_app(valkey_runtime: Any, *, cache_ttl: int = 300) -> tuple[FastAPI, dict[str, Any]]:
     """Build a minimal health monitor application with a fake runtime."""
     app = FastAPI()
     rendered: dict[str, Any] = {}
     app.state.valkey_runtime = valkey_runtime
+    app.state.uptime_cache = UptimeHistoryCache(ttl_seconds=cache_ttl)
     app.state.templates = _Templates(rendered)
     app.include_router(dashboard_router)
     app.include_router(health_router)
@@ -68,6 +79,7 @@ def _build_rendering_app(valkey_runtime: Any, *, brand_name: str) -> FastAPI:
     """Build an app that renders the real Health Monitor templates."""
     app = FastAPI()
     app.state.valkey_runtime = valkey_runtime
+    app.state.uptime_cache = UptimeHistoryCache(ttl_seconds=300)
     templates = Jinja2Templates(directory=_HEALTHMON_DIR / "template")
     templates.env.globals.update(app_version="test", brand_name=brand_name)
     app.state.templates = templates
@@ -159,8 +171,8 @@ async def test_uptime_data_preserves_zero_percent_slots() -> None:
     """A fully unavailable slot remains numeric zero in the chart contract."""
 
     class _UnavailableHistoryRuntime(_EmptyValkeyRuntime):
-        async def hmget(self, key: str, fields: list[str]) -> list[str | None]:
-            return ["0", "18"]
+        async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
+            return [["0", "18"] for _ in keys]
 
     app, _ = _build_app(_UnavailableHistoryRuntime())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -178,7 +190,7 @@ async def test_uptime_data_reports_backend_failure() -> None:
     """The JSON chart endpoint returns 503 when uptime history cannot be read."""
 
     class _FailingHistoryRuntime(_EmptyValkeyRuntime):
-        async def hmget(self, key: str, fields: list[str]) -> list[str | None]:
+        async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
             raise ConnectionError("Valkey unavailable")
 
     app, _ = _build_app(_FailingHistoryRuntime())
@@ -187,6 +199,59 @@ async def test_uptime_data_reports_backend_failure() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Uptime history is temporarily unavailable"
+
+
+@pytest.mark.asyncio
+async def test_uptime_data_reports_unavailable_batch_and_caches_nothing() -> None:
+    """A ``None`` batch is a 503, and the outage is not pinned into the cache."""
+
+    class _FlakyRuntime(_EmptyValkeyRuntime):
+        available = False
+
+        async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
+            if not self.available:
+                return None
+            return [[None, None] for _ in keys]
+
+    runtime = _FlakyRuntime()
+    app, _ = _build_app(runtime)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        failed = await client.get("/uptime.json")
+        runtime.available = True
+        recovered = await client.get("/uptime.json")
+
+    assert failed.status_code == 503
+    assert "cache-control" not in failed.headers
+    assert recovered.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_uptime_data_is_served_from_cache_within_the_probe_interval() -> None:
+    """Repeated hits read Valkey once and advertise the remaining window to browsers."""
+    runtime = _EmptyValkeyRuntime()
+    app, _ = _build_app(runtime, cache_ttl=300)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/uptime.json")
+        second = await client.get("/uptime.json")
+
+    assert first.status_code == second.status_code == 200
+    assert runtime.batch_calls == 1
+    assert first.json() == second.json()
+    assert first.headers["cache-control"] == "public, max-age=300"
+    assert second.headers["cache-control"].startswith("public, max-age=")
+
+
+@pytest.mark.asyncio
+async def test_prober_invalidation_refreshes_the_cached_payload() -> None:
+    """Invalidating the cache (what the prober does) makes the next hit read Valkey again."""
+    runtime = _EmptyValkeyRuntime()
+    app, _ = _build_app(runtime)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.get("/uptime.json")
+        app.state.uptime_cache.invalidate()
+        await client.get("/uptime.json")
+
+    assert runtime.batch_calls == 2
 
 
 @pytest.mark.asyncio
@@ -215,3 +280,69 @@ async def test_health_endpoint_reports_valkey_state() -> None:
         down_response = await client.get("/health")
     assert down_response.status_code == 503
     assert down_response.json()["status"] == "degraded"
+
+
+def _client(app: FastAPI, ip: str = "203.0.113.10") -> AsyncClient:
+    """HTTP client presenting a routable client IP to the limiter."""
+    return AsyncClient(transport=ASGITransport(app=app, client=(ip, 12345)), base_url="http://test")
+
+
+def _set_public_limit(monkeypatch: pytest.MonkeyPatch, max_requests: int, *, enabled: bool = True) -> None:
+    monkeypatch.setattr(dependencies.settings, "RATE_LIMIT_ENABLED", enabled)
+    monkeypatch.setattr(dependencies.settings, "RATE_LIMIT_MAX_REQUESTS", max_requests)
+    monkeypatch.setattr(dependencies.settings, "RATE_LIMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr(dependencies.settings, "RATE_LIMIT_TRUSTED_CIDRS", "127.0.0.0/8")
+
+
+@pytest.mark.asyncio
+async def test_public_routes_share_one_per_ip_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/``, ``/refresh`` and ``/uptime.json`` draw from the same per-IP budget."""
+    _set_public_limit(monkeypatch, 3)
+    app, _ = _build_app(_EmptyValkeyRuntime())
+    async with _client(app) as client:
+        assert (await client.get("/")).status_code == 200
+        assert (await client.get("/refresh")).status_code == 200
+        assert (await client.get("/uptime.json")).status_code == 200
+        rejected = await client.get("/uptime.json")
+    async with _client(app, ip="198.51.100.7") as other:
+        unaffected = await other.get("/")
+
+    assert rejected.status_code == 429
+    assert rejected.headers["Retry-After"] == "60"
+    assert rejected.json() == {"detail": "Dashboard rate limit exceeded."}
+    assert unaffected.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_public_rate_limit_trusted_network_and_disable_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loopback bypasses the window, and the switch turns it off for everyone."""
+    _set_public_limit(monkeypatch, 1)
+    app, _ = _build_app(_EmptyValkeyRuntime())
+    async with _client(app, ip="127.0.0.1") as trusted:
+        statuses = [(await trusted.get("/health")).status_code for _ in range(3)]
+        statuses += [(await trusted.get("/uptime.json")).status_code for _ in range(3)]
+    assert statuses == [200] * 6
+
+    _set_public_limit(monkeypatch, 1, enabled=False)
+    async with _client(app) as client:
+        assert [(await client.get("/")).status_code for _ in range(3)] == [200] * 3
+
+
+@pytest.mark.asyncio
+async def test_health_route_uses_its_own_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/health`` is limited by the shared health settings, independently of the dashboard."""
+    _set_public_limit(monkeypatch, 1)
+    monkeypatch.setattr(dependencies.settings, "HEALTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(dependencies.settings, "HEALTH_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(dependencies.settings, "HEALTH_RATE_LIMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr(dependencies.settings, "HEALTH_RATE_LIMIT_TRUSTED_CIDRS", "10.0.0.0/8")
+    app, _ = _build_app(_EmptyValkeyRuntime())
+    async with _client(app) as client:
+        assert (await client.get("/uptime.json")).status_code == 200
+        first, second = await client.get("/health"), await client.get("/health")
+        rejected = await client.get("/health")
+
+    assert first.status_code == second.status_code == 200
+    assert rejected.status_code == 429
+    assert rejected.headers["Retry-After"] == "60"
+    assert rejected.json() == {"detail": "Health endpoint rate limit exceeded."}

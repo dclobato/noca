@@ -38,7 +38,7 @@ The export produces a ZIP with five files at the root:
 | `icpc` | Empty (required by consumer layout) |
 
 Fields in `contest` and `runs` use the ASCII File Separator (`0x1C`) as
-delimiter. Run times are in ICPC-rounded minutes. The penalty field is
+delimiter. Run times are in ICPC minutes, truncated from seconds. The penalty field is
 hardcoded to `20` for consumer compatibility.
 
 Verdicts are **not** freeze-masked — the consumer reapplies freeze locally
@@ -186,7 +186,8 @@ penalty at `20` per wrong answer internally.
 ### Timing
 
 - The `time` file is in **seconds**.
-- Run times in the `runs` file are in ICPC-rounded **minutes**.
+- Run times in the `runs` file are in ICPC **minutes**, truncated from seconds
+  (a run at 60 min 45 s exports as `60`).
 - The `contest` file timing fields (duration, freeze) are in **minutes**.
 - After the contest ends, the `time` file is clamped to `duration_minutes * 60`.
 

@@ -247,7 +247,11 @@
                                         —
                                     {% endif %}
                                 </td>
-                                <td class="text-end column-width-shrink">{{ "%.1f"|format(row.rating) if row.rating is not none else '—' }}</td>
+                                <td class="text-end column-width-shrink">
+                                    {% with difficulty=row.difficulty %}
+                                        {% include "_partials/difficulty_value.html" %}
+                                    {% endwith %}
+                                </td>
                                 <td class="arena-col-actions">
                                     <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=row.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
                                        class="btn arena-icon-button btn-sm"

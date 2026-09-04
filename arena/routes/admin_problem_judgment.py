@@ -47,6 +47,7 @@ from shared.services.interaction_pending_ops import (
 from shared.services.problem_editor_save import lock_problem_row
 from shared.services.problem_package.testcase_archive import parse_testcases_zip
 from shared.services.problem_save_errors import unsupported_strategy_message
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS
 from shared.services.testcase_pending_ops import (
     CaseContent,
@@ -376,6 +377,7 @@ async def admin_problem_judgment_case_toggle_sample(
         return _to(request, problem.id, anchor=f"tc-{tc_id}")
     kind = "sample" if test_case.is_sample else "secret"
     ordinal = test_case.ordinal
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
 
     flash(f"Test case #{ordinal} is now a {kind} case.", FlashCategory.SUCCESS)
@@ -586,6 +588,7 @@ async def admin_problem_judgment_interactions_save(
                 errored,
                 "Correct the highlighted interaction and save again.",
             )
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
 
     flash(f"{len(pending)} sample interaction(s) added.", FlashCategory.SUCCESS)
@@ -612,6 +615,7 @@ async def admin_problem_judgment_interaction_delete(
         raise HTTPException(status_code=404, detail="Sample interaction not found")
 
     await admin_problem_interaction_service.delete_interaction(session, interaction)
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
 
     flash("Sample interaction removed.", FlashCategory.SUCCESS)

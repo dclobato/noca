@@ -145,7 +145,7 @@ async def test_arena_database_failure_renders_branded_html() -> None:
     assert b"errors/backend.html" in response.body
     assert templates.context["status_code"] == 503
     assert templates.context["retry_url"] == "/problems?page=2"
-    assert str(templates.context["error_image_url"]) == "http://testserver/static/img/500.png"
+    assert str(templates.context["error_image_url"]) == "http://testserver/static/img/500.webp"
     assert b"secret" not in response.body
 
 
@@ -187,7 +187,7 @@ async def test_arena_browser_404_renders_branded_html(path: str) -> None:
 
     assert response.status_code == 404
     assert "errors/404.html" in response.text
-    assert "/static/img/404.png" in response.text
+    assert "/static/img/404.webp" in response.text
 
 
 @pytest.mark.asyncio

@@ -13,25 +13,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 4
-
-#: The original archive version this server still restores.
-LEGACY_FORMAT_VERSION = 1
-
-#: The archive format that carries strategy fields but predates editorial.
-PREVIOUS_FORMAT_VERSION = 2
-
-#: The archive format that carries the problem editorial but predates the stored
-#: announcement flag on clarification rows.
-EDITORIAL_FORMAT_VERSION = 3
+FORMAT_VERSION = 5
 
 #: Every archive version this server restores.
-SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (
-    LEGACY_FORMAT_VERSION,
-    PREVIOUS_FORMAT_VERSION,
-    EDITORIAL_FORMAT_VERSION,
-    FORMAT_VERSION,
-)
+#:
+#: Version 5 is the only one. Strict row validation compares an archived row
+#: against the *live* table, so each earlier version needed its own set of
+#: columns-it-predates plus an inference rule for what those columns would have
+#: held -- one rule per version per column, each a place for the integrity check
+#: and the restorer to disagree and admit an archive that validates as one thing
+#: and restores as another. Dropping them removes that whole class of bug along
+#: with the archives that needed it. An older archive is refused with a clear
+#: message rather than restored approximately.
+SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (FORMAT_VERSION,)
 
 #: Names of the JSON members that must be present in a valid backup archive.
 MANIFEST_MEMBER = "manifest.json"

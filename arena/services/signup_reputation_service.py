@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -103,9 +103,10 @@ async def _notify_admins(
         return
     body = _render_admin_email(user=user, signup_ip=signup_ip, ip_rep=ip_rep, email_rep=email_rep)
     subject = f"New Arena signup: {user.nome}"
+    # System-originated fan-out: no actor to budget, so ``actor_key`` stays None.
     for admin in admins:
         try:
-            email_service.send_email(
+            await email_service.send_email(
                 to_email=admin.email_normalizado,
                 to_name=admin.nome,
                 subject=subject,

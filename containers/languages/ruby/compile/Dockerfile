@@ -11,9 +11,9 @@
 # artifact_is_source=True: the source .rb file is the artifact injected into
 # the run container; no compiled output is produced.
 #
-# Pinned family: ruby:4.0-slim-bookworm (Debian bookworm slim)
+# Pinned family: ruby:4.0-slim-trixie (Debian trixie slim)
 
-FROM ruby:4.0-slim-bookworm
+FROM ruby:4.0-slim-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

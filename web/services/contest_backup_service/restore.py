@@ -111,10 +111,7 @@ async def restore_contest(
         )
         await restore_submissions(session, submissions, state)
         await restore_judgments(session, judgments, state)
-        # The archive's own recorded roles: what an archive predating
-        # `clarifications.is_announcement` uses to classify its announcement rows.
-        role_by_user_id = {str(user["id"]): user.get("role") for user in users}
-        await restore_clarifications(session, clarifications, state, role_by_user_id)
+        await restore_clarifications(session, clarifications, state)
         await restore_tasks(session, tasks, state)
         await session.commit()
     except Exception as exc:

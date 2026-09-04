@@ -52,9 +52,15 @@
                     Contest Not Started
                 </div>
             {% elif snapshot.is_frozen %}
+                {# Name how much the freeze is withholding, rather than leaving the
+                   reader to work it out: "how much am I not seeing?" is the only
+                   question a frozen board raises. Same wording as the animator's
+                   Frozen pill, and it falls back to naming the state alone when the
+                   window is under a minute or the freeze never takes effect. #}
                 <div class="noca-scoreboard-status-band noca-scoreboard-status-band--frozen mb-3">
                     {{ render_icon(icon="lock", filled=True, classes="noca-status-band-icon") }}
                     Scoreboard Frozen
+                    {% if frozen_hidden_window %}· last {{ frozen_hidden_window }} hidden{% endif %}
                 </div>
             {% endif %}
             {% if show_site_filter %}
@@ -107,6 +113,24 @@
                     <div id="scoreboard-live">
                     {% endif %}
                     {% if snapshot.standings %}
+                        {# Each problem's balloon colour reaches its cells here, keyed on
+                           column position. It cannot be a class: `problems.color` is a
+                           free-form String(7) and the admin form offers a native colour
+                           picker, so the value space is every hex there is. The route has
+                           already normalised each one and dropped anything that is not a
+                           colour, because a stylesheet -- unlike the /assets/balloon route
+                           -- would execute whatever it is handed. Four fixed columns
+                           precede the problems, hence the +4. This block sits inside
+                           `#scoreboard-live` so it survives the 30 s HTMX swap. #}
+                        {% if problem_cell_colors | select | first is defined %}
+                            <style>
+                                {%- for cell_color in problem_cell_colors %}{% if cell_color %}
+                                .noca-scoreboard-table .problem-cell:nth-child({{ loop.index + 4 }}) {
+                                    --noca-cell-balloon: {{ cell_color }};
+                                }
+                                {% endif %}{% endfor %}
+                            </style>
+                        {% endif %}
                         <div class="card noca-scoreboard-card">
                             <div class="card-body p-0">
                                 <div class="table-responsive">
@@ -114,7 +138,9 @@
                                         <thead>
                                             <tr>
                                                 <th class="text-center noca-col-3">#</th>
-                                                <th>Team</th>
+                                                {# Sized because `table-layout: fixed` needs every column sized: an
+                                                   unsized one collapses to zero once the rest exhaust the table. #}
+                                                <th class="noca-col-14">Team</th>
                                                 <th class="text-center noca-col-5">
                                                     Problems
                                                     <br>
@@ -126,13 +152,27 @@
                                                     Time
                                                 </th>
                                                 {% for label in snapshot.problems %}
-                                                    {% set color = snapshot.balloon_colors[loop.index0] %}
-                                                    <th class="problem-header text-center noca-col-5">
-                                                        <img src="/assets/balloon/{{ color }}/{{ label }}"
-                                                             alt="Problem {{ label }} balloon"
-                                                             width="51"
-                                                             height="80"
-                                                             title="Problem {{ label }}">
+                                                    {# The balloon lives HERE, not in every cell: one per column, at the
+                                                       same size the animator's `.animator-balloon` already ships, which
+                                                       keeps the letter inside it legible. Kept as an image request rather
+                                                       than inlined SVG because this header is inside `#scoreboard-live`
+                                                       and is re-sent on every 30 s HTMX swap.
+
+                                                       The colour is the one the route already validated for the stylesheet
+                                                       above, minus its `#`. A problem whose stored colour is not a colour
+                                                       shows its letter instead: the asset route would answer 400, and
+                                                       requesting a broken image on every refresh helps nobody. #}
+                                                    {% set cell_color = problem_cell_colors[loop.index0] %}
+                                                    <th class="problem-header text-center">
+                                                        {% if cell_color %}
+                                                            <img src="/assets/balloon/{{ cell_color[1:] }}/{{ label }}"
+                                                                 alt="Problem {{ label }} balloon"
+                                                                 width="51"
+                                                                 height="80"
+                                                                 title="Problem {{ label }}">
+                                                        {% else %}
+                                                            {{ label }}
+                                                        {% endif %}
                                                     </th>
                                                 {% endfor %}
                                             </tr>
@@ -143,10 +183,16 @@
                                                 <tr id="{{ standing.team_id }}"
                                                     class="{{ 'noca-own-team-row' if is_own_team else '' }}">
                                                     <td class="text-center fw-semibold noca-tabular-nums">{{ standing.rank }}</td>
-                                                    <td>
+                                                    {# Two lines: the team's name, then the site it competes at. A team
+                                                       with no site falls back to its login, so the second line is never
+                                                       empty and every row stays the same height. #}
+                                                    <td class="noca-scoreboard-team-cell">
                                                         {% set display_team_name = team_display_map.get(standing.team_id, standing.team_fullname) %}
+                                                        {% set team_site_name = team_site_name_map.get(standing.team_id) %}
                                                         <div class="fw-semibold">{{ display_team_name }}</div>
-                                                        <div class="text-muted small fw-light noca-literal-text">{{ standing.team_name }}</div>
+                                                        <div class="text-muted fw-light noca-cell-note {{ '' if team_site_name else 'noca-literal-text' }}">
+                                                            {{ team_site_name or standing.team_name }}
+                                                        </div>
                                                     </td>
                                                     <td class="text-center noca-tabular-nums">
                                                         {% if standing.problems_solved > 0 %}
@@ -162,81 +208,116 @@
                                                             <span class="text-muted">—</span>
                                                         {% endif %}
                                                     </td>
-                                                    {% for label in snapshot.problems %}
-                                                        {% set color = snapshot.balloon_colors[loop.index0] %}
-                                                        {% set pr = standing.problems.get(label) %}
-                                                        {% if pr and pr.solved %}
-                                                            {# Solved: balloon + submission time + penalty if any #}
-                                                            <td class="problem-cell">
-                                                                <div class="noca-problem-cell-inner">
-                                                                    <img src="/assets/{{ 'star' if pr.is_first_balloon else 'balloon' }}/{{ color }}"
-                                                                         alt="{{ label }} {{ 'star balloon' if pr.is_first_balloon else 'balloon' }}"
-                                                                         width="23"
-                                                                         height="35"
-                                                                         class="mb-1 {{ 'noca-first-balloon' if pr.is_first_balloon else '' }}">
-                                                                    <div class="fw-semibold text-success small">{{ pr.solved_at_minutes }}'</div>
-                                                                    {% if pr.attempts > 0 %}<div class="text-danger small">+{{ pr.attempts }} ({{ pr.penalty }}')</div>{% endif %}
-                                                                </div>
-                                                            </td>
-                                                        {% elif pr and pr.is_pending %}
-                                                            {# Pending: result hidden due to freeze or still judging #}
-                                                            <td class="problem-cell">
-                                                                <div class="noca-problem-cell-inner">
-                                                                    <div class="text-warning-emphasis small" title="Judge pending">
-                                                                        ⏳
-                                                                        {% if pr.attempts > 0 %}<div class="mt-1">−{{ pr.attempts }}</div>{% endif %}
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                        {% elif pr and pr.attempts > 0 %}
-                                                            {# Attempted but not solved #}
-                                                            {% set unsolved_penalty = pr.attempts * contest.wa_penalty %}
-                                                            <td class="problem-cell">
-                                                                <div class="noca-problem-cell-inner">
-                                                                    <div class="text-danger small fw-semibold">−{{ pr.attempts }}</div>
-                                                                    {% if unsolved_penalty > 0 %}<div class="text-danger small">({{ unsolved_penalty }}')</div>{% endif %}
-                                                                </div>
-                                                            </td>
-                                                        {% else %}
-                                                            {# Not attempted #}
-                                                            <td class="problem-cell">
-                                                                <div class="noca-problem-cell-inner"></div>
-                                                            </td>
-                                                        {% endif %}
-                                                    {% endfor %}
-                                                </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-info mt-3">
-                            {{ render_icon(icon="info", classes="me-2") }}
-                            {% if selected_site_name %}
-                                No teams are assigned to {{ selected_site_name }}.
-                            {% else %}
-                                No teams registered yet, or no submissions have been made.
-                            {% endif %}
-                        </div>
-                    {% endif %}
-                </div>
-                {# end #scoreboard-live #}
-                {% if snapshot.is_frozen and viewer_role == 'admin' and not is_final_scoreboard %}
-                    <div class="alert alert-info mt-3 small">
-                        {{ render_icon(icon="visibility", classes="me-1") }}
-                        You are viewing the <strong>full scoreboard</strong> as an admin/judge. Teams see the frozen view.
-                    </div>
-                {% endif %}
-            {% endif %}
-            {# end access_blocked #}
-        </div>
-        {% if not access_blocked %}
-            <button type="button"
-                    id="scoreboard-back-to-top"
-                    class="btn btn-primary noca-back-to-top-btn"
-                    aria-label="Return to top"
-                    title="Return to top">{{ render_icon(icon="arrow_upward") }}</button>
-        {% endif %}
-    {% endblock %}
+                                                    {# No per-cell colour is read here: a cell gets its problem's colour from
+                                                       the <style> block above, by column position. #}
+{% for label in snapshot.problems %}
+{% set pr = standing.problems.get(label) %}
+{% if pr and pr.solved %}
+{# Solved: the minute, then the attempts and the penalty they cost
+                                                               as ONE line. No balloon here -- the column header carries it,
+                                                               and the cell's leading edge carries its colour. A first solve
+                                                               adds a star glyph inside the minute line, so it costs no row
+                                                               height; it is decorative, and the visually-hidden text below
+                                                               is its single announcement. #}
+<td class="problem-cell noca-cell-balloon-edge noca-problem-cell--solved {{ 'noca-problem-cell--first' if pr.is_first_balloon else '' }}">
+<div class="noca-problem-cell-inner">
+<div class="fw-semibold">
+{% if pr.is_first_balloon %}
+<span class="noca-cell-first-mark" aria-hidden="true">★</span>
+{% endif %}
+<span>{{ pr.solved_at_minutes }}'</span>
+</div>
+{% if pr.attempts > 0 %}
+<div class="noca-cell-note">+{{ pr.attempts }} ({{ pr.penalty }}')</div>
+{% endif %}
+</div>
+<span class="visually-hidden">
+{%- if pr.is_first_balloon %}first solve,
+{% endif -%}
+solved
+{% if pr.attempts > 0 %}after {{ pr.attempts }} failed attempts{% endif %}
+</span>
+</td>
+{% elif pr and pr.is_pending %}
+{# Pending: result hidden due to freeze or still judging. The
+                                                               glyph is `?`, matching animator/static/js/cell-format.js --
+                                                               the emoji it replaced rendered taller than its own line box
+                                                               on Windows and Android. The attempts and the penalty they cost
+                                                               stay on that same line, as everywhere else. `penalty` is 0 on
+                                                               an unsolved cell, so the cost is computed here -- the same
+                                                               product the animator's feeds recompute for this cell, which
+                                                               until now Web alone left off a pending cell. #}
+{% set pending_penalty = pr.attempts * contest.wa_penalty %}
+<td class="problem-cell noca-problem-cell--pending">
+<div class="noca-problem-cell-inner">
+<div class="fw-semibold" title="Judge pending">
+?
+{%- if pr.attempts > 0 %} −{{ pr.attempts }}
+{% endif -%}
+{%- if pending_penalty > 0 %} ({{ pending_penalty }}')
+{% endif -%}
+</div>
+</div>
+<span class="visually-hidden">
+judgment pending
+{% if pr.attempts > 0 %}
+, {{ pr.attempts }} failed attempts
+{% endif %}
+</span>
+</td>
+{% elif pr and pr.attempts > 0 %}
+{# Attempted but not solved. `penalty` is 0 for an unsolved cell,
+                                                               so the cost of these attempts is computed here; it matches what
+                                                               the animator's own feeds recompute for the same cell. #}
+{% set unsolved_penalty = pr.attempts * contest.wa_penalty %}
+<td class="problem-cell noca-problem-cell--attempted">
+<div class="noca-problem-cell-inner">
+<div class="fw-semibold">
+−{{ pr.attempts }}
+{% if unsolved_penalty > 0 %}({{ unsolved_penalty }}'){% endif %}
+</div>
+</div>
+<span class="visually-hidden">{{ pr.attempts }} failed attempts</span>
+</td>
+{% else %}
+{# Not attempted #}
+<td class="problem-cell">
+<div class="noca-problem-cell-inner"></div>
+<span class="visually-hidden">no attempts</span>
+</td>
+{% endif %}
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+</div>
+{% else %}
+<div class="alert alert-info mt-3">
+{{ render_icon(icon="info", classes="me-2") }}
+{% if selected_site_name %}
+No teams are assigned to {{ selected_site_name }}.
+{% else %}
+No teams registered yet, or no submissions have been made.
+{% endif %}
+</div>
+{% endif %}
+</div>
+{# end #scoreboard-live #}
+{% if snapshot.is_frozen and viewer_role == 'admin' and not is_final_scoreboard %}
+<div class="alert alert-info mt-3 small">
+{{ render_icon(icon="visibility", classes="me-1") }}
+You are viewing the <strong>full scoreboard</strong> as an admin/judge. Teams see the frozen view.
+</div>
+{% endif %}
+{% endif %}
+{# end access_blocked #}
+</div>
+{% if not access_blocked %}
+<button type="button" id="scoreboard-back-to-top" class="btn btn-primary noca-back-to-top-btn" aria-label="Return to top" title="Return to top">
+{{ render_icon(icon="arrow_upward") }}
+</button>
+{% endif %}
+{% endblock %}

@@ -64,6 +64,10 @@ class _FakeValkeyRuntime:
         self.before_publish = before_publish
         self.published: dict[str, str] = {}
 
+    async def get_mail_queue_size(self) -> int | None:
+        """Report an empty mail queue for the mailer card."""
+        return 0
+
     async def hgetall(self, key: str) -> dict[str, str]:
         """Return one registry hash."""
         return self.hashes.get(key, {})
@@ -166,14 +170,14 @@ def _build_app(
 
 @pytest.mark.asyncio
 async def test_worker_fragment_groups_status_and_polls_with_htmx(session) -> None:
-    """Render three cards with online/offline rows and ten-second polling."""
+    """Render four cards with online/offline rows and ten-second polling."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/admin/dashboard/workers")
 
     assert response.status_code == 200
-    assert response.text.count('class="arena-card h-100"') == 3
-    assert response.text.count('class="col-12"') == 3
+    assert response.text.count('class="arena-card h-100"') == 4
+    assert response.text.count('class="col-12"') == 4
     assert "col-xl-4" not in response.text
     assert 'hx-trigger="every 10s"' in response.text
     assert "judge-online" in response.text
@@ -184,7 +188,7 @@ async def test_worker_fragment_groups_status_and_polls_with_htmx(session) -> Non
     assert "Last start" in response.text
     assert "Last seen" in response.text
     assert 'class="d-block text-muted"' in response.text
-    assert response.text.count("No workers seen.") == 2
+    assert response.text.count("No workers seen.") == 3
 
 
 @pytest.mark.asyncio
@@ -273,7 +277,7 @@ async def test_service_status_page_renders_worker_cards(session) -> None:
 
     assert response.status_code == 200
     assert rendered["name"] == "admin/dashboard_service_status.html"
-    assert len(rendered["context"]["worker_cards"]) == 3  # type: ignore[arg-type]
+    assert len(rendered["context"]["worker_cards"]) == 4  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

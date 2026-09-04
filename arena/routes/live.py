@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
+from arena.dependencies.sse_limits import enforce_sse_connection_caps
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
-from arena.services.live_feed_service import build_arena_live_feed_snapshot
+from arena.services.live_feed_service import ArenaLiveFeedRow, build_arena_live_feed_snapshot
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS
 from shared.queue_schema import ArenaVerdictEvent
 from shared.services.sse_refresh import iter_refresh_events
@@ -34,7 +36,101 @@ def _html(response: Any) -> HTMLResponse:
     return cast(HTMLResponse, response)
 
 
-@router.get("/live", response_class=HTMLResponse, name="arena_live")
+def _brazilian_state_code(
+    country_code: str | None,
+    subdivision_code: str | None,
+) -> str | None:
+    """Return the two-letter state code for a valid Brazilian subdivision."""
+    if country_code is None or country_code.strip().upper() != "BR" or subdivision_code is None:
+        return None
+    country, separator, state = subdivision_code.strip().upper().partition("-")
+    if country != "BR" or separator != "-" or len(state) != 2 or not state.isalpha():
+        return None
+    return state
+
+
+def _country_flag_path(country_code: str) -> str:
+    """Return the local flag asset path for an ISO country code."""
+    normalized_code = country_code.strip().upper()
+    if normalized_code == "BR":
+        return "img/state-flags/BR.svg"
+    return f"img/flags/{normalized_code.lower()}.svg"
+
+
+def _serialize_live_feed_row(
+    request: Request,
+    current_user: ArenaUser,
+    row: ArenaLiveFeedRow,
+) -> dict[str, object]:
+    """Serialize one live-feed row with application-local asset URLs."""
+    state_code = _brazilian_state_code(row.country_code, row.subdivision_code)
+    datetime_formatter = request.app.state.arena_templates.env.globals["arena_format_datetime"]
+    return {
+        "submission_id": row.submission_id,
+        "created_at": row.created_at.isoformat(),
+        "created_at_display": datetime_formatter(
+            row.created_at,
+            current_user,
+            "%Y-%m-%d %H:%M:%S %Z",
+        ),
+        "affiliation_name": row.affiliation_name,
+        "affiliation_logo_url": (
+            str(
+                request.url_for(
+                    "arena_affiliation_logo_thumbnail",
+                    affiliation_id=row.affiliation_id,
+                )
+            )
+            if row.affiliation_id and row.affiliation_has_logo
+            else None
+        ),
+        "country_code": row.country_code,
+        "country_name": row.country_name,
+        "country_flag_url": (
+            str(
+                request.url_for(
+                    "static_vendor",
+                    path=_country_flag_path(row.country_code),
+                )
+            )
+            if row.country_code
+            else None
+        ),
+        "subdivision_code": row.subdivision_code,
+        "subdivision_name": row.subdivision_name,
+        "state_flag_url": (
+            str(
+                request.url_for(
+                    "static_vendor",
+                    path=f"img/state-flags/{state_code}.svg",
+                )
+            )
+            if state_code
+            else None
+        ),
+        "problem_number": row.problem_number,
+        "problem_title": row.problem_title,
+        "problem_url": str(
+            request.url_for(
+                "arena_problem_detail",
+                arena_number=row.problem_number,
+            )
+        ),
+        "language_name": row.language_name,
+        "language_icon": row.language_icon,
+        "language_icon_svg_url": str(
+            request.url_for(
+                "static_vendor",
+                path=f"img/devicon/{row.language_icon.split('-')[1]}-original.svg",
+            )
+        ),
+        "verdict": row.verdict,
+        "verdict_label": VERDICT_LABELS.get(row.verdict, row.verdict),
+        "verdict_badge_class": VERDICT_BADGE_CLASSES.get(row.verdict, "bg-secondary"),
+    }
+
+
+@router.get("/live", response_class=HTMLResponse, name="arena_live", dependencies=[Depends(arena_user_read_rate_limit)])
 async def arena_live_page(
     request: Request,
     current_user: ArenaUser = Depends(require_arena_user),
@@ -53,7 +149,7 @@ async def arena_live_page(
     )
 
 
-@router.get("/live/feed.json", name="arena_live_feed")
+@router.get("/live/feed.json", name="arena_live_feed", dependencies=[Depends(arena_user_read_rate_limit)])
 async def arena_live_feed_json(
     request: Request,
     current_user: ArenaUser = Depends(require_arena_user),
@@ -61,75 +157,39 @@ async def arena_live_feed_json(
 ) -> JSONResponse:
     """Return the latest finalized Arena submissions snapshot."""
     snapshot = await build_arena_live_feed_snapshot(session)
+    submissions = [_serialize_live_feed_row(request, current_user, row) for row in snapshot.rows]
     return JSONResponse(
         {
             "live_feed_limit": snapshot.limit,
             "has_more": snapshot.has_more,
-            "submissions": [
-                {
-                    "submission_id": row.submission_id,
-                    "created_at": row.created_at.isoformat(),
-                    "created_at_display": request.app.state.arena_templates.env.globals["arena_format_datetime"](
-                        row.created_at,
-                        current_user,
-                        "%Y-%m-%d %H:%M:%S %Z",
-                    ),
-                    "affiliation_name": row.affiliation_name,
-                    "affiliation_logo_url": (
-                        str(
-                            request.url_for(
-                                "arena_affiliation_logo_thumbnail",
-                                affiliation_id=row.affiliation_id,
-                            )
-                        )
-                        if row.affiliation_id and row.affiliation_has_logo
-                        else None
-                    ),
-                    "country_code": row.country_code,
-                    "country_name": row.country_name,
-                    "country_flag_url": (
-                        str(
-                            request.url_for(
-                                "static_vendor",
-                                path=f"img/flags/{row.country_code.lower()}.svg",
-                            )
-                        )
-                        if row.country_code
-                        else None
-                    ),
-                    "problem_number": row.problem_number,
-                    "problem_title": row.problem_title,
-                    "problem_url": str(request.url_for("arena_problem_detail", arena_number=row.problem_number)),
-                    "language_name": row.language_name,
-                    "language_icon": row.language_icon,
-                    "language_icon_svg_url": str(
-                        request.url_for(
-                            "static_vendor",
-                            path=f"img/devicon/{row.language_icon.split('-')[1]}-original.svg",
-                        )
-                    ),
-                    "verdict": row.verdict,
-                    "verdict_label": VERDICT_LABELS.get(row.verdict, row.verdict),
-                    "verdict_badge_class": VERDICT_BADGE_CLASSES.get(row.verdict, "bg-secondary"),
-                }
-                for row in snapshot.rows
-            ],
+            "submissions": submissions,
         }
     )
 
 
-@router.get("/live/events", name="arena_live_events")
+@router.get(
+    "/live/events",
+    name="arena_live_events",
+    dependencies=[Depends(enforce_sse_connection_caps)],
+)
 async def arena_live_events(request: Request) -> Response:
     """Stream lightweight refresh pings as new Arena verdicts finalize.
 
     No verdict data leaves the server here; the ``feed.json`` snapshot is the sole
     data source. This only tells the browser when to refetch.
+
+    ``enforce_sse_connection_caps`` holds an ``arena:sse`` per-IP and per-user
+    slot for the life of the stream (``429`` when either is exhausted); it holds
+    no database session while streaming.
     """
 
     async def _stream() -> AsyncIterator[str]:
         runtime = request.app.state.valkey_runtime
         async for chunk in iter_refresh_events(
-            open_event_stream=lambda: cast(AsyncGenerator[ArenaVerdictEvent], runtime.iter_arena_verdict_events()),
+            open_event_stream=lambda: cast(
+                AsyncGenerator[ArenaVerdictEvent],
+                runtime.iter_arena_verdict_events(),
+            ),
             is_disconnected=request.is_disconnected,
             emit_initial_ping=True,
         ):

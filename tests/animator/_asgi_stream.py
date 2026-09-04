@@ -35,6 +35,7 @@ class ASGIStream:
         *,
         query_string: str = "",
         headers: dict[str, str] | None = None,
+        client: tuple[str, int] = ("testclient", 50000),
     ) -> None:
         """Prepare (but do not start) a streaming GET.
 
@@ -43,6 +44,8 @@ class ASGIStream:
             path: Request path, without a query string.
             query_string: Raw query string, without the leading ``?``.
             headers: Extra request headers.
+            client: The ``(host, port)`` the request appears to come from, so
+                per-IP limits can be exercised.
         """
         self._app = app
         header_pairs = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
@@ -57,7 +60,7 @@ class ASGIStream:
             "root_path": "",
             "scheme": "http",
             "headers": header_pairs,
-            "client": ("testclient", 50000),
+            "client": client,
             "server": ("testserver", 80),
         }
         self._incoming: asyncio.Queue[dict[str, Any]] = asyncio.Queue()

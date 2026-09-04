@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,20 +8,29 @@
 
 NavState consolidates the five hidden list-navigation fields that every action
 form posts back so redirects can restore the user's previous filter state.
-The other helpers (guards, redirect builder, 404 fetcher) are used by both
-admin_users.py (GET routes) and admin_users_actions.py (POST routes).
+The other helpers (guards, redirect builder, 404 fetcher, password
+re-confirmation) are used by admin_users.py (GET routes) and by every POST
+action module: admin_users_actions.py, admin_users_username.py,
+admin_users_consent.py, and admin_users_google.py.
 """
 
 from typing import Any, cast
 
 from fastapi import Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from arena.models.arena_users import ArenaUser
+from arena.routes.auth_throttle import (
+    PASSWORD_VERIFY_ACTION,
+    check_verification_throttle,
+    record_verification_failure,
+    reset_verification_throttle,
+    throttled_response,
+)
 from arena.services import admin_user_service
 from shared.enumerations import ArenaRole
 
@@ -128,3 +137,50 @@ def _choose_redirect(request: Request, user_id: str, nav: NavState) -> RedirectR
     if nav.source == "profile":
         return _redirect(str(request.url_for("arena_admin_user_profile", user_id=user_id)), params)
     return _redirect(str(request.url_for("arena_admin_user_list")), params)
+
+
+async def confirm_admin_password(
+    request: Request,
+    session: AsyncSession,
+    flash: FlashDep,
+    *,
+    admin: ArenaUser,
+    password: str,
+    failure_response: Response,
+) -> Response | None:
+    """Verify the acting admin's password under the shared verification throttle.
+
+    Every privileged admin-user action re-checks the acting admin's own password
+    before applying the change, which without a lockout makes each of them an
+    online password oracle -- and rotating between them would multiply any
+    per-route budget. They therefore share the ``password_verify`` bucket with
+    the rest of Arena, and the lockout is checked before the hash, so a locked
+    admin is refused even with the correct password and no change is applied.
+
+    This helper lives here rather than in one action module because it is used
+    by more than one: importing a private symbol across sibling route modules
+    would invert the layering the support module exists to hold.
+
+    Args:
+        request: Incoming request.
+        session: Active async database session.
+        flash: Flash message dependency.
+        admin: The acting admin whose password is being confirmed.
+        password: Raw password submitted in the confirmation form.
+        failure_response: Response to return when the password is wrong.
+
+    Returns:
+        The response the caller must return, or ``None`` when the password is
+        correct and the route may proceed.
+    """
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=admin
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_admin_user_list")
+    if not admin.check_password(password):
+        await record_verification_failure(request, session, identity, action=PASSWORD_VERIFY_ACTION, user=admin)
+        flash("Incorrect password.", FlashCategory.DANGER)
+        return failure_response
+    await reset_verification_throttle(request, identity)
+    return None

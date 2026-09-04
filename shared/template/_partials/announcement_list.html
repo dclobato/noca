@@ -1,0 +1,52 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Public announcement list, shared by the Web and Arena surfaces. The wrapping
+  page owns the chrome (`_base.html`, card, heading) and passes the endpoint name
+  of its own detail route, so both surfaces render one list and one navigation
+  flow: every title links to the detail page carrying the current page number,
+  and the detail page's Back link returns here with `#announcement-<id>`, which
+  the persistent `.noca-target-row:target` rule in `common.css` highlights.
+
+  Required context:
+    pagination       shared.services.pagination_service.Pagination[AnnouncementRow]
+    detail_url_name  endpoint name of this surface's announcement detail route
+  Optional context:
+    table_class      table classes (default: Bootstrap's compact table)
+    empty_text       message when the domain has no announcements
+#}
+<p class="text-muted small mb-2">{{ pagination.total }} announcement{{ 's' if pagination.total != 1 else '' }}</p>
+{% with pagination=pagination, page_param="page", label="Announcement list pagination", nav_margin="mb-2" %}
+    {% include "_partials/pagination.html" %}
+{% endwith %}
+<div class="table-responsive">
+    <table class="{{ table_class | default('table table-sm align-middle mb-0', true) }}">
+        <thead>
+            <tr>
+                <th scope="col">Title</th>
+                <th scope="col" class="text-nowrap">Published (UTC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in pagination.items %}
+                <tr id="announcement-{{ row.id }}" class="noca-target-row">
+                    <td>
+                        <a href="{{ request.url_for(detail_url_name, announcement_id=row.id) }}?page={{ pagination.page }}">{{ row.title }}</a>
+                    </td>
+                    <td class="text-nowrap">{{ row.published_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="2" class="text-muted">{{ empty_text | default('No announcements yet.', true) }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% with pagination=pagination, page_param="page", label="Announcement list pagination" %}
+    {% include "_partials/pagination.html" %}
+{% endwith %}

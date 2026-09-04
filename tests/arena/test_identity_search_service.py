@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 from werkzeug.security import generate_password_hash
@@ -25,17 +26,20 @@ from arena.services.identity_search_service import (
     _USER_NAME_VECTOR_SQL,
     _postgres_affiliation_candidates,
     _postgres_user_candidates,
+    _public_postgres_user_candidates,
     affiliation_relevance_ordering,
     prepare_affiliation_search,
+    prepare_public_user_search,
     prepare_user_search,
     user_relevance_ordering,
 )
 from arena.services.ranking_service import get_ranked_affiliations_paginated, get_ranked_users_paginated
+from shared.db_schema.arena import arena_users
 from shared.enumerations import ArenaRole
 
-_MIGRATION = (
-    Path(__file__).resolve().parents[2] / "migrations" / "versions" / "202608030001_arena_ranking_search_indexes.py"
-)
+_VERSIONS = Path(__file__).resolve().parents[2] / "migrations" / "versions"
+_MIGRATION = _VERSIONS / "202608030001_arena_ranking_search_indexes.py"
+_USERNAME_INDEX_MIGRATION = _VERSIONS / "202608310002_arena_username_search_index.py"
 
 _TEST_PASSWORD = "TestPass1!"
 
@@ -177,13 +181,17 @@ async def test_ranking_search_filters_without_changing_rank(session: AsyncSessio
     unfiltered = await get_ranked_users_paginated(session)
     assert [item.rank for item in unfiltered.items] == [1, 2, 3]
 
+    # Rows are matched by id, not by name: these adults never opted in to
+    # publishing their legal name, so ``item.name`` is now their username.
+    ada = next(item for item in unfiltered.items if item.rank == 2)
+
     by_name = await get_ranked_users_paginated(session, search="lovel")
-    assert [item.name for item in by_name.items] == ["Ada Lovelace"]
+    assert [item.id for item in by_name.items] == [ada.id]
     assert by_name.items[0].rank == 2
     assert by_name.total == 1
 
     by_email = await get_ranked_users_paginated(session, search="ada.lovelace@")
-    assert [item.name for item in by_email.items] == ["Ada Lovelace"]
+    assert [item.id for item in by_email.items] == [ada.id]
 
     assert (await get_ranked_users_paginated(session, search="zzzznomatch")).total == 0
 
@@ -281,3 +289,110 @@ def test_search_vector_expressions_match_the_migration_ddl() -> None:
 
     assert _USER_NAME_VECTOR_SQL.replace("arena_users.", "") in source
     assert _AFFILIATION_NAME_VECTOR_SQL.replace("arena_affiliations.", "") in source
+
+
+# ---------------------------------------------------------------------------
+# The public (age-shielded) sibling
+# ---------------------------------------------------------------------------
+
+
+async def _make_minor(session: AsyncSession, *, name: str, email: str) -> ArenaUser:
+    """Persist an eligible, ranking-visible Arena user who is 13-17 years old."""
+    user = await _make_user(session, name=name, email=email)
+    user.dta_nascimento = date.today().replace(year=date.today().year - 15)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+def test_public_user_search_shields_name_branches_and_opens_username_ones() -> None:
+    """Every ``nome`` branch is age-gated; every ``username`` branch is not."""
+    sql = _postgres_sql(_public_postgres_user_candidates("Lovelce"))
+
+    # Six branches: name FTS, name substring, username substring, email
+    # substring, name fuzzy, username fuzzy.
+    assert sql.count("UNION") == 5
+    assert "search_arena_user.username ILIKE" in sql
+    assert "search_arena_user.username %%" in sql
+    # Three name branches, each carrying the negated shield (which names
+    # dta_nascimento twice: the NULL test and the cutoff comparison).
+    assert sql.count("search_arena_user.dta_nascimento") == 6
+
+
+def test_public_user_search_binds_the_shield_to_the_alias_only() -> None:
+    """The shield must correlate to the branch's alias, never to a second FROM.
+
+    Binding it to ``arena_users`` would add an unjoined table and turn each
+    branch into a cross join with an uncorrelated age test.
+    """
+    sql = _postgres_sql(_public_postgres_user_candidates("lovelace"))
+
+    assert sql.count("arena_users") == sql.count("arena_users AS search_arena_user")
+
+
+def test_public_user_search_adds_no_username_full_text_branch() -> None:
+    """Username FTS would need a second expression index, which is out of scope."""
+    sql = _postgres_sql(_public_postgres_user_candidates("lovelace"))
+
+    assert sql.count("to_tsvector") == 1
+    assert "coalesce(search_arena_user.username" not in sql
+
+
+async def test_portable_public_search_also_shields_the_name(session: AsyncSession) -> None:
+    """The SQLite path is the one the whole suite runs on -- it must shield too."""
+    candidates = await prepare_public_user_search(session, "lovelace")
+    sql = str(candidates.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True}))
+
+    assert "lower(search_arena_user.username) LIKE" in sql
+    assert "search_arena_user.dta_nascimento" in sql
+
+
+async def test_shielded_user_is_unfindable_by_their_real_name(session: AsyncSession) -> None:
+    """The public ranking must not confirm that a real name belongs to a minor.
+
+    Rendering a pseudonym while still answering "is this name in the ranking?"
+    would reconstruct the shield's own secret.
+    """
+    minor = await _make_minor(session, name="Joana Menorista", email="joana@test.example")
+
+    by_real_name = await get_ranked_users_paginated(session, search="Menorista")
+    assert by_real_name.total == 0
+
+    by_username = await get_ranked_users_paginated(session, search=minor.username)
+    assert [item.id for item in by_username.items] == [minor.id]
+
+
+async def test_adult_stays_findable_by_their_real_name(session: AsyncSession) -> None:
+    """The shield narrows the public search for minors only."""
+    await _make_user(session, name="Ada Lovelace", email="ada.public@test.example")
+
+    found = await get_ranked_users_paginated(session, search="Lovelace")
+
+    assert found.total == 1
+
+
+async def test_teacher_scoped_search_still_finds_a_shielded_student(session: AsyncSession) -> None:
+    """``prepare_user_search`` is the teacher path and keeps matching real names.
+
+    A teacher looking a student up by the name on the roll has a legitimate
+    basis; only the public surfaces are shielded.
+    """
+    minor = await _make_minor(session, name="Joana Menorista", email="joana.teacher@test.example")
+
+    candidates = await prepare_user_search(session, "Menorista")
+    matched = (await session.execute(select(arena_users.c.id).where(arena_users.c.id.in_(candidates)))).scalars().all()
+
+    assert minor.id in set(matched)
+
+
+def test_username_search_index_backs_the_username_branches() -> None:
+    """The ilike and trigram username branches need a GIN trigram index.
+
+    The UNIQUE B-tree from 202608310001 answers neither a leading-wildcard
+    ``LIKE`` nor the ``%`` operator, so the branches would seq-scan without it.
+    """
+    source = _USERNAME_INDEX_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CONCURRENTLY" not in source
+    assert "CREATE INDEX ix_arena_users_username_trgm ON arena_users USING gin (username gin_trgm_ops)" in source
+    assert 'down_revision: str | Sequence[str] | None = "202608310001"' in source

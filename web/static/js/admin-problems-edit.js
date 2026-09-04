@@ -193,6 +193,22 @@ document.addEventListener("DOMContentLoaded", function() {
     if (initialColor && initialColor.value) selectBalloonColor(initialColor.value);
   }
 
+  // A restored browser draft (`noca-form-draft.js`) rewrote the hidden
+  // `category_names` and `color` values; the chips and the picker follow them.
+  const draftForm = document.getElementById("edit-form");
+  if (draftForm) {
+    draftForm.addEventListener("noca:form-draft-restored", function() {
+      const container = document.getElementById("category-chips");
+      const names = document.getElementById("category_names_input");
+      if (container && names) {
+        container.querySelectorAll(".category-chip").forEach(chip => chip.remove());
+        names.value.split(",").forEach(name => addChip(name));
+      }
+      const color = document.getElementById("color-value");
+      if (color && color.value) selectBalloonColor(color.value);
+    });
+  }
+
   // Tab activation and the active_tab round-trip now live in the shared
   // problem-edit-tabs.js, which both modules load. The version that lived here
   // only knew the two-tab Content/Limits vocabulary and would have written

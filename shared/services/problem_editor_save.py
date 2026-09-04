@@ -19,7 +19,12 @@ here rather than twice:
 2. **Bump the artifact generation inside the transaction.** The value the row
    will hold after the commit is what the journal records, and comparing it
    against the stored one is the only reliable way for recovery to tell whether
-   an edit's commit landed -- the problem exists either way.
+   an edit's commit landed -- the problem exists either way. The public export
+   counter is bumped in the same breath but stays a *separate* column: every
+   Save reaching here can change the contestant-facing package, and one site
+   covering all of them beats remembering it at each caller. See
+   :mod:`shared.services.public_export_generation` for why the two must not be
+   the same counter.
 3. **Stage everything, then swap, then commit.** Filesystem work happens in a
    staging directory; the swap renames it in and quarantines what it displaces;
    a failed commit puts the quarantine back.
@@ -43,6 +48,7 @@ from shared.services.durable_fs import fsync_directory
 from shared.services.problem_package.edit_swap import EditArtifactSwap, bump_artifact_generation
 from shared.services.problem_package.journal import journal_root_for
 from shared.services.problem_package.promotion import ImportDomain
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.testcase_save_plan import DesiredCase, MaterializedCase, materialize
 
 
@@ -83,6 +89,10 @@ async def open_save_swap(
         EditArtifactSwap: Ready to stage into.
     """
     generation = await bump_artifact_generation(session, domain, problem_id)
+    # Every Save that opens a swap -- the definition editor, a create, and each
+    # file-changing test-case action -- can change the public package, so the
+    # cache counter is invalidated here rather than at each of those callers.
+    await bump_public_export_generation(session, domain, problem_id)
     return EditArtifactSwap(
         domain=domain,
         journal_root=journal_root_for(testcase_dir),

@@ -38,18 +38,23 @@
   // duration after end, frozen indicator from the snapshot. The interval is
   // scheduled only while the projection reports `running`, so an ended or
   // invalid-timing contest never leaves a permanent 1s interval behind.
-  function Timer(stateEl, endedEl, timerEl) {
+  // `onView` (optional) receives every computed timer view, so collaborators
+  // that care about the contest phase -- the activity rail's live indicator --
+  // read it from the single place it is derived instead of recomputing it.
+  function Timer(stateEl, endedEl, timerEl, onView) {
     this.stateEl = stateEl;
     this.endedEl = endedEl;
     this.timerEl = timerEl;
+    this.onView = onView || null;
     this.startMs = null;
     this.endMs = null;
+    this.freezeMs = null;
     this.frozen = false;
     this.handle = null;
   }
 
   Timer.prototype._render = function () {
-    var view = render.computeTimerView(this.startMs, this.endMs, this.frozen, Date.now());
+    var view = render.computeTimerView(this.startMs, this.endMs, this.frozen, Date.now(), this.freezeMs);
     if (this.stateEl) {
       this.stateEl.setAttribute("data-state", view.state);
       this.stateEl.textContent = view.label;
@@ -57,6 +62,9 @@
     setHidden(this.endedEl, !view.ended);
     if (this.timerEl) {
       this.timerEl.textContent = view.text;
+    }
+    if (this.onView) {
+      this.onView(view);
     }
     return view;
   };
@@ -89,8 +97,10 @@
   Timer.prototype.configure = function (meta, frozen) {
     var start = Date.parse(meta.start_time);
     var end = Date.parse(meta.end_time);
+    var freeze = Date.parse(meta.freeze_at);
     this.startMs = isNaN(start) ? null : start;
     this.endMs = isNaN(end) ? null : end;
+    this.freezeMs = isNaN(freeze) ? null : freeze;
     this.frozen = Boolean(frozen);
     this._applyRunningState();
   };
@@ -107,7 +117,9 @@
   };
 
   function fetchJson(url) {
-    return fetch(url, { headers: { Accept: "application/json" } }).then(function (response) {
+    // The page refetches on SSE nudges, so it must bypass the browser cache the
+    // feed's Cache-Control would otherwise let it reuse until max-age.
+    return fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" }).then(function (response) {
       if (!response.ok) {
         throw new Error("HTTP " + response.status + " for " + url);
       }
@@ -181,10 +193,55 @@
   // setTimeout's 32-bit range nor trusts a sleeping tab's clock.
   var MAX_START_RECHECK_MS = 60000;
   var startRecheckHandle = null;
+  var releaseWatchHandle = null;
   // True while the last applied snapshot reported a not-yet-started contest.
   // Module-level alongside the timer handle above: the page owns exactly one
   // board, and the two pieces of state are one machine.
   var awaitingStart = false;
+
+  function cancelReleaseWatch() {
+    if (releaseWatchHandle !== null) {
+      window.clearInterval(releaseWatchHandle);
+      releaseWatchHandle = null;
+    }
+  }
+
+  // Watch an ENDED but still-frozen contest for its scoreboard release.
+  //
+  // There is nothing to stream here, so the live transport is not started at
+  // all. Releasing a scoreboard publishes no event -- it writes a flag, audits
+  // it and pre-warms a cache -- `timer_tick` deliberately triggers no refetch,
+  // and once the pre-end judging queue drains, no verdict fires either. An open
+  // SSE connection would therefore sit there delivering nothing, under a badge
+  // reading "Live", while the release it was supposedly waiting for never
+  // arrived: a projector in the hall would keep showing frozen standings until
+  // somebody reloaded the page.
+  //
+  // So the board re-reads the snapshot on the same interval it would have polled
+  // on had the stream failed, and stops the moment the release lands. Meta is
+  // re-applied then rather than every tick, because the release is the only
+  // thing that changes -- it flips the timer from Frozen to Final.
+  function watchForRelease(refs, timer, board, appliers, meta, connectionStatus) {
+    cancelReleaseWatch();
+    connectionStatus.setStatus("waiting");
+    setHidden(refs.connection, false);
+    releaseWatchHandle = window.setInterval(function () {
+      fetchJson(refs.snapshotUrl)
+        .then(function (snapshot) {
+          appliers.direct(snapshot);
+          if (!render.isReleasedFinal(meta, snapshot, Date.now())) {
+            return;
+          }
+          cancelReleaseWatch();
+          applyMeta(refs, timer, board, meta, snapshot.is_frozen);
+          setHidden(refs.connection, true);
+        })
+        .catch(function () {
+          // A failed poll is not a page failure: the board is still showing the
+          // correct frozen standings. The next tick retries.
+        });
+    }, refs.pollMs);
+  }
 
   function cancelStartRecheck() {
     if (startRecheckHandle !== null) {
@@ -207,7 +264,6 @@
   function applyMeta(refs, timer, board, meta, frozen) {
     var problems = render.extractProblems(meta, {
       balloonBase: refs.balloonBase,
-      starBase: refs.starBase,
     });
     if (refs.title) {
       refs.title.textContent = meta.name || "Scoreboard";
@@ -220,6 +276,7 @@
         refs.site.hidden = true;
       }
     }
+    render.renderProblemColors(document, problems);
     render.renderHeader(document, refs.problemHeader, problems);
     board.setProblems(problems);
     refs.activity.configure(meta);
@@ -263,6 +320,7 @@
 
   function load(refs, timer, board, appliers, onSubmission, connectionStatus) {
     cancelStartRecheck();
+    cancelReleaseWatch();
     setHidden(refs.loading, false);
     setHidden(refs.error, true);
     setHidden(refs.empty, true);
@@ -281,9 +339,20 @@
         // for a running one, so the connection badge is already reporting Live
         // while the audience watches the countdown. What it cannot do is deliver
         // the start itself, hence the re-check below.
-        var finalReleased = render.isReleasedFinal(meta, snapshot, Date.now());
+        // Three end states, not two. A released final board is done and shows
+        // no badge. An ended but still-frozen board has nothing to stream and
+        // watches for its release instead. Anything else -- running, or not yet
+        // started -- streams.
+        var now = Date.now();
+        var endMs = Date.parse(meta && meta.end_time);
+        var ended = !isNaN(endMs) && now > endMs;
+        var finalReleased = render.isReleasedFinal(meta, snapshot, now);
         setHidden(refs.connection, finalReleased);
-        if (!finalReleased) {
+        if (finalReleased) {
+          cancelReleaseWatch();
+        } else if (ended) {
+          watchForRelease(refs, timer, board, appliers, meta, connectionStatus);
+        } else {
           startLive(refs, appliers.external, onSubmission, connectionStatus);
         }
         if (awaitingStart) {
@@ -324,7 +393,6 @@
       scopeName: app.getAttribute("data-scope-name"),
       photoBase: app.getAttribute("data-photo-base"),
       balloonBase: app.getAttribute("data-balloon-base"),
-      starBase: app.getAttribute("data-star-base"),
       medalBase: app.getAttribute("data-medal-base"),
       pollMs: parsePollMs(app),
       title: document.getElementById("animator-contest-title"),
@@ -379,7 +447,12 @@
       now: Date.now,
       reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)"),
     });
-    var timer = new Timer(refs.state, refs.ended, refs.timer);
+    // A contest that has not started, or has finished, produces no live
+    // activity worth a glowing indicator; "scheduled" and "unknown" are not
+    // running either, so only the two in-contest states count as live.
+    var timer = new Timer(refs.state, refs.ended, refs.timer, function (view) {
+      refs.activity.setLive((view.state === "running" || view.state === "frozen") && !view.ended);
+    });
     var connectionStatus = connectionStatusFactory.createConnectionStatus({
       container: refs.connection,
       label: refs.connectionLabel,

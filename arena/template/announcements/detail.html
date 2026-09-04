@@ -1,0 +1,31 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; {{ announcement.title }}{% endblock %}
+{% block nav_announcements %}active{% endblock %}
+{% block extra_head %}
+    <link href="{{ request.url_for('static_vendor', path='katex.min.css') }}"
+          rel="stylesheet">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">{% include "_partials/announcement_detail.html" %}</div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+            defer></script>
+{% endblock %}

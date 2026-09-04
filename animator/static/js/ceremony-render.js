@@ -153,7 +153,6 @@
       problemId: (view && view.problem_id) || "",
       color: null,
       balloonBase: null,
-      starBase: null,
     };
     var td = scoreboardRender.createProblemCell(doc, problem || fallbackProblem);
     td.classList.add("ceremony-cell");

@@ -194,52 +194,50 @@ class JudgmentRecord:
     """Immutable effective-judgment projection.
 
     Attributes:
+        id: Stable judgment identifier. Carried so the recent-activity feed can
+            key a seeded verdict exactly as the live SSE ``verdict`` event keys
+            it (``verdict:<judgment_id>``); without it a page would render the
+            same result twice, once from its seed and once from the stream.
         final_verdict: Effective verdict, or ``None`` while pending.
     """
 
+    id: str
     final_verdict: Verdict | None
 
 
 @dataclass(frozen=True)
-class TeamMediaRecord:
-    """Immutable team-identity plus stored-media projection.
+class TeamMediaMetadata:
+    """Immutable *metadata-only* projection of one team's stored media.
 
-    Holds the raw ``users_media`` payload exactly as stored. Nothing here is
-    trusted: decoding, signature checking, and fallback selection are the
-    responsibility of :mod:`animator.services.team_media_service` (photo) and
-    :mod:`animator.services.team_audio_service` (audio).
+    Deliberately carries **no** payload. The media routes answer a conditional
+    request from this record alone -- the media kind, its revision, and whether
+    each stored blob exists -- so a ``304`` never reads, decodes, or validates a
+    multi-megabyte blob. Only a cache miss loads the single column it actually
+    needs (:mod:`animator.services.team_media_service` for the photo tiers,
+    :mod:`animator.services.team_audio_service` for the clip).
 
-    Photo and audio travel together in one record because the ceremony modal
-    resolves both for the same team, through the same scoped lookup.
+    The presence flags say a blob is stored and non-empty; they say nothing about
+    whether it decodes. Validation still happens on the bytes, on a miss.
 
     Attributes:
         team_id: Stable team identifier.
-        username: Short team name.
-        fullname: Full team name.
-        site_id: Site the team belongs to, or ``None``.
         com_foto: Web's "this user has a photo" flag. When false, both stored
             image blobs are ignored, exactly as the Web media properties do. It
             says nothing about audio, which has no such flag.
-        foto_base64: Original photo as stored, or ``None``.
-        avatar_base64: Derived avatar as stored, or ``None``.
+        has_photo: Whether a non-empty ``foto_base64`` is stored.
+        has_avatar: Whether a non-empty ``avatar_base64`` is stored.
+        has_audio: Whether a non-empty ``audio_base64`` is stored.
         dta_foto: Last photo-update instant; the photo ETag's version component.
-        audio_base64: Optional audio clip as stored, or ``None``.
-        audio_mime: MIME type *claimed* for the stored clip. Never served: the
-            audio route reports the type sniffed from the bytes instead.
         dta_audio: Last audio-update instant; the audio ETag's version component.
     """
 
     team_id: str
-    username: str
-    fullname: str
-    site_id: str | None
     com_foto: bool
-    foto_base64: str | None
-    avatar_base64: str | None
+    has_photo: bool
+    has_avatar: bool
+    has_audio: bool
     dta_foto: datetime | None
-    audio_base64: str | None = None
-    audio_mime: str | None = None
-    dta_audio: datetime | None = None
+    dta_audio: datetime | None
 
 
 @dataclass(frozen=True)

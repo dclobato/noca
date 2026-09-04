@@ -658,10 +658,10 @@ async def test_cross_domain_import_drops_exactly_the_documented_fields(session: 
     # Exactly these, and nothing else, are lost: Contest has nowhere to store them.
     dropped = {
         field
-        for field in ("source", "license", "statement_language", "hide_author_show_source")
+        for field in ("source", "license", "statement_language", "hide_author_show_source", "expected_difficulty")
         if getattr(before, field) and not getattr(after, field)
     }
-    assert dropped == {"source", "license", "statement_language", "hide_author_show_source"}
+    assert dropped == {"source", "license", "statement_language", "hide_author_show_source", "expected_difficulty"}
 
 
 def _parse(zip_bytes: bytes):
@@ -717,6 +717,7 @@ def _arena_shaped_package() -> bytes:
         "license": "CC BY-SA 4.0",
         "statement_language": "en",
         "hide_author_show_source": True,
+        "expected_difficulty": 70,
         "time_limit_ms": 1500,
         "memory_limit_kb": 262144,
         "pids_limit": 64,

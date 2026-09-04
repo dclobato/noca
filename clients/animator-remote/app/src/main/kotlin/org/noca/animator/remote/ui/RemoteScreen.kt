@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.noca.animator.remote.core.projectorLabel
 import org.noca.animator.remote.core.teamLabel
 import org.noca.animator.remote.core.ControllerLeaseState
 
@@ -113,6 +114,7 @@ fun RemoteScreen(
             onStepMany = { viewModel.stepMany(10) },
             onBackMany = { viewModel.backMany(10) },
             onJumpPending = viewModel::jumpPending,
+            onToggleMedia = viewModel::toggleMedia,
             onStart = { viewModel.start(restart = false) },
             onStartOver = { confirm = Confirm.StartOver },
             onReset = { confirm = Confirm.Reset },
@@ -198,6 +200,39 @@ private fun LeaseBanner(
     }
 }
 
+/**
+ * How many projectors this remote's commands reach, beside the ceremony phase.
+ *
+ * Shown only while in control: the count is reported by the lease operations,
+ * and a number under a banner that no longer means control would be a stale
+ * claim. The dot carries the state -- live for a connected hall, error for an
+ * empty one, outline when the server could not tell -- because in a dark hall
+ * the colour is read before the words are.
+ */
+@Composable
+private fun ProjectorReadoutRow(state: RemoteUiState) {
+    val readout = state.projectors ?: return
+    if (state.leaseState != ControllerLeaseState.ACTIVE) return
+    val count = readout.count
+    val tone = when (count) {
+        null -> MaterialTheme.colorScheme.outline
+        0 -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Spacer(modifier = Modifier.height(6.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Dot(color = tone, size = 8.dp)
+        Text(
+            text = projectorLabel(count),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (count == 0) tone else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 private fun StatusHeader(state: RemoteUiState) {
     val projection = state.projection
@@ -236,6 +271,8 @@ private fun StatusHeader(state: RemoteUiState) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            ProjectorReadoutRow(state)
 
             if (projection != null) {
                 Text(

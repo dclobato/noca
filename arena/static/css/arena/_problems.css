@@ -75,6 +75,23 @@
     background-color: var(--arena-surface-container);
 }
 
+/* An estimate or unknown value sits in the same column as the bar; match the
+   bar's label size so "7.0?" is not larger than the "7.0" inside a bar. */
+.arena-rating-text {
+    display: inline-block;
+    font-size: var(--bs-progress-font-size, 0.75rem);
+    line-height: 1rem;
+}
+
+/* ── Evidence-gated difficulty text (shared partial difficulty_value.html) ── */
+/*    The three states are told apart by text alone ("7.0", "7.0?", "—") and  */
+/*    by the title/aria-label sentence; no colour, weight or style is added.  */
+
+.arena-difficulty-value {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    white-space: nowrap;
+}
+
 .arena-custom-validator-legend-icon {
     font-size: 1.125rem;
     vertical-align: middle;
@@ -146,31 +163,6 @@
 .arena-problem-list-table .arena-empty-state {
     padding: var(--arena-space-lg) var(--arena-space-md);
     text-align: center;
-}
-
-/* ── Problem statistics header ───────────────────────────────────────────── */
-/*    Matches .arena-submission-heading: a bare, page-level title outside any
-      card, the same size established for a single-record detail page. */
-
-.arena-problem-stats-heading h1 {
-    margin: 0.25rem 0 0;
-    font-family: var(--noca-font-heading);
-    font-size: 2rem;
-    font-weight: 700;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
-}
-
-.arena-problem-stats-heading-meta {
-    margin: 0.375rem 0 0;
-    color: var(--arena-on-surface-variant);
-    font-size: 0.875rem;
-}
-
-@media (max-width: 767.98px) {
-    .arena-problem-stats-heading h1 {
-        font-size: 1.25rem;
-    }
 }
 
 /* Problem image and figure styles live in shared/static/css/common.css
@@ -267,4 +259,20 @@
         cursor: col-resize;
         user-select: none;
     }
+}
+
+/* ============================================================
+   Sample test-case blocks
+   ------------------------------------------------------------
+   The input/output pre blocks used to carry Bootstrap's `bg-light`, a light
+   literal that lands within ~1% luminance of the surrounding card and its
+   `card-header`, so in light mode the sample surface was invisible (dark mode
+   only looked right because an override remapped it). Both surfaces now come
+   from the shared ramp: `container-high` is two steps away from the card in
+   either theme, and the outline gives the block an edge of its own.
+   ============================================================ */
+.arena-sample-pre {
+    background-color: var(--arena-surface-container-high);
+    color: var(--arena-on-surface);
+    border: 1px solid var(--arena-outline-variant);
 }

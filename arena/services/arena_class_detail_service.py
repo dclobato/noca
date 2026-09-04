@@ -196,6 +196,7 @@ async def list_class_members_management_paginated(
             arena_users.c.nome,
             arena_users.c.email_normalizado,
             latest.c.event_date,
+            arena_users.c.avatar_revision,
         )
         .select_from(latest.join(arena_users, latest.c.user_id == arena_users.c.id))
         .where(
@@ -211,6 +212,7 @@ async def list_class_members_management_paginated(
             arena_users.c.nome,
             arena_users.c.email_normalizado,
             arena_class_registration_requests.c.requested_at,
+            arena_users.c.avatar_revision,
         )
         .select_from(
             arena_class_registration_requests.join(
@@ -233,8 +235,9 @@ async def list_class_members_management_paginated(
             email=email,
             status="active",
             registered_at=registered_on,
+            avatar_revision=avatar_revision,
         )
-        for user_id, name, email, registered_on in (await session.execute(active_stmt)).all()
+        for user_id, name, email, registered_on, avatar_revision in (await session.execute(active_stmt)).all()
     ]
     items.extend(
         ClassMemberManagementRow(
@@ -245,8 +248,11 @@ async def list_class_members_management_paginated(
             email=email,
             status="pending",
             registered_at=requested_at,
+            avatar_revision=avatar_revision,
         )
-        for request_id, user_id, name, email, requested_at in (await session.execute(pending_stmt)).all()
+        for request_id, user_id, name, email, requested_at, avatar_revision in (
+            await session.execute(pending_stmt)
+        ).all()
     )
     reverse = direction == "desc"
     if sort == "registered_at":

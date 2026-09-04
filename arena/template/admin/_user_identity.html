@@ -1,0 +1,59 @@
+{# Admin view of a user's public handle: the current value, the rename control,
+   and the age-shield badge that explains why the public-profile toggle beside it
+   may be refused.
+
+   The rename modal is password-confirmed like its neighbours. Its mechanical
+   sibling, change-name, is not -- but its sibling by consequence is
+   toggle-public-profile, which is: both change what the public sees about
+   someone, and this one additionally overrides the cooldown that keeps a
+   shielded user's old and new handles from being correlated across the ranking. #}
+{% from "_macros.html" import render_icon %}
+<dt>Username</dt>
+<dd>
+    <div class="row align-items-center">
+        <div class="col-5">
+            <span class="text-break">{{ target_user.username }}</span>
+        </div>
+        <div class="col-7">
+            <button type="button"
+                    class="btn btn-outline-secondary arena-icon-button btn-sm w-100"
+                    data-bs-toggle="modal"
+                    data-bs-target="#adminChangeUsernameModal">
+                {{ render_icon(icon="badge") }}
+                <span>Change username</span>
+            </button>
+        </div>
+    </div>
+    {% if target_user.username_cooldown_days > 0 %}
+        <div class="form-text text-arena-muted">
+            The user's own cooldown has {{ target_user.username_cooldown_days }} day(s) left; an admin change bypasses it.
+        </div>
+    {% endif %}
+</dd>
+{# Rendered for both states, not only when shielded: an absent row would leave a
+   reader unable to tell "this adult is not shielded" from "this page does not
+   say". #}
+<dt>Age shield</dt>
+<dd id="admin-age-shield-note">
+    {% if target_user.is_age_shielded %}
+        <span class="badge bg-warning text-dark d-inline-flex align-items-center gap-1">
+            {{ render_icon(icon="shield_person", classes="fs-6") }}
+            <span>Age-shielded</span>
+        </span>
+        <div class="form-text text-arena-muted">
+            {% if target_user.dta_nascimento %}
+                This user is under 18, so they are published as
+                <strong>{{ target_user.username }}</strong> rather than by name and refuses them a
+                public profile page.
+            {% else %}
+                This account has no date of birth on record, so the most protective setting applies:
+                they are published as <strong>{{ target_user.username }}</strong> rather than by name,
+                and refused a public profile page.
+            {% endif %}
+            This is a legal control and cannot be overridden from here — it lifts on its own once the
+            user is 18 with a date of birth on record. They still appear in the ranking.
+        </div>
+    {% else %}
+        <span class="badge bg-secondary">Not shielded</span>
+    {% endif %}
+</dd>

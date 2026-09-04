@@ -8,6 +8,7 @@
 
 import logging
 from datetime import date
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -34,9 +35,15 @@ from tests.arena.conftest import install_arena_templates, mount_arena_base_route
 TEST_JWT_SECRET = "test-secret-key-for-admin-category-tests-32b!"
 
 
-def _build_admin_app(session: AsyncSession) -> FastAPI:
-    """Build a minimal Arena FastAPI app for category admin route tests."""
-    app = FastAPI()
+def _build_admin_app(session: AsyncSession, *, dependencies: list[Any] | None = None) -> FastAPI:
+    """Build a minimal Arena FastAPI app for category admin route tests.
+
+    Args:
+        session: Test database session whose engine backs the app.
+        dependencies: Optional app-level dependencies, for tests of the global
+            per-request hooks ``arena/main.py`` registers.
+    """
+    app = FastAPI(dependencies=dependencies)
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
@@ -102,6 +109,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
 
     @app.get("/admin/dashboard/ai-usage", name="arena_admin_dashboard_ai_usage")
     async def _dash_ai_usage() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/terms", name="arena_admin_dashboard_terms")
+    async def _dash_terms() -> Response:
         return Response("stub")
 
     @app.get("/help", name="arena_help_index")

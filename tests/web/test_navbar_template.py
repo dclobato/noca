@@ -214,6 +214,29 @@ def test_brand_never_sends_a_non_uberadmin_to_the_uberadmin_dashboard(role: Role
     assert 'href="/contests_list"' in html
 
 
+def test_uberadmin_can_return_to_their_dashboard_from_a_contest() -> None:
+    """The brand keeps its contest target while a global exit remains visible."""
+    html = _render(_user(RoleEnum.UBERADMIN), _contest())
+
+    assert 'href="/contest_dashboard/slug"' in html
+    assert 'href="/uberadmin_dashboard"' in html
+    assert 'aria-label="Return to UberAdmin dashboard"' in html
+    assert "space_dashboard" in html
+
+
+@pytest.mark.parametrize("role", [role for role in RoleEnum if role is not RoleEnum.UBERADMIN])
+def test_non_uberadmins_have_no_uberadmin_dashboard_action(role: RoleEnum) -> None:
+    html = _render(_user(role), _contest())
+
+    assert 'href="/uberadmin_dashboard"' not in html
+
+
+def test_uberadmin_dashboard_action_is_not_repeated_outside_a_contest() -> None:
+    html = _render(_user(RoleEnum.UBERADMIN), None)
+
+    assert html.count('href="/uberadmin_dashboard"') == 1
+
+
 def test_the_clock_appears_only_inside_a_contest() -> None:
     with_contest = _render(_user(RoleEnum.TEAM), _contest())
     without_contest = _render(_user(RoleEnum.TEAM), None)
@@ -481,12 +504,19 @@ def test_the_theme_control_rides_in_the_identity_cluster() -> None:
 
     assert 'id="theme-toggle-btn"' in html
     assert 'aria-label="Switch to dark mode"' in html
-    assert "noca-navbar-theme-toggle" in html
 
     cluster = html.index("noca-navbar-identity")
     toggle = html.index('id="theme-toggle-btn"')
     account = html.index('id="noca-navbar-account-toggle"')
     assert cluster < toggle < account
+
+
+def test_navbar_icon_actions_have_no_resting_link_underline() -> None:
+    """Links and buttons should share the same decoration in every state."""
+    chrome = (_ROOT / "web/static/css/contest/_chrome.css").read_text(encoding="utf-8")
+    base_rule = chrome.split(".noca-navbar-icon-action {", 1)[1].split("}", 1)[0]
+
+    assert "text-decoration: none;" in base_rule
 
 
 def test_the_theme_icon_carries_no_class_the_toggle_script_would_destroy() -> None:

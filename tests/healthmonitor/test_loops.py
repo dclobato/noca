@@ -111,3 +111,70 @@ async def test_reaper_loop_does_not_run_when_already_stopped(monkeypatch: pytest
     stop_event.set()
 
     await loops.run_reaper_loop(object(), stop_event, interval_seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_prober_invalidates_uptime_cache_after_recording(
+    monkeypatch: pytest.MonkeyPatch,
+    stop_after_one_pass: asyncio.Event,
+) -> None:
+    """A recorded pass drops the cached ``/uptime.json`` payload."""
+    from healthmonitor.services.presence_probe import ServiceState, ServiceStatus
+    from healthmonitor.services.service_registry import MONITORED_SERVICES
+
+    recorded: list[str] = []
+    invalidations: list[bool] = []
+
+    class _Cache:
+        def invalidate(self) -> None:
+            invalidations.append(True)
+
+    async def _statuses(runtime: Any) -> list[ServiceStatus]:
+        return [ServiceStatus(service=s, state=ServiceState.AVAILABLE, online_count=1) for s in MONITORED_SERVICES]
+
+    async def _record(runtime: Any, worker_class: Any, **kwargs: Any) -> None:
+        recorded.append(worker_class.value)
+
+    monkeypatch.setattr(loops, "read_service_statuses", _statuses)
+    monkeypatch.setattr(loops, "record_probe", _record)
+
+    await loops.run_prober_loop(
+        object(),
+        stop_after_one_pass,
+        interval_seconds=1,
+        retention_days=30,
+        uptime_cache=_Cache(),  # type: ignore[arg-type]
+    )
+
+    assert len(recorded) == len(MONITORED_SERVICES)
+    assert invalidations == [True]
+
+
+@pytest.mark.asyncio
+async def test_prober_skips_invalidation_when_valkey_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    stop_after_one_pass: asyncio.Event,
+) -> None:
+    """A skipped probe leaves the cache alone -- nothing changed on the Valkey side."""
+    from healthmonitor.services.presence_probe import unknown_service_statuses
+
+    invalidations: list[bool] = []
+
+    class _Cache:
+        def invalidate(self) -> None:
+            invalidations.append(True)
+
+    async def _statuses(runtime: Any) -> Any:
+        return unknown_service_statuses()
+
+    monkeypatch.setattr(loops, "read_service_statuses", _statuses)
+
+    await loops.run_prober_loop(
+        object(),
+        stop_after_one_pass,
+        interval_seconds=1,
+        retention_days=30,
+        uptime_cache=_Cache(),  # type: ignore[arg-type]
+    )
+
+    assert invalidations == []

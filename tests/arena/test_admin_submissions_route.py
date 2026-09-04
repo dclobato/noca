@@ -34,6 +34,7 @@ from arena.routes.admin_dashboard_history import router
 from arena.routes.admin_dashboard_security import router as security_events_router
 from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_submission_service
+from shared.db_schema import security_events
 from shared.db_schema.arena.arena_submissions import (
     arena_submission_ai_reviews,
     arena_submission_judgments,
@@ -190,6 +191,29 @@ async def test_list_submissions_no_filter_returns_all(session: AsyncSession) -> 
 
     result = await admin_submission_service.list_submissions_paginated(session, page=1, per_page=25)
     assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_list_submissions_carries_the_avatar_revision(session: AsyncSession) -> None:
+    """The row must carry the submitter's avatar revision for the versioned avatar URL.
+
+    The list query appends ``arena_users`` columns positionally, so this pins that
+    ``avatar_revision`` rides at the end (index 16) rather than shifting an
+    earlier column -- the failure mode positional unpacking cannot report.
+    """
+    user = await _make_user(session)
+    user.avatar_revision = 11
+    lang = await _make_language(session)
+    problem = await _make_problem(session, user.id)
+    await _insert_submission(session, user.id, problem.id, lang.id)
+    await session.flush()
+
+    result = await admin_submission_service.list_submissions_paginated(session, page=1, per_page=25)
+
+    assert result.total == 1
+    row = result.items[0]
+    assert row.user_id == user.id
+    assert row.avatar_revision == 11
 
 
 @pytest.mark.asyncio
@@ -641,6 +665,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         ("/admin/dashboard", "arena_admin_dashboard"),
         ("/admin/dashboard/service-status", "arena_admin_dashboard_service_status"),
         ("/admin/dashboard/ai-usage", "arena_admin_dashboard_ai_usage"),
+        ("/admin/dashboard/terms", "arena_admin_dashboard_terms"),
     ]:
         app.add_api_route(path, lambda: Response("stub"), name=name)  # type: ignore[arg-type]
 
@@ -679,6 +704,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
             return SimpleNamespace(
                 id="admin-1",
                 email="admin@test.example",
+                email_normalizado="admin@test.example",
                 role=ArenaRole.ARENA_ADMIN,
                 nome="Admin",
                 dta_foto=None,
@@ -844,3 +870,69 @@ async def test_reenqueue_route_non_failed_does_not_enqueue(
 
     assert response.status_code == 303
     enqueue_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_route_returns_to_a_same_origin_referer_only(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A foreign ``Referer`` is not an open redirect: the list page is answered instead."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_failed_judgment(session, sub_id)
+    await session.flush()
+    monkeypatch.setattr("arena.routes.admin_dashboard_history.enqueue_arena_submission_job", AsyncMock())
+
+    app = _build_app(session)
+    app.state.valkey_runtime = object()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        foreign = await client.post(
+            f"/admin/dashboard/submissions/{sub_id}/reenqueue",
+            headers={"referer": "https://evil.example.net/admin/dashboard/submissions"},
+            follow_redirects=False,
+        )
+        local = await client.post(
+            f"/admin/dashboard/submissions/{sub_id}/reenqueue",
+            headers={"referer": "http://test/admin/dashboard/submissions?page=3&status_filter=FAILED"},
+            follow_redirects=False,
+        )
+
+    assert foreign.status_code == 303
+    assert foreign.headers["location"].endswith("/admin/dashboard/submissions")
+    assert "evil.example.net" not in foreign.headers["location"]
+    assert local.status_code == 303
+    assert local.headers["location"] == "/admin/dashboard/submissions?page=3&status_filter=FAILED"
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_route_audits_the_success_only(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One ``admin_action`` row per accepted reenqueue; a refused one writes none."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    judgment_id = await _insert_failed_judgment(session, sub_id)
+    await session.flush()
+
+    monkeypatch.setattr("arena.routes.admin_dashboard_history.enqueue_arena_submission_job", AsyncMock())
+    app = _build_app(session)
+    app.state.valkey_runtime = object()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post(f"/admin/dashboard/submissions/{sub_id}/reenqueue", follow_redirects=False)
+        # The judgment is QUEUED now, so the repeat is refused and leaves no audit trail.
+        await client.post(f"/admin/dashboard/submissions/{sub_id}/reenqueue", follow_redirects=False)
+
+    rows = (
+        await session.execute(
+            select(security_events.c.severity, security_events.c["metadata"]).where(
+                security_events.c.event_type == "admin_action"
+            )
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0][0] == "info"
+    assert rows[0][1]["action"] == "reenqueue_failed"
+    assert rows[0][1]["target_id"] == sub_id
+    assert rows[0][1]["detail"] == f"judgment={judgment_id}"

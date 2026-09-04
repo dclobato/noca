@@ -39,7 +39,7 @@ from shared.services.valkey_service import (
 from shared.services.worker_pause_state import bump_worker_pause_state, read_worker_pause_state
 
 # Worker classes that expose pause/resume controls (rating is always-on).
-PAUSABLE_CLASSES = (WorkerClass.AUTOJUDGE, WorkerClass.AIASSISTANT)
+PAUSABLE_CLASSES = (WorkerClass.AUTOJUDGE, WorkerClass.AIASSISTANT, WorkerClass.MAILER)
 
 # Worker classes that expose one-shot trigger controls (flush/poll now).
 TRIGGER_CLASSES = (WorkerClass.AIASSISTANT,)
@@ -51,6 +51,7 @@ _CARD_METADATA = {
     WorkerClass.AUTOJUDGE: ("Autojudge workers", "gavel"),
     WorkerClass.RATING: ("Rating workers", "monitoring"),
     WorkerClass.AIASSISTANT: ("AI assistant workers", "smart_toy"),
+    WorkerClass.MAILER: ("Mailer workers", "outgoing_mail"),
 }
 
 # Worker classes shown on the admin dashboard (card display order). The
@@ -59,6 +60,7 @@ _CARD_METADATA = {
 DASHBOARD_CLASSES = (
     WorkerClass.AUTOJUDGE,
     WorkerClass.AIASSISTANT,
+    WorkerClass.MAILER,
     WorkerClass.RATING,
 )
 
@@ -122,9 +124,11 @@ async def list_worker_cards(
 
     autojudge_queue_size = await valkey_runtime.get_autojudge_arena_queue_size()
     ai_queue_size = await valkey_runtime.get_ai_review_queue_size()
+    mail_queue_size = await valkey_runtime.get_mail_queue_size()
     queue_sizes: dict[WorkerClass, int | None] = {
         WorkerClass.AUTOJUDGE: autojudge_queue_size,
         WorkerClass.AIASSISTANT: ai_queue_size,
+        WorkerClass.MAILER: mail_queue_size,
         WorkerClass.RATING: None,
     }
 

@@ -76,9 +76,11 @@ Main types:
 - `ClarificationLockUnavailableError` — Valkey coordination is unavailable for acquire/release flows
 - `ClarificationNotAcquiredByActorError` — judge tries to release or answer a lock they do not hold
 - `ClarificationHiddenError` — answer or acquire attempted on a hidden clarification
+- `ClarificationRateLimitError` — per-window clarification budget exhausted; carries `next_allowed_at`
+- `TooManyUnansweredClarificationsError` — the team already holds the maximum unanswered questions; carries `open_count` and `limit`
 
 Main entrypoints:
-- `create_clarification(session, contest, actor, *, problem_id, question) -> Clarification` — TEAM only; contest must be running; question is immutable; `problem_id=None` creates a general, contest-wide clarification
+- `create_clarification(session, contest, actor, *, problem_id, question, rate_limit_window_seconds, rate_limit_max_requests, max_open_clarifications) -> Clarification` — TEAM only; contest must be running; question is immutable; `problem_id=None` creates a general, contest-wide clarification. After validation (so a request that writes nothing never consumes budget) it enforces the unanswered cap and then the rolling window through `rate_limit_service`; `create_announcement` is deliberately not throttled
 - `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; a JUDGE may publish only while the contest is running, while a contest ADMIN and the contest's chief judge may publish at any point in the contest lifecycle (see `can_create_announcement`); `problem_id=None` publishes a general, contest-wide announcement; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
 - `get_clarification(session, contest, clarification_id) -> Clarification | None` — contest-scoped lookup; no actor; caller is responsible for authorization
 - `list_clarifications(session, contest, actor, lock_client, sort_by="time_desc") -> tuple[list[ClarificationView], bool]` — orders Time or Problem in SQL (general clarifications group last in both problem directions), merges PostgreSQL rows with Valkey lock state, and returns whether lock coordination is available for the UI
@@ -237,7 +239,9 @@ Notes:
   no login-history viewer, so these are captured for parity/audit only
 - `/login` and `/c/{slug}/login` use shared auth throttling from
   `shared.services.auth_rate_limit`; lockouts return HTTP 429 with
-  `Retry-After`
+  `Retry-After`. The settings builder lives in
+  `password_confirm_throttle.auth_rate_limit_settings()` and is shared with the
+  password-reconfirmation routes
 - login history uses generated BIGINT identifiers to keep append-only audit
   storage compact
 - login-issued tokens include a `session_started_at` marker used to enforce the
@@ -267,9 +271,10 @@ Main entrypoints:
 - contest context and role helpers used by Web route modules
 
 Notes:
-- the global gate allows only `/`, `/contests`, `/login`, `/c/{slug}/login`,
-  `/health`, `/favicon.ico`, `/assets/*`, and `/static/*` without a valid
-  session cookie
+- the global gate allows only `/`, `/contests`, `/contests/past`, `/login`,
+  `/c/{slug}/login`, `/health`, `/favicon.ico`, `/assets/*`, `/static/*`,
+  `/problem-set/*`, and `/announcements/*` (the public announcement board)
+  without a valid session cookie
 - route-local role checks remain the authoritative authorization layer
 
 ---
@@ -494,7 +499,7 @@ Main entrypoints:
 - `override_verdict(session, submission_id, new_verdict, reason, actor, contest) -> VerdictOverride` — chief judge or ADMIN; contest-scoped DONE-only override; creates the `VerdictOverride` row and relies on the submission model hook to update `SubmissionJudgment.final_verdict`
 - `get_judging_history(session, submission_id, requesting_user, contest) -> JudgingHistoryResponse` — assembles audit-derived auto/rejudge rows plus explicit override rows, excluding status-only transitions
 - `rejudge_submission(session, submission_id, actor, contest, lock_client=None) -> SubmissionJudgment` — chief judge, ADMIN or UBERADMIN; supersedes the active judgment, force-releases its Valkey review lock when available, and creates a new `QUEUED` judgment
-- `queue_limit_change_batch_rejudges(session, batch, contest, actor, lock_client, *, language_id=None) -> list[SubmissionJudgment]` — ADMIN/UBERADMIN only; requeues pending rows from one persisted problem-limit-change batch and marks drifted rows as `STALE`
+- `queue_limit_change_batch_rejudges(session, batch, contest, actor, lock_client, *, language_id=None) -> list[SubmissionJudgment]` — ADMIN/UBERADMIN only; re-reads the batch rows `FOR UPDATE` (so two overlapping requests serialize and the loser finds them already `QUEUED`), requeues the pending ones and marks drifted rows as `STALE`
 - `confirm_verdict(session, submission_id, verdict, judge, contest, lock_client) -> HumanSubmissionConfirmation` — JUDGE or ADMIN; creates a human confirmation for the active `DONE` judgment; requires the caller to hold the review lock when Valkey is available; the submission model hook derives `final_verdict` from confirmations
 - `can_confirm_verdict(actor, contest) -> bool` / `confirmation_is_decisive(actor, contest) -> bool` / `can_override_verdict(actor, contest) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share. The chief-authority pair (chief judge **and contest admins**, from `chief_judge_permissions.py`) cast decisive confirmations and may override; uberadmins may do neither, since `human_submission_confirmations.judge_id` and `verdict_overrides.overridden_by` are foreign keys into `users`
 - `create_balloon_task_if_needed(session, submission_id, contest) -> Task | None` — idempotent balloon creation after accepted final verdict; skipped if the scoreboard is frozen or a balloon-like task already exists for the same (team, problem) pair; creates `FIRST_BALLOON` for the earliest accepted submission on the problem and `BALLOON` otherwise
@@ -527,7 +532,8 @@ Notes:
 - `confirm_verdict` raises `DecisiveConfirmationExistsError` when a decisive (chief or admin) confirmation already settled the judgment
 - `remove_chief_judge` raises `ChiefJudgeRemovalBlockedError` when the current chief judge has already executed an override in the contest
 - `rejudge_submission` raises `NoFinalVerdictError` when the active judgment has no final verdict yet
-- `queue_limit_change_batch_rejudges` is intentionally idempotent at the batch-row level: rows are processed once into `QUEUED` or `STALE`
+- `queue_limit_change_batch_rejudges` is intentionally idempotent at the batch-row level: rows are processed once into `QUEUED` or `STALE`, under a row lock so concurrency cannot break that
+- the routes that call it add the throttled password reconfirmation, the batch-wide per-problem cooldown (`shared/services/rejudge_cooldown.py`, `NOCA_WEB_REJUDGE_COOLDOWN_SECONDS`) and the warning-severity `admin_action` audit row; none of that lives in the service
 - override authority lives in the `web.models.submission` hook; this service only inserts `VerdictOverride`
 - TEAM callers are forbidden from judging-history and review access; STAFF may fetch history JSON but cannot access the HTML review page
 
@@ -543,6 +549,15 @@ Internal structure:
 - `service.py` — DB loading and Valkey cache orchestration (the only implementation file left in the package)
 - `__init__.py` — re-exports the shared DTOs (`ProblemResult`, `TeamStanding`, `ScoreboardSnapshot`) for backwards compatibility
 - the scoreboard DTOs, snapshot serialization, and the pure `compute_icpc` logic live in `shared/services/scoreboard_projection.py` (see `docs/SHARED_SERVICES.md`); this package only adapts web queries, caching, and orchestration
+
+Ranking rules:
+- teams rank by most problems solved, then lowest total time, then the earliest
+  last accepted submission (`TeamStanding.last_accepted_minutes`); teams equal on
+  all three share a rank number and the next distinct team takes its
+  position-based rank
+- the rules themselves live in `shared/services/scoreboard_projection.py` and are
+  documented once under **Ranking rules** in `docs/SHARED_SERVICES.md`; the
+  animator applies the identical rules through the same function
 
 Main types:
 - `ProblemResult`
@@ -569,6 +584,45 @@ Do not reimplement:
 
 ---
 
+## `scoreboard_display_cache.py`
+
+Purpose:
+- cache what the scoreboard page renders *around* the snapshot -- team display
+  names, each team's site, and the contest's site list -- so a page that hits
+  the snapshot cache does no database work at all
+
+Why it exists:
+- the snapshot has been Valkey-cached for a long time, but the two queries
+  behind that decoration ran on **every** hit, including cached ones. The
+  scoreboard is the most-polled page in a live contest (one HTMX refresh per
+  open browser every 30 s), and each hit paid a team scan with an eager site
+  load plus a site select
+- it is a separate cache entry rather than extra fields on `ScoreboardSnapshot`
+  because that snapshot is the shared projection the animator also reads;
+  widening it for one page's template would change a contract two modules
+  deploy against
+
+Main types:
+- `ScoreboardSite` — the `id` and `sitename` the page renders
+- `ScoreboardDisplayData` — team names, team-to-site ids, team-to-site names, sites
+
+Main entrypoints:
+- `get_scoreboard_display_data(session, contest_id, valkey) -> ScoreboardDisplayData`
+- `scoreboard_display_key(contest_id) -> str` — `noca:scoreboard:display:{contest_id}`
+
+Contract:
+- 5 s TTL, matching the tightest scoreboard TTL, so a roster edit surfaces as
+  fast as the standings it belongs to while the entry still absorbs the poll
+  storm
+- staleness is harmless by construction: the template falls back to the
+  standing's own `team_fullname` for a name it does not find, and a team missing
+  from the site map is one the snapshot it decorates has not published either
+- reads and writes are best-effort; an unreadable payload is treated as a miss
+  and a Valkey failure falls back to the queries, exactly as the snapshot cache
+  does
+
+---
+
 ## `problem_list_service.py`
 
 Purpose:
@@ -589,6 +643,59 @@ Reuse this module when:
 Do not reimplement:
 - per-problem AC-team counting or percentage rounding
 - team-standing lookup by actor id
+
+---
+
+## `public_rate_limits.py`
+
+Purpose:
+- per-IP fixed windows for Web's two anonymous read routes, over the shared
+  `shared.services.request_rate_limit` primitive
+
+Provides:
+- `enforce_problem_set_rate_limit(request)` — bucket `web:problem-set`
+  (`NOCA_WEB_PUBLIC_RATE_LIMIT_PROBLEM_SET_MAX_REQUESTS` / `_WINDOW_SECONDS`,
+  default 10 per 600 s), route-level on `GET /problem-set/{slug}.zip`
+- `enforce_live_feed_rate_limit(request)` — bucket `web:live-feed`
+  (`NOCA_WEB_PUBLIC_RATE_LIMIT_LIVE_FEED_MAX_REQUESTS` / `_WINDOW_SECONDS`,
+  default 120 per 60 s), route-level on `GET /c/{slug}/live/feed.json`
+- `PROBLEM_SET_LIMITER` / `LIVE_FEED_LIMITER` — the module-level in-memory
+  fallbacks (tests reset them; `tests/web/conftest.py` does so autouse)
+
+Behavior notes:
+- both buckets share `NOCA_WEB_PUBLIC_RATE_LIMIT_ENABLED` and
+  `NOCA_WEB_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS`; policies are rebuilt from
+  `settings` on every call
+- installed as route-level dependencies so they run *before* the contest gate
+  query: the answer depends on the client IP alone, so a `429` never confirms
+  a slug or a release state
+- `/c/{slug}/live/events` is deliberately **not** in either bucket: it is a
+  long-lived stream and is bounded by `sse_limits.py` instead
+
+---
+
+## `sse_limits.py`
+
+Purpose:
+- hold the `web:sse` concurrent-connection slots for the two Web event streams
+  over the shared `shared.services.sse_connection_limit` lease
+
+Provides:
+- `sse_slot_policy()` — rebuilt from `settings` on every call (`SSE_LIMIT_ENABLED`,
+  `SSE_MAX_PER_IP`, `SSE_MAX_PER_USER`, `SSE_CONNECTION_TTL_SECONDS`,
+  `SSE_TRUSTED_CIDRS`) so tests can monkeypatch the knobs
+- `enforce_live_events_slots(request)` — yield dependency holding a per-IP slot
+  for `GET /c/{slug}/live/events`
+- `enforce_runs_events_slots(request, ctx)` — yield dependency holding a per-IP
+  and a per-actor slot (`ctx.actor.id`, `User` or `UberAdmin`) for
+  `GET /c/{slug}/runs/events`; depends on the same `get_contest_context` the
+  route declares, so FastAPI resolves it once
+
+Behavior notes:
+- both are *yield* dependencies: teardown runs after the streamed response
+  finishes, i.e. on client disconnect, and that is what releases the slots
+- refusal is `429` with `Retry-After: 5`; a Valkey outage admits the stream
+- lives in `services/` rather than `dependencies.py` to keep that module small
 
 ---
 
@@ -615,23 +722,160 @@ Do not reimplement:
 
 ---
 
+## `password_confirm_throttle.py`
+
+Purpose:
+- one throttled budget for the seven routes that ask an authenticated actor to
+  reconfirm their password (`/profile/password`, contest `start-now` /
+  `end-now`, uberadmin contest `remove`, uberadmin contest `export` with
+  password hashes, and the two uberadmin lockout unlocks under
+  `/uberadmin/lockouts`), so none of them is an unthrottled online password
+  oracle
+
+Provides:
+- `confirm_password(request, session, *, actor, password, action) -> PasswordConfirmResult`
+  — the one call every route makes. Builds the identity (`module="web"`,
+  `action="password-confirm"`, identifier `user:{id}` / `uberadmin:{id}`, plus
+  the client IP), checks the lockout **before** the hash, then verifies with
+  `password_service.password_matches`. A mismatch is counted
+  (`record_auth_failure`) and written as an `auth_failure` security event
+  (`metadata.action="password_confirm"`, `metadata.route=<action>`); a lockout
+  is written as `auth_throttle_lockout` at warning severity; a match resets the
+  budget immediately, even if the route's later validation fails
+- `PasswordConfirmResult(ok, locked, retry_after_seconds)`
+- `render_lockout(request, *, retry_after_seconds, back_url, back_label)` — the
+  shared `429` page (`errors/too_many_attempts.html`) with `Retry-After`
+- `auth_rate_limit_settings()` — the `AuthRateLimitSettings` builder from
+  `NOCA_AUTH_RATE_LIMIT_*` + `JWT_SECRET_KEY`, shared with `/login`
+- `PASSWORD_CONFIRM_LIMITER` — the in-memory fallback (`tests/web/conftest.py`
+  resets it)
+
+Behavior notes:
+- same caps as login (20 per IP, 5 per account, 15-minute window and lockout),
+  and **one** bucket across the seven routes, so rotating routes, IPs, or actors
+  cannot multiply the allowance
+- locked means refused before the password is checked: no protected mutation,
+  export, or removal starts, and the correct password does not help until the
+  lockout lifts
+- an ordinary wrong password keeps each route's existing response; only the
+  lockout is rendered by this module
+- **`confirm_password` owns the transaction for its own writes**: on a
+  mismatch or a lockout it inserts the security-event row on the supplied
+  session and **commits** it, so the record survives whatever the route does
+  next. Call it before staging any protected change on that session — anything
+  pending is committed with the event. The callers all reconfirm first and
+  mutate only on `ok=True`; a new caller must keep that order or pass a
+  dedicated session. A match writes and commits nothing
+
+---
+
+## `lockout_admin_service.py`
+
+Purpose:
+- Web's vocabulary for the administrative lockout reset: which raw identifiers
+  Web's throttle buckets hash for one login, which key modules an UberAdmin may
+  clear, and which contests an unlock may be scoped to
+
+Provides:
+- `WEB_LOCKOUT_MODULES = ("web", "animator")` — an UberAdmin clears the Web
+  buckets and the animator's operator-token lockout, which has no admin
+  surface of its own; Arena buckets are never touched
+- `contest_login_identifier(contest_id, raw) -> str | None` — the raw
+  identifier the `web`/`contest-login` bucket hashes: `{contest_id}:{username}`.
+  The **single** definition of that shape, called by `web/routes/auth.py` when
+  it throttles a contest login and by `resolve_login` when it unlocks one, so
+  the producer and the resolver cannot drift. It strips the name *before*
+  prefixing — `normalize_identifier` strips and casefolds the whole string, so
+  an unstripped `"  Team042 "` would keep its inner spaces and hash to something
+  no unlock could rebuild — and returns `None` for a blank name, which would
+  otherwise mint an account bucket where today there is none
+- `active_contest_choices(session) -> list[ContestChoice]` — the contests an
+  operator may pick as an unlock scope, reusing the UberAdmin dashboard's own
+  `get_active_contests_grouped` (all three collections flattened, so "active"
+  means exactly what the dashboard means, including ended-but-not-deactivated
+  contests). Only an active contest can mint a `contest-login` lock, because
+  `get_contest_by_slug` refuses an inactive one. Labels carry the login slug
+  beside the name, since names are not unique and slugs are
+- `resolve_login(session, raw, *, contest_id=None) -> ResolvedLogin` — turns a
+  typed login **within one scope** into the hashes to clear. With `contest_id`
+  given: only that contest's `{contest_id}:{username}` bucket and that
+  contest's matching users' `user:<id>` buckets. The bare-name hash (the
+  UberAdmin `login` bucket) and `uberadmin:<id>` are deliberately left alone —
+  an UberAdmin is not a contest, and reaching a global bucket from a
+  contest-scoped unlock would make "leave the other contests locked" false.
+  With `contest_id=None` (*all contests*): the bare name, the UberAdmin's own
+  bucket, one scoped identifier per contest carrying the name, and every
+  matching `user:<id>`. `ResolvedLogin.summary` states what matched and
+  `.scope_label` how the scope reads, both for the audit row
+- `ResolvedLogin.contest_labels` — `hash -> contest label` for each
+  `contest-login` bucket the resolution built, so the status panel can name the
+  contest a lock belongs to. Hashes are one-way, so a lock whose hash is in no
+  map stays unlabelled rather than guessed
+- `ALL_CONTESTS_SCOPE` — the form value naming the deliberate wide unlock
+- `subject_for_ip(ip)`, `subject_for_hashes(hashes)` — Web-scoped
+  `LockoutSubject` builders for `shared/services/auth_lockout_admin.py`
+
+Behavior notes:
+- the wording and the audited flow live in the shared `auth_lockout_flow.py`,
+  so Web and Arena record an unlock identically
+- **the scope is chosen, never defaulted.** The route refuses a typed login
+  with a blank or unknown scope rather than picking one, because the two
+  mistakes are not symmetric: a silent *all contests* default releases every
+  contest and flashes exactly like the narrow unlock, while a silent
+  single-contest default leaves locks standing the operator believes gone. The
+  refusal lives in the route, not in the HTML `required`
+
+---
+
 ## `rate_limit_service.py`
 
 Purpose:
 - enforce per-team submission rate limits using a PostgreSQL sliding-window count
 - enforce the independent per-actor budget for non-scoring solution-test runs
+- enforce the per-team write throttles on SOS tasks, print tasks, and clarifications
+
+Two rule shapes, both counting committed rows so a refused, duplicate, or invalid request never
+consumes budget:
+
+- **rolling window** — rows created in the last `window_seconds`; refusal carries `next_allowed_at`,
+  the moment the oldest in-window row falls out, so the caller can name a time
+- **open count** — rows still unfinished (`tasks.finished_at IS NULL`) or unanswered
+  (`clarifications.answered_at IS NULL`); refusal carries no time, because only staff action
+  releases it
+
+Every maximum treats `0` (or less) as **unlimited** and short-circuits before the lock is taken.
 
 Main entrypoints:
 - `acquire_submission_rate_lock(session, team_id)` — acquires a transaction-scoped PostgreSQL advisory lock keyed on `team_id`; no-op on non-PostgreSQL dialects so SQLite test fixtures work without patching
 - `check_submission_rate_limit(session, team_id, window_seconds, max_submissions) -> tuple[bool, datetime | None]` — acquires the lock, counts submissions in the rolling window, returns `(True, None)` if within limit or `(False, next_allowed_at)` when the limit is reached
 - `check_solution_test_rate_limit(session, actor_key, window_seconds, max_runs) -> tuple[bool, datetime | None]` — the same shape over `solution_test_runs`. `actor_key` is `"user:<id>"` or `"uberadmin:<id>"`, and the advisory lock is namespaced (`hashtext('solution_test:' || actor_key)`) so it neither collides across the two actor id spaces nor serializes against team submissions. A judge's tests never consume a team's allowance.
+- `check_sos_task_rate_limit(session, team_id, window_seconds, max_tasks) -> tuple[bool, datetime | None]` — the window over `tasks` scoped to `type = SOS`, so balloon tasks created by the judging path never consume a team's budget. Namespace `sos_task`.
+- `check_open_sos_task_limit(session, team_id, max_open) -> tuple[bool, int]` — unfinished SOS tasks the team holds; returns the count so the caller can name it. Shares the `sos_task` namespace with the window check, so both counts are taken under one lock (`pg_advisory_xact_lock` is re-entrant in a transaction).
+- `check_print_task_rate_limit(session, team_id, window_seconds, max_tasks) -> tuple[bool, datetime | None]` — the same window scoped to `type = PRINT`. Namespace `print_task`.
+- `check_clarification_rate_limit(session, team_id, window_seconds, max_requests) -> tuple[bool, datetime | None]` — the window over `clarifications`, excluding announcements (which are stored with their author as `team_id`). Namespace `clarification`.
+- `check_open_clarification_limit(session, team_id, max_open) -> tuple[bool, int]` — unanswered, non-hidden clarifications the team holds. Hidden rows are excluded because hiding is how a judge dismisses a question: such a row is never answered, so counting it would block the team permanently.
+
+The services own the enforcement and translate a refusal into a typed error —
+`TaskRateLimitError` / `OpenSosTaskLimitError` (`task_service`) and
+`ClarificationRateLimitError` / `TooManyUnansweredClarificationsError`
+(`clarification_service`) — which the routes turn into a danger flash and a 303. Two classes per
+domain, not one with an optional timestamp: the two refusals produce structurally different copy.
 
 Reuse this module when:
 - adding rate limiting to any web submission endpoint
+- adding a per-actor cap to any web write endpoint
 
 Do not reimplement:
 - the advisory-lock + count pattern (use this service directly)
 - the namespaced-lock trick for a second budget over a different table
+- the `0 = unlimited` short-circuit
+
+Notes:
+- `hashtext` is 32-bit, so a namespaced key can collide with another (or with the legacy
+  unnamespaced submission key). The only consequence is two unrelated actors serializing against
+  each other, never a wrong decision.
+- The lock is held from the check until the caller's transaction ends, which is exactly the
+  check-then-INSERT window that must be serialized. Refusal paths must not commit.
 
 ---
 
@@ -740,7 +984,7 @@ Do not reimplement:
 
 Notes:
 - uses `get_active_judgment` from `judgment_utils` for verdict selection (same semantics as scoreboard)
-- uses `icpc_minutes_from_seconds` from `shared.timing` for ICPC-rounded run times
+- uses `icpc_minutes_from_seconds` from `shared.timing` for ICPC run times, truncated to whole minutes
 - penalty is hardcoded to `20` in the export for strict consumer compatibility
 - institution field uses `contest.contest_name` since NOCA has no institution attribute on User
 - see [ANIMEITOR-REVELEITOR.md](../../docs/ANIMEITOR-REVELEITOR.md) for the full usage guide
@@ -821,9 +1065,6 @@ Internal structure:
 - `integrity.py` — composes the primitives into contest-scope, foreign-key, and
   manifest-to-payload checks across the whole archive graph before restore
 - `restore.py` — coordinates the one-transaction Core restore and rollback cleanup
-- `strategy.py` — the one predicate answering "what kind of problem is this" for
-  an archived row, shared by `integrity.py` and `restore_problems.py` so an
-  archive cannot validate under one strategy and restore under another
 - `restore_problems.py` — restores problem rows and lazily reads their files
 - `restore_history.py` — restores submissions, judgments, clarifications, and tasks
 - `importing.py` — coordinates validation and restoration, and normalizes a
@@ -833,28 +1074,24 @@ Internal structure:
 Main entrypoints:
 
 - `build_contest_backup(...)` — writes a temporary archive off the event loop at
-  `FORMAT_VERSION` 4, carrying each problem's `validator_type`,
-  `artifact_generation`, and optional `editorial`, plus each clarification's
-  `is_announcement`, in the payload rows and
+  `FORMAT_VERSION` 5, carrying each problem's `validator_type`,
+  `artifact_generation`, `public_export_generation`, and optional `editorial`,
+  plus each clarification's `is_announcement`, in the payload rows and
   embedding version-2 problem packages. It builds those packages with
   `require_importable=False`, so a
   contest holding an interactive problem whose validator source was removed stays
   backupable; restore never parses the embedded `problem.json`, and the validator
   row is preserved verbatim in `problems.json`
 - `import_contest_backup(...) -> ContestImportResult` — validates, then restores
-  versions **1, 2, 3, and 4**, refusing anything else. Version 4 requires
-  `clarifications.is_announcement`; versions 1-3 treat it as absent and derive it
-  from the *archived* author's role through the shared
-  `announcement_flag_for_backup_row()`, which the integrity checker and the
-  restorer both call so an archive cannot validate as one kind of row and restore
-  as another. Version 3 requires the
-  nullable `editorial` column. Versions 1 and 2 treat it as absent; version 2
-  requires `validator_type` and `artifact_generation`, while version 1 treats
-  them as optional and applies *explicit wins, infer only on absence*, because archives written
-  between the column landing and the format bump carry the strategy while still
-  being labelled version 1. The same predicate decides whether an `out/NNN.out`
-  payload member is required, so expected output follows the strategy rather than
-  whether a validator row holds active source
+  **version 5 only**, refusing anything else with a message naming the supported
+  version. Every column the live table has is mandatory in a v5 row, so both the
+  integrity checker and the restorer read stored values rather than deriving
+  them: `validator_type` is read straight from the row (and decides whether an
+  `out/NNN.out` payload member is required), and so is
+  `clarifications.is_announcement`. Versions 1 to 4 were retired with the v5
+  bump; each needed its own optional-column set plus an inference rule, and every
+  such rule was a place the checker and the restorer could disagree — admitting
+  an archive that validates as one kind of row and restores as another
 
 Reuse this module when:
 
@@ -927,6 +1164,34 @@ Notes:
 
 ---
 
+## `problem_export_cache.py`
+
+Moved to `shared/services/problem_export_cache.py` (#204): Arena caches its public export and
+sample-case ZIP with the same module. See [SHARED_SERVICES.md](../../docs/SHARED_SERVICES.md).
+
+---
+
+## `problem_export_rate_limit.py`
+
+Purpose:
+- give the per-problem export a much tighter budget than the router-wide `web:user-read` ceiling it sits under. That ceiling is deliberately loose (300 requests a minute) because it guards polled partials whose per-call cost is bounded; a problem package build is not, and 300 of them a minute per team bounds nothing
+
+Main entrypoints:
+- `web_problem_export_rate_limit` — the `Depends`-ready per-actor limiter, attached to the `/export` route only
+- `problem_export_policy() -> RateLimitPolicy` — rebuilt from settings per request, so a knob change (and a test's monkeypatch) takes effect without rebuilding the dependency
+- `PROBLEM_EXPORT_BUCKET` / `PROBLEM_EXPORT_DETAIL` / `PROBLEM_EXPORT_LIMITER`
+
+Do not reimplement:
+- build it with `shared.services.request_rate_limit.make_user_rate_limit_dependency`, exactly as `user_read_rate_limit.py` does, and share that module's `web_actor_key` so both budgets count the same identity
+
+Notes:
+- keyed per actor, not per client IP: the route is authenticated and a whole venue legitimately shares one address, so counting by address would refuse a room full of contestants for one team's behaviour
+- charged before the cache is consulted, so a caller can neither widen the budget by arranging for hits nor be spared by arranging for misses
+- no trusted-network bypass: an exemption keyed on an address could only ever lift a per-actor budget for callers with no valid session
+- register `PROBLEM_EXPORT_LIMITER` in `tests/web/conftest.py`'s reset fixture — the Web test apps carry no Valkey runtime, so the limiter runs on its process-local fallback and state would leak across tests
+
+---
+
 ## `task_service/`
 
 Purpose:
@@ -949,13 +1214,16 @@ Main types:
 - `TaskNotAcquiredByActorError`
 - `DuplicatePrintTaskError`
 - `PrintRequestsDisabledError`
+- `TaskRateLimitError` — per-window SOS or PRINT budget exhausted; carries `next_allowed_at`
+- `OpenSosTaskLimitError` — the team already holds the maximum unfinished SOS tasks; carries `open_count` and `limit`
 - `TaskView`
 
 Main entrypoints:
-- `create_sos_task(session, contest, actor) -> Task`
-- `create_print_task(session, contest, actor, *, problem_id, source_code) -> Task` — requires `contest.allow_print_requests=True`, validates source code size against `contest.max_problem_file_size_bytes`, and deduplicates by source hash
+- `create_sos_task(session, contest, actor, *, rate_limit_window_seconds, rate_limit_max_tasks, max_open_tasks) -> Task` — enforces the open-SOS cap first (waiting does not release it) and then the rolling window, both after the TEAM role gate, so staff, judges, and admins never reach them
+- `create_print_task(session, contest, actor, *, problem_id, source_code, rate_limit_window_seconds, rate_limit_max_tasks) -> Task` — requires `contest.allow_print_requests=True`, validates source code size against `contest.max_problem_file_size_bytes`, deduplicates by source hash, and only then applies the rolling window, so the duplicate warning is never masked by the throttle
 - `create_balloon_task(session, *, problem_id, team_id) -> Task` — system-level call with no actor or contest-running requirement
 - `get_task(session, contest, task_id) -> Task | None` — includes SOS tasks (NULL `problem_id`) via LEFT JOIN through team user
+- `get_task_with_details(session, contest, task_id) -> Task | None` — applies the same contest scoping while eagerly loading the team, site, problem, and finished-task staff relationships required by source printouts
 - `list_tasks(session, contest, actor, lock_client) -> tuple[list[TaskView], bool]` — merges PostgreSQL rows with Valkey lock state; bool indicates whether lock coordination is available for the UI
 - `acquire_task(session, contest, actor, task, lock_client) -> Task` — STAFF, ADMIN, or the contest chief judge; acquires a Valkey TTL lock keyed by contest and task id
 - `release_task(session, contest, actor, task, lock_client) -> Task` — STAFF and the chief judge may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
@@ -1010,22 +1278,46 @@ Purpose:
 Internal structure:
 - `models.py` — report DTOs used by templates
 - `computation.py` — pure aggregation and table-building logic
+- `tables.py` — cross-table and per-problem solve-metric builders consumed by `computation.py`
 
 Main types:
 - `ProblemInfo` — lightweight problem descriptor (label, title, color)
 - `LanguageInfo` — lightweight language descriptor (id, name, icon)
 - `CellValue` — count + percentage cell for cross-tables
-- `ProblemSummaryRow` — row for problem summary (runs, AC count/%, AC+PE count/%)
-- `DistributionRow` — row for distribution tables (problem, count, %)
+- `SolveMetrics` — per-problem submission/solve-time metrics: `avg_submissions`/`median_submissions` (mean/median of per-team submission count, over distinct attempting teams); `median_time_solved`, `avg_time_solved`, `first_solved_minutes`, `first_solver_name`, `dirt_ratio` (all `None` until the problem has a solve) computed from each solving team's *first* accepted submission only. `dirt_ratio` is the ICPC resolver "dirt" metric -- pooled wrong-submission count from solving teams (attempts before each one's solve) divided by that count plus the solver count, *not* an average of each team's own ratio
+- `ProblemSummaryRow` — row for problem summary (runs, AC count/%, AC+PE count/%, `solve_metrics`)
+- `DistributionRow` — row for distribution tables (problem, count, %). `ContestReport.runs_distribution` counts accepted-or-not *submissions*; `ContestReport.accepted_distribution` deliberately counts distinct *solving teams* instead (the same population as `Highlights.most_solved`/`least_solved` and `SolveMetrics.dirt_ratio`), not accepted submissions -- a team that submits an accepted verdict twice to the same problem is one solve, not two
 - `TeamRow` — row for team x problem table (team display, totals, per-problem cells)
 - `TimeWindow` — one bar in time-distribution charts (label, all_count, accepted_count)
-- `ContestReport` — all aggregated data: problem summary, distributions, cross-tables (problem×verdict, problem×language, language×verdict), team×problem, time windows
+- `ProblemRaceSeries` — one line in the Problem Race chart: `solved_minutes` is every solving team's first-accepted-submission minute for that problem, sorted ascending (one entry per solve, empty when unsolved); the client derives the cumulative step curve by counting entries rather than the server pre-computing one
+- `ProblemHighlight` — most/least-solved problem card data; `problems` lists every problem tied for the extreme solved-team count (usually one, all of them on a tie) rather than picking an arbitrary winner; `pct_of_teams` is out of every *active* team (at least one submission, judged or not), not the full enrolled roster -- a team that never showed up must not deflate a problem's acceptance rate
+- `LanguageHighlight` — most-used-language card data (language, submission count, % of all judged runs)
+- `ActiveTeamsHighlight` — how many enrolled teams actually showed up: `active` (at least one submission, judged or not), `enrolled` (full contest roster), `pct` -- the one Highlights figure that measures participation rather than performance
+- `Highlights` — the five top-of-page KPI cards: `most_solved`, `least_solved` (by distinct solving-team count), `most_used_language` (`None` only if the contest has no configured languages), `global_acceptance_pct`, `active_teams`
+- `FiveNumberSummary` — Min/Q1/Median/Q3/Max plus Mean for an integer distribution, from `statistics.quantiles(..., n=4)` (stdlib's default "exclusive" method)
+- `SolvedCountBucket` — one bar in the Performance section's "Active Teams by Problems Solved" histogram (`solved`, `team_count`)
+- `PerformanceSummary` — the Performance section's contest-wide distributions across every *active* team, including teams with 0 solves (0 penalty too): `active_team_count`; `solved_summary`/`penalty_summary` (`FiveNumberSummary | None`, `None` below two active teams since `statistics.quantiles` needs at least two points); `solved_histogram`; `top_10pct_solved` (ceiling of the solved-count distribution's own 90th percentile, clamped to the observed maximum since the stdlib's exclusive-method percentile can otherwise extrapolate past it on a small sample -- not a full ICPC-rank threshold, which would pull in penalty-time tie-breaking from outside this distribution). `penalty_summary` uses the real ICPC penalty formula (solve-minute plus penalizing-verdict attempts × the contest's WA penalty, respecting `accept_pe`/`ce_adds_penalty`), computed separately from `SolveMetrics.dirt_ratio`'s broader "any non-accepted submission is wrong" predicate -- the two metrics answer different questions and must not share one wrongness definition
+- `ContestReport` — all aggregated data: highlights, problem summary, distributions, cross-tables (problem×verdict, problem×language, language×verdict), team×problem, time windows, problem race, performance
 
 Main entrypoints:
-- `compute_contest_report(contest, submissions, languages) -> ContestReport` — filters to DONE judgments with non-null final_verdict; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate
+- `compute_contest_report(contest, submissions, problems, languages, enrolled_teams) -> ContestReport` — `submissions` is `list[ContestReportSubmissionRow]` and `problems` is `list[ContestReportProblemRow]`, both from `contest_report_query_service`, not ORM rows; filters submissions to DONE judgments with non-null final_verdict; sorts them chronologically (`shared.services.scoreboard_projection.submission_sort_key`) since `SolveMetrics` needs each team's attempt order; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate. `problem_infos` (and therefore every table's problem set) is built from `problems` directly, *not* derived from which problems appear in `submissions` -- a problem with zero judged submissions in the current scope (e.g. a site whose teams never touched it) still appears, with every count defaulting to zero, instead of silently vanishing; the distinct `team_id`s across the full (unfiltered) `submissions` list -- teams with at least one submission, judged or not -- become `Highlights.most_solved`/`least_solved`'s percentage denominator, `Highlights.active_teams.active`, and `PerformanceSummary`'s population; `enrolled_teams` (every TEAM-role user enrolled, from `contest_user_service.count_contest_teams`) is used only by `Highlights.active_teams`
 
 Constants:
 - `ALL_VERDICTS` — ordered list of all `Verdict` values used as cross-table columns
+
+---
+
+## `contest_report_query_service.py`
+
+Purpose:
+- the one I/O boundary feeding `contest_report_service`'s pure aggregation; a lean, report-only submission query, deliberately separate from `submission_service.list_submissions` (built for the Runs page, which needs full ORM `Submission` rows: `source_code`, judgment confirmations, verdict overrides). At a few thousand submissions the difference is noise; a busy contest clearing five figures of submissions makes loading every source file into memory just to discard it real, avoidable I/O and RAM. This module selects only the columns the report aggregates.
+
+Main types:
+- `ContestReportSubmissionRow` — one submission's report-relevant columns, flattened (problem ordinal/title/color, team username/fullname/site name, language id, timestamps) with its judgment already resolved to `judgment_status`/`final_verdict`. Structurally compatible with `shared.services.scoreboard_projection.SubmissionInput` (`id`, `team_id`, `problem_id`, `timestamp_seconds`, `created_at`), so `submission_sort_key` accepts it directly without a protocol cast.
+
+Main entrypoints:
+- `list_contest_report_submissions(session, contest, *, site_id=None) -> list[ContestReportSubmissionRow]` — one SQL round trip: submissions joined to their problem and team (with the team's site), outer-joined to every non-`SUPERSEDED`, non-`FAILED` judgment; the effective one is then picked per submission in Python by latest `created_at`, mirroring `judgment_utils.get_active_judgment`'s exact exclusion set (not the animator's "prefer DONE" ordering, which is a different selection rule for a different consumer). `site_id` scopes the query to one site's teams (a team with no site is excluded); `None` returns the whole contest -- this is the reports page's per-site filter, and since `compute_contest_report` is a pure function over whatever list it is handed, every downstream figure (Highlights, Performance, Dirt Ratio, Problem Race) is automatically scoped too, with no aggregation-side awareness of sites at all
+- `list_contest_report_problems(session, contest) -> list[ContestReportProblemRow]` — every problem in the contest (id, ordinal, title, color), regardless of submission activity; this, not "which problems appear in `list_contest_report_submissions`'s result", is `compute_contest_report`'s problem set, so a problem nobody in the current scope has touched still shows up with honest zeros instead of vanishing from the legend and every table
 
 ---
 
@@ -1071,6 +1363,8 @@ Main entrypoints:
 - `ensure_user_media_upload_allowed(actor, target_user) -> None`
 - `ensure_user_media_removal_allowed(actor, target_user) -> None`
 - `get_contest_user_groups(session, contest) -> ContestUserGroups`
+- `count_contest_teams(session, contest) -> int` — cheap `COUNT(*)` of TEAM-role users; used by the reports page's Highlights "Active Teams" card as the enrolled-roster figure, distinct from the "active" (submitted at least once) count `contest_report_service` derives itself
+- `count_teams_by_site(session, contest) -> dict[str, int]` — TEAM-role user counts per site (one grouped query, a team with no site excluded); labels each tile in the reports page's site picker without a query per site
 - `get_user_in_contest(session, contest, user_id) -> User | None`
 - `get_user_by_username_in_contest(session, contest, username) -> User | None`
 - `create_user(session, contest, actor, *, username, fullname, role, password, email=None, site_id=None) -> tuple[User, str]`
@@ -1298,7 +1592,7 @@ Additional entrypoints (file I/O — sync, call via `anyio.to_thread.run_sync`):
 - `save_md_statement(problem_id, md_text, statement_dir) -> None`
 - `delete_problem_statement(problem_id, statement_dir) -> None` — deletes both PDF and MD files
 - `delete_md_statement(problem_id, statement_dir) -> None`
-- `validate_md_content(md_text) -> list[str]` — validates Markdown statement content; returns errors for disallowed features or oversized content (>512 KB)
+- `validate_md_content(md_text, *, allow_links=False) -> list[str]` — validates Markdown statement content; returns errors for disallowed features or oversized content (>512 KB). `allow_links=True` (the announcement board) accepts links while still refusing raw HTML and images
 - `get_testcase_path(problem_id, ordinal, ext, testcase_dir) -> Path`
 - `save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir) -> tuple[int, int]` — normalizes content to Unix line endings (LF only) before writing and returns the written `(input_size_bytes, output_size_bytes)`; the add/edit/zip handlers persist those onto the `test_cases` row. The contest test-case root resolves to `<NOCA_PROBLEM_TESTCASE_DIR>/contest`. Inline add/edit is gated to ≤ `MAX_INLINE_TESTCASE_BYTES` (10 KB) per side; larger cases use the single-case ZIP download/replace routes (`download_test_case` / `replace_test_case`, no cap)
 - `read_testcase_preview(problem_id, ordinal, testcase_dir, max_bytes=32) -> tuple[str, str]`
@@ -1366,7 +1660,10 @@ Reuse this module when:
 - implementing current-user profile changes
 
 Do not reimplement:
-- current-password verification
+- current-password verification (the `/profile/password` route verifies the
+  current password through `password_confirm_throttle.confirm_password` and
+  then calls `update_password` **without** `current_password`, so the hash is
+  checked once and under the shared lockout)
 
 ---
 
@@ -1409,10 +1706,16 @@ Main entrypoints:
 - `build_animator_credential_email_content(...) -> CredentialEmailContent`
 - `build_user_credentials_email_content(...) -> CredentialEmailContent`
 - `build_uberadmin_credentials_email_content(...) -> CredentialEmailContent`
-- `send_credentials_email(...) -> CredentialEmailSendResult`
-- `send_user_credentials_email(email_service, *, to_email, fullname, contest_name, contest_login_url, username, password) -> CredentialEmailSendResult`
+- `async send_credentials_email(email_service, *, to_email, fullname, content, actor_key) -> CredentialEmailSendResult`
+- `async send_user_credentials_email(email_service, *, to_email, fullname, contest_name, contest_login_url, username, password, actor_key) -> CredentialEmailSendResult`
+- `email_actor_key(actor) -> str` -- the budget identity of a Web actor (`user:<id>` / `uberadmin:<id>`)
 
 Notes:
+- both senders are async and charge the admin's email budget (`tier="admin"`);
+  `CredentialEmailSendResult` reports the outcome without raising: `queued`
+  when the message went to the mailer rather than out the door, and
+  `budget_exceeded` (with `retry_after_seconds`) when the budget refused it --
+  the batch route stops at the first such result
 - body template follows the NOCA credentials plain-text structure used by admin routes
 - animator credential content identifies whether the one-time plaintext token is
   global or site-scoped, including the authorized site name, for delivery to the
@@ -1583,7 +1886,8 @@ Current helpers:
 - `format_seconds_compact(total_seconds) -> str` — converts seconds to `"Xh Ymin Zs"`, omitting zero units; returns `"0s"` for zero input
 - `minutes_from_contest_start(contest_start, timestamp) -> int` — returns whole elapsed minutes between contest start and a timestamp
 - `contest_minutes(timestamp_seconds) -> int | None` — returns the display minute value for a contest-relative second offset
-- `format_site_identity(site_name, base_name) -> str` — prefixes labels as `"[site] Name"` when a site is present
+- `format_hidden_window(total_seconds) -> str` — renders a withheld-results duration the way a person says it (`"45 min"`, `"1 h"`, `"1 h 20 min"`), for the frozen-scoreboard band. Deliberately not `format_seconds_compact`, which reads as a stopwatch. It is the Python twin of `formatHiddenWindow` in `animator/static/js/animator-render.js`: the Web scoreboard and the animator board describe the same freeze, so changing one means changing the other
+- `format_site_identity(site_name, base_name) -> str` — prefixes labels as `"[site] Name"` when a site is present. The scoreboard is the one surface that deliberately does *not* use it: it gives each team two lines, name then site, so the site is rendered on its own line rather than prefixed onto the first
 - `render_prettytable(headers, rows, *, header_alignments=None, max_widths=None, vertical_alignments=None) -> str` — shared ASCII table renderer for service-generated markdown/text exports
 
 ### `__init__.py`

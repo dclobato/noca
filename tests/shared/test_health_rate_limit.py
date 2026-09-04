@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -34,11 +34,11 @@ class _FakeValkeyRuntime:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
 
-    async def eval(self, script: str, numkeys: int, *args: str) -> int:
+    async def eval(self, script: str, numkeys: int, *args: str) -> list[int]:
         del script, numkeys
         key = args[0]
         self.counts[key] = self.counts.get(key, 0) + 1
-        return self.counts[key]
+        return [self.counts[key], 60_000]
 
 
 class _UnavailableValkeyRuntime:
@@ -129,7 +129,7 @@ async def test_health_rate_limit_uses_valkey_counter_when_available() -> None:
             request, module="web", settings=_settings(max_requests=1), fallback_limiter=limiter
         )  # type: ignore[arg-type]
 
-    assert valkey.counts == {"health:rate-limit:web:203.0.113.10": 2}
+    assert valkey.counts == {"noca:ratelimit:health:web:203.0.113.10": 2}
 
 
 @pytest.mark.asyncio

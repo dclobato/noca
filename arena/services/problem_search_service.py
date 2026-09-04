@@ -40,6 +40,8 @@ from arena.services.text_search_primitives import (
 from arena.services.text_search_primitives import (
     apply_trigram_threshold,
     escaped_substring_pattern,
+    query_is_trigram_searchable,
+    substring_terms,
     uses_websearch_syntax,
 )
 from shared.db_schema.arena import arena_users as _users_table
@@ -290,6 +292,24 @@ def _field_column(field: ProblemSuggestionField) -> ColumnElement[str | None]:
     return type_cast(ColumnElement[str | None], ArenaProblem.source)
 
 
+def _substring_term_conditions(
+    value: ColumnElement[str | None] | Any,
+    query: str,
+) -> list[ColumnElement[bool]]:
+    """Return one escaped ILIKE condition per term of a suggestion query.
+
+    AND-ing the terms is what lets a partial term match: ``"2024 Loca"`` finds
+    ``"VII Maratona de Programação InterIF - 2024 / Fase Local"``, which no other
+    branch can. Full-text matching compares whole lexemes (``loca`` never equals
+    ``local``), whole-query substring matching needs the typed text to be
+    contiguous in the stored value (it is not -- ``" / Fase "`` sits between),
+    and whole-string trigram similarity is diluted below the threshold by the
+    rest of a long source. A single-term query yields exactly the whole-query
+    substring condition this replaced.
+    """
+    return [value.ilike(escaped_substring_pattern(term), escape=_LIKE_ESCAPE) for term in substring_terms(query)]
+
+
 def _field_candidate_conditions(
     field: ProblemSuggestionField,
     value: Any,
@@ -484,11 +504,20 @@ def _portable_suggestion_search(
     field: ProblemSuggestionField,
     query: str,
 ) -> ProblemSuggestionSearchExpressions:
-    """Build SQLite-compatible field-only literal substring suggestion matching."""
+    """Build SQLite-compatible field-only per-term substring suggestion matching."""
     value = _field_column(field)
-    predicate = and_(
-        *_field_candidate_conditions(field, value, ArenaProblem.author_is_owner),
-        value.ilike(escaped_substring_pattern(query), escape=_LIKE_ESCAPE),
+    term_conditions = _substring_term_conditions(value, query)
+    # A query of nothing but whitespace has no terms, and AND-ing an empty
+    # condition list would match every stored value rather than none. The
+    # service rejects such a query before reaching here; this keeps the
+    # expression correct on its own terms.
+    predicate = (
+        and_(
+            *_field_candidate_conditions(field, value, ArenaProblem.author_is_owner),
+            *term_conditions,
+        )
+        if term_conditions
+        else false()
     )
     return ProblemSuggestionSearchExpressions(
         predicate=predicate,
@@ -502,7 +531,7 @@ def _suggestion_candidate_problem_ids(
     query: str,
     text_queries: dict[StatementLanguage | None, ColumnElement[Any]],
 ) -> Any:
-    """Return independent FTS, literal, and fuzzy candidate branches for one stored field."""
+    """Return independent FTS, per-term substring, and fuzzy branches for one stored field."""
     if field == "license":
         license_problems = ArenaProblem.__table__.alias("suggestion_license_problem")
         license_value = license_problems.c.license
@@ -518,14 +547,17 @@ def _suggestion_candidate_problem_ids(
     problems = ArenaProblem.__table__.alias("suggestion_problem")
     value = problems.c[field]
     field_conditions = _field_candidate_conditions(field, value, problems.c.author_is_owner)
-    pattern = escaped_substring_pattern(query)
-    candidates.append(
-        select(problems.c.id).where(
-            *field_conditions,
-            value.ilike(pattern, escape=_LIKE_ESCAPE),
+    # Both remaining branches are trigram-served, so neither may be built for a
+    # query PostgreSQL would have to answer by sequential scan. The service
+    # declines such a query before reaching here; this keeps the expression
+    # correct for any other caller.
+    if query_is_trigram_searchable(query):
+        candidates.append(
+            select(problems.c.id).where(
+                *field_conditions,
+                *_substring_term_conditions(value, query),
+            )
         )
-    )
-    if len(query) >= _MIN_FUZZY_QUERY_LENGTH:
         candidates.append(
             select(problems.c.id).where(
                 *field_conditions,
@@ -551,7 +583,7 @@ def _postgres_suggestion_search(
     return ProblemSuggestionSearchExpressions(
         predicate=ArenaProblem.id.in_(_suggestion_candidate_problem_ids(field, query, text_queries)),
         full_text_rank=full_text_rank,
-        trigram_rank=(func.similarity(value, query) if len(query) >= _MIN_FUZZY_QUERY_LENGTH else literal(0.0)),
+        trigram_rank=(func.similarity(value, query) if query_is_trigram_searchable(query) else literal(0.0)),
     )
 
 
@@ -587,6 +619,6 @@ async def prepare_problem_suggestion_search(
     normalized_query = query.strip()
     if session.get_bind().dialect.name != "postgresql":
         return _portable_suggestion_search(field, normalized_query)
-    if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH:
+    if query_is_trigram_searchable(normalized_query):
         await apply_trigram_threshold(session)
     return _postgres_suggestion_search(field, normalized_query)

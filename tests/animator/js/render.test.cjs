@@ -95,7 +95,7 @@ const doc = {
 };
 
 // The asset mount bases the page passes to extractProblems (data-*-base attrs).
-const ASSETS = { balloonBase: "/assets/balloon", starBase: "/assets/star" };
+const ASSETS = { balloonBase: "/assets/balloon" };
 
 // ── released final detection: ended + explicitly unfrozen snapshot ─────────
 (function testReleasedFinalDetection() {
@@ -160,7 +160,6 @@ function findByTag(node, tag) {
   assert.strictEqual(problems[0].problemId, "p1");
   assert.strictEqual(problems[0].color, "ff0000");
   assert.strictEqual(problems[0].balloonBase, "/assets/balloon");
-  assert.strictEqual(problems[0].starBase, "/assets/star");
   problems.forEach((p) => assert.notStrictEqual(p.label, "[object Object]"));
 })();
 
@@ -392,8 +391,56 @@ function findByTag(node, tag) {
   assert.strictEqual(invalid.running, false);
 })();
 
-// ── Every solve has artwork; the first solver uses a star ────────────────────
-(function testStarInFirstSolverCell() {
+// ── The Frozen pill says how much of the board is hidden ────────────────────
+(function testFrozenLabelNamesTheHiddenWindow() {
+  const start = 1000000;
+  const end = start + 5 * 3600 * 1000;
+  const freeze = start + 4 * 3600 * 1000; // one hour of freeze by the rules
+
+  // While the contest runs, the window is measured to NOW: at 04:35 on a board
+  // frozen at 04:00 only 35 minutes are hidden, not the 60 the rules set aside.
+  const running = render.computeTimerView(start, end, true, freeze + 35 * 60000, freeze);
+  assert.strictEqual(running.label, "Frozen · last 35 min hidden");
+  assert.strictEqual(running.state, "frozen");
+
+  // Once ended it is measured to the END -- now the full planned window is hidden.
+  const ended = render.computeTimerView(start, end, true, end + 999999, freeze);
+  assert.strictEqual(ended.label, "Frozen · last 1 h hidden");
+  assert.strictEqual(ended.ended, true);
+
+  // A released final board is not frozen and says nothing about it.
+  assert.strictEqual(render.computeTimerView(start, end, false, end + 1, freeze).label, "Final");
+
+  // Wording a person would use, not a duration clock.
+  assert.strictEqual(render.formatHiddenWindow(45 * 60000), "45 min");
+  assert.strictEqual(render.formatHiddenWindow(60 * 60000), "1 h");
+  assert.strictEqual(render.formatHiddenWindow(80 * 60000), "1 h 20 min");
+  assert.strictEqual(render.formatHiddenWindow(2 * 3600 * 1000), "2 h");
+
+  // Unknown, nonsensical, or sub-minute windows degrade to a bare "Frozen"
+  // rather than showing a number a room would read as authoritative.
+  assert.strictEqual(render.frozenLabel(start, end, null, end), "Frozen");
+  assert.strictEqual(render.frozenLabel(start, end, undefined, end), "Frozen");
+  assert.strictEqual(render.frozenLabel(start, end, NaN, end), "Frozen");
+  assert.strictEqual(render.frozenLabel(start, NaN, freeze, end), "Frozen", "an unknown end hides nothing knowable");
+  assert.strictEqual(
+    render.frozenLabel(start, end, start - 1, end),
+    "Frozen",
+    "a freeze before the start is not a time",
+  );
+  assert.strictEqual(
+    render.frozenLabel(start, end, freeze, freeze + 30000),
+    "Frozen",
+    "under a minute hidden is not worth a number",
+  );
+  assert.strictEqual(render.computeTimerView(start, end, true, end + 1).label, "Frozen");
+
+  // A contest frozen from its own start has hidden all of itself.
+  assert.strictEqual(render.frozenLabel(start, end, start, end), "Frozen · last 5 h hidden");
+})();
+
+// ── Only a first solve carries artwork; the balloon lives in the header ──────
+(function testFirstSolverCellKeepsItsStarAndOrdinarySolvesDropTheBalloon() {
   const problems = render.extractProblems(
     { problems: [{ problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" }] },
     ASSETS,
@@ -406,14 +453,31 @@ function findByTag(node, tag) {
     penalty: 0,
     is_first_balloon: true,
   });
-  const imgs = findByTag(first, "img");
-  assert.strictEqual(imgs.length, 1, "first-solver cell shows a star");
-  assert.strictEqual(imgs[0].getAttribute("src"), "/assets/star/ff0000", "star matches Web's color-only cell asset");
-  assert.ok(imgs[0].getAttribute("class").indexOf("animator-cell-star") !== -1, "star cell class");
+  const marks = findByTag(first, "span").filter(
+    (node) => (node.getAttribute("class") || "").indexOf("noca-cell-first-mark") !== -1,
+  );
+  assert.strictEqual(marks.length, 1, "first-solver cell shows a star");
+  assert.strictEqual(marks[0].textContent, "\u2605", "the star is a glyph, not served artwork");
+  assert.ok(marks[0].getAttribute("class").indexOf("animator-cell-star") !== -1, "star cell class");
+  assert.ok(
+    marks[0].getAttribute("class").indexOf("animator-balloon") === -1,
+    "the in-cell star must not take the header balloon's class, which pins a header height",
+  );
+  assert.strictEqual(marks[0].getAttribute("aria-hidden"), "true", "the star is decorative");
+  assert.strictEqual(
+    findByTag(first, "img").length,
+    0,
+    "the star is coloured from the per-column stylesheet, so it costs no request",
+  );
+  assert.ok(
+    first.textContent.indexOf("first solve") !== -1,
+    "the visually-hidden span is the star's single accessible announcement",
+  );
   assert.ok(first.hasClass("animator-cell--first"));
   assert.ok(first.textContent.indexOf("12'") !== -1);
   assert.ok(first.textContent.indexOf("+") === -1, "first-attempt solve has no solitary plus");
-  // A non-first solve carries a balloon rather than a star.
+  // An ordinary solve carries no artwork at all: the problem's balloon identifies
+  // its column from the header, and repeating it per cell is what made rows 80px tall.
   const plain = render.buildProblemCell(doc, problems[0], {
     problem_id: "p1",
     solved: true,
@@ -422,8 +486,12 @@ function findByTag(node, tag) {
     penalty: 0,
     is_first_balloon: false,
   });
-  assert.strictEqual(findByTag(plain, "img").length, 1, "ordinary solve has a balloon");
-  assert.strictEqual(findByTag(plain, "img")[0].getAttribute("src"), "/assets/balloon/ff0000");
+  assert.strictEqual(
+    findByTag(plain, "img").length,
+    0,
+    "an ordinary solve carries no in-cell artwork; the balloon lives in the column header",
+  );
+  assert.ok(plain.textContent.indexOf("15'") !== -1, "the solve minute still reads");
 })();
 
 // ── Keyed reconciliation preserves identity, order, removal, and transients ──
@@ -569,6 +637,55 @@ function findByTag(node, tag) {
     invalid.children[0].children[1].children.every((child) => child.tagName !== "img"),
     "an unknown band cannot render a watermark",
   );
+})();
+
+// ── Per-column balloon colours reach the cells as one validated stylesheet ──
+(function testProblemColorRules() {
+  const problems = render.extractProblems(
+    {
+      problems: [
+        { problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" },
+        { problem_id: "p2", ordinal: 2, label: "B", balloon_color: "00ff00" },
+      ],
+    },
+    ASSETS,
+  );
+  const css = render.problemColorRules(problems);
+  // Four fixed columns precede the problems, so problem 1 is the fifth cell.
+  assert.ok(css.indexOf(".animator-cell:nth-child(5){--noca-cell-balloon:#ff0000}") !== -1);
+  assert.ok(css.indexOf(".animator-cell:nth-child(6){--noca-cell-balloon:#00ff00}") !== -1);
+
+  // A stylesheet executes whatever it is handed, so anything that is not a hex
+  // colour is dropped rather than emitted. That column simply shows no colour.
+  const hostile = render.problemColorRules([
+    { label: "A", color: "red;} body{display:none}" },
+    { label: "B", color: null },
+    { label: "C", color: "00ff00" },
+  ]);
+  assert.strictEqual(hostile.indexOf("display:none"), -1, "no CSS injection through a stored colour");
+  assert.strictEqual(hostile.indexOf("nth-child(5)"), -1, "an invalid colour emits no rule");
+  assert.strictEqual(hostile.indexOf("nth-child(6)"), -1, "a missing colour emits no rule");
+  assert.ok(hostile.indexOf("nth-child(7){--noca-cell-balloon:#00ff00}") !== -1, "valid siblings still emit");
+
+  // The sheet is created by the renderer, not shipped in the page: both animator
+  // templates assert the served HTML carries nothing inline.
+  const head = new El("head");
+  const sheetDoc = {
+    head: head,
+    createElement: (tag) => new El(tag),
+    getElementById: (id) =>
+      head.childNodes.filter((n) => n.getAttribute("id") === id)[0] || null,
+  };
+  const sheet = render.renderProblemColors(sheetDoc, problems);
+  assert.strictEqual(sheet.tagName, "style");
+  assert.strictEqual(head.childNodes.length, 1, "the sheet is appended once");
+  assert.ok(sheet.textContent.indexOf("nth-child(6)") !== -1);
+
+  // Replaced wholesale, never appended to, so a problem set that shrinks cannot
+  // leave a departed column still coloured -- and no second sheet appears.
+  render.renderProblemColors(sheetDoc, problems.slice(0, 1));
+  assert.strictEqual(head.childNodes.length, 1, "the sheet is reused, not duplicated");
+  assert.strictEqual(sheet.textContent.indexOf("nth-child(6)"), -1, "stale columns are dropped");
 })();
 
 console.log("animator-render DOM contract: all assertions passed");

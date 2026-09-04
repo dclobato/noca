@@ -29,9 +29,14 @@ Two decisions are deliberate and documented rather than implicit:
   fallback chain be trusted — a truncated photo *falls through to the avatar*
   rather than being served as a corrupt ``image/png``. The cost is bounded: the
   payloads are upload-limited, the decode is capped by explicit pixel and
-  dimension limits (so a decompression bomb is refused, not expanded), and the
-  route's ``ETag``/``304`` handling keeps a projector from re-fetching — and
-  therefore re-validating — the same photo.
+  dimension limits (so a decompression bomb is refused, not expanded), and a
+  conditional request never reaches it at all.
+- **Metadata first, one blob at a time.** :func:`load_team_media_metadata`
+  selects no payload column: the route answers a matching ``If-None-Match``
+  from the media kind and revision alone. Only a cache miss calls
+  :func:`resolve_team_image`, which loads the stored photo and — only if that
+  photo fails validation — the avatar, each through its own single-column
+  query. A ``304`` therefore costs one narrow row, never a decode.
 """
 
 from __future__ import annotations
@@ -42,12 +47,12 @@ from base64 import b64decode
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, false, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from animator.models.query_records import TeamMediaRecord
+from animator.models.query_records import TeamMediaMetadata
 from shared.db_schema import users, users_media
 from shared.enumerations import RoleEnum
 from shared.services.imageprocessing_service import ImageProcessingError
@@ -57,9 +62,12 @@ __all__ = [
     "PLACEHOLDER_MIME",
     "TeamImage",
     "TeamMediaKind",
-    "load_team_media",
+    "load_avatar_payload",
+    "load_photo_payload",
+    "load_team_media_metadata",
     "placeholder_image",
-    "select_team_image",
+    "resolve_team_image",
+    "scoped_team_query",
 ]
 
 logger = logging.getLogger(__name__)
@@ -112,47 +120,31 @@ def placeholder_image() -> TeamImage:
     return TeamImage(kind="placeholder", data=_PLACEHOLDER_PATH.read_bytes(), mime=PLACEHOLDER_MIME)
 
 
-async def load_team_media(
-    session: AsyncSession,
-    *,
+def scoped_team_query(
+    *columns: ColumnElement[Any],
     contest_id: str,
     team_id: str,
     site_id: str | None,
-) -> TeamMediaRecord | None:
-    """Load one team's media row, constrained to the ceremony's scope.
+) -> Select[tuple[Any, ...]]:
+    """Build the one scoped ``users`` ⟕ ``users_media`` lookup every media read uses.
 
     The lookup is narrowed by every axis at once — the contest, ``RoleEnum.TEAM``,
     and (for a site-scoped ceremony) the site — so a site spectator cannot read a
     team of another site or another contest, and a judge or admin account is
-    never addressable as a team.
-
-    One query serves both media routes: the photo and the optional audio clip are
-    read together, so the scope predicates cannot drift between them.
+    never addressable as a team. Both media routes, and both the metadata and
+    payload reads, go through this builder so the scope predicates cannot drift.
 
     Args:
-        session: Active database session.
+        *columns: Columns to select.
         contest_id: The enabled contest the request resolved to.
         team_id: Requested team identifier.
         site_id: Site the request is scoped to, or ``None`` for global scope.
 
     Returns:
-        The team's record (with ``None`` media fields when it has no
-        ``users_media`` row), or ``None`` when no such team exists in scope.
+        The scoped select statement.
     """
     stmt = (
-        select(
-            users.c.id,
-            users.c.username,
-            users.c.fullname,
-            users.c.site_id,
-            users_media.c.com_foto,
-            users_media.c.foto_base64,
-            users_media.c.avatar_base64,
-            users_media.c.dta_foto,
-            users_media.c.audio_base64,
-            users_media.c.audio_mime,
-            users_media.c.dta_audio,
-        )
+        select(*columns)
         .select_from(users.outerjoin(users_media, users_media.c.user_id == users.c.id))
         .where(
             users.c.id == team_id,
@@ -162,23 +154,78 @@ async def load_team_media(
     )
     if site_id is not None:
         stmt = stmt.where(users.c.site_id == site_id)
+    return stmt
 
+
+def _present(column: ColumnElement[str | None]) -> ColumnElement[bool]:
+    """SQL predicate: the blob column is stored and non-empty."""
+    return func.coalesce(func.length(column) > 0, false())
+
+
+async def load_team_media_metadata(
+    session: AsyncSession,
+    *,
+    contest_id: str,
+    team_id: str,
+    site_id: str | None,
+) -> TeamMediaMetadata | None:
+    """Load one team's media *metadata*, constrained to the ceremony's scope.
+
+    No payload column is selected: the row carries the flag, the two revisions,
+    and one presence boolean per blob, computed in SQL. This is the whole cost
+    of a conditional request that still matches.
+
+    Args:
+        session: Active database session.
+        contest_id: The enabled contest the request resolved to.
+        team_id: Requested team identifier.
+        site_id: Site the request is scoped to, or ``None`` for global scope.
+
+    Returns:
+        The team's metadata (all-false/``None`` media fields when it has no
+        ``users_media`` row), or ``None`` when no such team exists in scope.
+    """
+    stmt = scoped_team_query(
+        users.c.id,
+        users_media.c.com_foto,
+        _present(users_media.c.foto_base64),
+        _present(users_media.c.avatar_base64),
+        _present(users_media.c.audio_base64),
+        users_media.c.dta_foto,
+        users_media.c.dta_audio,
+        contest_id=contest_id,
+        team_id=team_id,
+        site_id=site_id,
+    )
     row = (await session.execute(stmt)).first()
     if row is None:
         return None
-    return TeamMediaRecord(
-        team_id=str(row.id),
-        username=str(row.username),
-        fullname=str(row.fullname),
-        site_id=str(row.site_id) if row.site_id is not None else None,
-        com_foto=bool(row.com_foto),
-        foto_base64=row.foto_base64,
-        avatar_base64=row.avatar_base64,
-        dta_foto=row.dta_foto,
-        audio_base64=row.audio_base64,
-        audio_mime=row.audio_mime,
-        dta_audio=row.dta_audio,
+    team, com_foto, has_photo, has_avatar, has_audio, dta_foto, dta_audio = row
+    return TeamMediaMetadata(
+        team_id=str(team),
+        com_foto=bool(com_foto),
+        has_photo=bool(has_photo),
+        has_avatar=bool(has_avatar),
+        has_audio=bool(has_audio),
+        dta_foto=dta_foto,
+        dta_audio=dta_audio,
     )
+
+
+async def _load_payload(session: AsyncSession, column: ColumnElement[str | None], team_id: str) -> str | None:
+    """Load exactly one stored blob column for a team already proven in scope."""
+    stmt = select(column).where(users_media.c.user_id == team_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def load_photo_payload(session: AsyncSession, team_id: str) -> str | None:
+    """Load only ``foto_base64`` for a team the metadata query already scoped."""
+    return await _load_payload(session, users_media.c.foto_base64, team_id)
+
+
+async def load_avatar_payload(session: AsyncSession, team_id: str) -> str | None:
+    """Load only ``avatar_base64`` for a team the metadata query already scoped."""
+    return await _load_payload(session, users_media.c.avatar_base64, team_id)
 
 
 def _decode_candidate(payload: str | None, *, team_id: str, kind: TeamMediaKind) -> TeamImage | None:
@@ -219,11 +266,16 @@ def _decode_candidate(payload: str | None, *, team_id: str, kind: TeamMediaKind)
     return TeamImage(kind=kind, data=data, mime=metadata.mime_type)
 
 
-def select_team_image(media: TeamMediaRecord) -> TeamImage:
+async def resolve_team_image(session: AsyncSession, media: TeamMediaMetadata) -> TeamImage:
     """Choose the image to serve: photo, then avatar, then placeholder.
 
+    Each candidate is loaded through its own single-column query, and only when
+    the metadata says it is stored: a valid photo never pulls the avatar blob, and
+    a team without stored media never queries a blob at all.
+
     Args:
-        media: The team's stored media record.
+        session: Active database session.
+        media: The team's media metadata.
 
     Returns:
         The first candidate that decodes to a recognizable image; the
@@ -231,12 +283,14 @@ def select_team_image(media: TeamMediaRecord) -> TeamImage:
         valid image.
     """
     if media.com_foto:
-        candidates: tuple[tuple[str | None, TeamMediaKind], ...] = (
-            (media.foto_base64, "photo"),
-            (media.avatar_base64, "avatar"),
-        )
-        for payload, kind in candidates:
-            candidate = _decode_candidate(payload, team_id=media.team_id, kind=kind)
+        if media.has_photo:
+            payload = await load_photo_payload(session, media.team_id)
+            candidate = _decode_candidate(payload, team_id=media.team_id, kind="photo")
+            if candidate is not None:
+                return candidate
+        if media.has_avatar:
+            payload = await load_avatar_payload(session, media.team_id)
+            candidate = _decode_candidate(payload, team_id=media.team_id, kind="avatar")
             if candidate is not None:
                 return candidate
     return placeholder_image()

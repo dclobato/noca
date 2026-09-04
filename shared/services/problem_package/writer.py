@@ -243,6 +243,7 @@ def _problem_json(
         "color": metadata.color,
         "hide_author_show_source": metadata.hide_author_show_source,
         "statement_language": metadata.statement_language,
+        "expected_difficulty": metadata.expected_difficulty,
         "time_limit_ms": metadata.time_limit_ms,
         "memory_limit_kb": metadata.memory_limit_kb,
         "pids_limit": metadata.pids_limit,

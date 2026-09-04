@@ -6,7 +6,8 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon, render_avatar, render_rank_medal with context %}
+{% from "_macros.html" import render_icon, render_avatar with context %}
+{% from "_macros.html" import render_location, render_rank_medal with context %}
 {% block title_suffix %}&mdash; User Ranking{% endblock %}
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_users %}active{% endblock %}
@@ -72,7 +73,7 @@
                     <tbody>
                         {% for user in pagination.items %}
                             {% set user_profile_url = request.url_for('arena_user_profile_public', user_id=user.id) if user.public_profile else None %}
-                            {% set avatar_url = request.url_for('arena_user_avatar_by_id', user_id=user.id) %}
+                            {% set avatar_url = request.url_for('arena_user_avatar_by_id', user_id=user.id) ~ '?v=' ~ user.avatar_revision %}
                             <tr {% if user_profile_url %}data-href="{{ user_profile_url }}"{% endif %}>
                                 <td class="arena-ranking-rank text-end">{{ render_rank_medal(request, user.rank) }}</td>
                                 <td>
@@ -80,7 +81,9 @@
                                         {{ render_avatar(user.id, avatar_url, alt=user.name) }}
                                         <div>
                                             <span class="arena-ranking-name">{{ user.name }}</span>
-                                            <span class="arena-ranking-meta arena-monospace d-none d-md-block">{{ user.email_mascarado }}</span>
+                                            {% if user.email_mascarado %}
+                                                <span class="arena-ranking-meta arena-monospace d-none d-md-block">{{ user.email_mascarado }}</span>
+                                            {% endif %}
                                         </div>
                                     </div>
                                 </td>
@@ -100,20 +103,8 @@
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-nowrap d-none d-md-table-cell">
-                                    {% if user.country_code %}
-                                        {% set flag_path = 'img/flags/' + user.country_code.lower() + '.svg' %}
-                                        {% set flag_url = request.url_for('static_vendor', path=flag_path) %}
-                                        <img src="{{ flag_url }}" class="arena-country-flag" alt="">
-                                        {{ user.country_name }}
-                                        {% if user.subdivision_name %}
-                                            ,
-                                            {{ user.subdivision_name }}
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
+                                {% set location_markup = render_location(request, user) %}
+                                <td class="text-nowrap d-none d-md-table-cell">{{ location_markup }}</td>
                                 <td class="arena-ranking-rating text-end">{{ user.rating }}</td>
                                 <td class="arena-ranking-solved text-end">{{ user.solved }}</td>
                             </tr>

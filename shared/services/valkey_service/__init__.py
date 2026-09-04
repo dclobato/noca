@@ -19,6 +19,10 @@ from shared.services.valkey_service.constants import (
     QUEUE_INFLIGHT_TIMES_KEY,
     QUEUE_JOB_HASH_PREFIX,
     QUEUE_KEYS,
+    QUEUE_MAIL_INFLIGHT_KEY,
+    QUEUE_MAIL_INFLIGHT_TIMES_KEY,
+    QUEUE_MAIL_JOB_HASH_PREFIX,
+    QUEUE_MAIL_PENDING_KEY,
     QUEUE_PENDING_KEY,
     QUEUE_PRIORITY_KEY,
     QUEUE_PROFILING_KEY,
@@ -54,6 +58,9 @@ from shared.services.valkey_service.queue_metrics import (
     get_contest_queue_metrics_with_client as _get_contest_queue_metrics_with_client,
 )
 from shared.services.valkey_service.queue_metrics import (
+    get_mail_queue_size_with_client as _get_mail_queue_size_with_client,
+)
+from shared.services.valkey_service.queue_metrics import (
     read_job_hashes_for_ids_with_client as _read_job_hashes_for_ids_with_client,
 )
 from shared.services.valkey_service.queue_metrics import (
@@ -61,32 +68,45 @@ from shared.services.valkey_service.queue_metrics import (
 )
 from shared.services.valkey_service.queue_ops import (
     complete_arena_ai_review_job,
+    complete_mail_job,
     dequeue_arena_ai_review_job_id,
     dequeue_job_id,
+    dequeue_mail_job_id,
     enqueue_arena_ai_review_job,
     enqueue_arena_submission_job,
     enqueue_custom_validator_validation_job,
     enqueue_job,
+    enqueue_mail_job,
     enqueue_profiling_job,
     enqueue_solution_test_job,
     get_ai_review_job_hash,
     get_ai_review_queued_ids,
     get_all_contest_queue_metrics,
     get_contest_queue_metrics,
+    get_mail_job_hash,
     get_stale_ai_review_job_ids,
+    get_stale_mail_job_ids,
     publish_submission,
     publish_verdict,
     remove_from_ai_review_inflight,
     remove_from_inflight,
+    remove_from_mail_inflight,
+    requeue_stale_mail_job,
 )
 from shared.services.valkey_service.queue_ops import (
     complete_arena_ai_review_job_with_client as _complete_arena_ai_review_job_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    complete_mail_job_with_client as _complete_mail_job_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     dequeue_arena_ai_review_job_id_with_client as _dequeue_arena_ai_review_job_id_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     dequeue_job_id_with_client as _dequeue_job_id_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    dequeue_mail_job_id_with_client as _dequeue_mail_job_id_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     enqueue_arena_ai_review_job_with_client as _enqueue_arena_ai_review_job_with_client,
@@ -101,6 +121,9 @@ from shared.services.valkey_service.queue_ops import (
     enqueue_job_with_client as _enqueue_job_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
+    enqueue_mail_job_with_client as _enqueue_mail_job_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
     enqueue_profiling_job_with_client as _enqueue_profiling_job_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
@@ -113,7 +136,13 @@ from shared.services.valkey_service.queue_ops import (
     get_ai_review_queued_ids_with_client as _get_ai_review_queued_ids_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
+    get_mail_job_hash_with_client as _get_mail_job_hash_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
     get_stale_ai_review_job_ids_with_client as _get_stale_ai_review_job_ids_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    get_stale_mail_job_ids_with_client as _get_stale_mail_job_ids_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     publish_arena_verdict_with_client as _publish_arena_verdict_with_client,
@@ -130,6 +159,12 @@ from shared.services.valkey_service.queue_ops import (
 from shared.services.valkey_service.queue_ops import (
     remove_from_inflight_with_client as _remove_from_inflight_with_client,
 )
+from shared.services.valkey_service.queue_ops import (
+    remove_from_mail_inflight_with_client as _remove_from_mail_inflight_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    requeue_stale_mail_job_with_client as _requeue_stale_mail_job_with_client,
+)
 from shared.services.valkey_service.revelation import (
     InvalidRevelationScopeError,
     publish_revelation_with_client,
@@ -139,7 +174,7 @@ from shared.services.valkey_service.revelation import (
     revelation_channel,
     validate_component,
 )
-from shared.services.valkey_service.runtime import PendingCommand, ValkeyRuntime
+from shared.services.valkey_service.runtime import MailQueueUnavailableError, PendingCommand, ValkeyRuntime
 from shared.services.valkey_service.worker_commands import (
     CommandVerdict,
     LivePauseFlag,
@@ -182,6 +217,7 @@ __all__ = [
     "ContestValkeyTargets",
     "InvalidRevelationScopeError",
     "LivePauseFlag",
+    "MailQueueUnavailableError",
     "PendingCommand",
     "WorkerCommandType",
     "PRESENCE_RETENTION_DAYS",
@@ -193,6 +229,10 @@ __all__ = [
     "QUEUE_INFLIGHT_TIMES_KEY",
     "QUEUE_JOB_HASH_PREFIX",
     "QUEUE_KEYS",
+    "QUEUE_MAIL_INFLIGHT_KEY",
+    "QUEUE_MAIL_INFLIGHT_TIMES_KEY",
+    "QUEUE_MAIL_JOB_HASH_PREFIX",
+    "QUEUE_MAIL_PENDING_KEY",
     "QUEUE_PENDING_KEY",
     "QUEUE_PRIORITY_KEY",
     "QUEUE_PROFILING_KEY",
@@ -209,12 +249,15 @@ __all__ = [
     "WorkerPresence",
     "_contest_id_from_job_hash",
     "_complete_arena_ai_review_job_with_client",
+    "_complete_mail_job_with_client",
     "_dequeue_arena_ai_review_job_id_with_client",
     "_dequeue_job_id_with_client",
+    "_dequeue_mail_job_id_with_client",
     "_enqueue_arena_ai_review_job_with_client",
     "_enqueue_arena_submission_job_with_client",
     "_enqueue_custom_validator_validation_job_with_client",
     "_enqueue_job_with_client",
+    "_enqueue_mail_job_with_client",
     "_enqueue_profiling_job_with_client",
     "_enqueue_solution_test_job_with_client",
     "_get_ai_review_job_hash_with_client",
@@ -223,7 +266,10 @@ __all__ = [
     "_get_all_contest_queue_metrics_with_client",
     "_get_autojudge_arena_queue_size_with_client",
     "_get_contest_queue_metrics_with_client",
+    "_get_mail_job_hash_with_client",
+    "_get_mail_queue_size_with_client",
     "_get_stale_ai_review_job_ids_with_client",
+    "_get_stale_mail_job_ids_with_client",
     "_publish_arena_verdict_with_client",
     "_publish_submission_with_client",
     "_publish_verdict_with_client",
@@ -231,24 +277,31 @@ __all__ = [
     "_read_queue_ids_with_client",
     "_remove_from_ai_review_inflight_with_client",
     "_remove_from_inflight_with_client",
+    "_remove_from_mail_inflight_with_client",
+    "_requeue_stale_mail_job_with_client",
     "build_command",
     "claim_nonce",
     "complete_arena_ai_review_job",
+    "complete_mail_job",
     "contest_runtime_keys",
     "create_valkey_pool",
     "dequeue_arena_ai_review_job_id",
     "dequeue_job_id",
+    "dequeue_mail_job_id",
     "enqueue_arena_ai_review_job",
     "enqueue_arena_submission_job",
     "enqueue_custom_validator_validation_job",
     "enqueue_job",
+    "enqueue_mail_job",
     "enqueue_profiling_job",
     "enqueue_solution_test_job",
     "get_ai_review_job_hash",
     "get_ai_review_queued_ids",
     "get_all_contest_queue_metrics",
     "get_contest_queue_metrics",
+    "get_mail_job_hash",
     "get_stale_ai_review_job_ids",
+    "get_stale_mail_job_ids",
     "list_all_workers",
     "list_workers",
     "mark_worker_offline",
@@ -268,6 +321,8 @@ __all__ = [
     "reconcile_worker_pause_state",
     "remove_from_ai_review_inflight",
     "remove_from_inflight",
+    "remove_from_mail_inflight",
+    "requeue_stale_mail_job",
     "remove_worker",
     "resolve_worker_id",
     "validate_component",

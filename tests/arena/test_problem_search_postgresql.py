@@ -328,6 +328,47 @@ async def test_postgresql_search_behavior_and_int4_bounds(
         caller_id=owner_id,
         is_admin=True,
     ) == ["Creative Commons Attribution 4.0"]
+
+    async def _source_suggestions(query: str) -> list[str]:
+        """Search stored sources as the fixture owner."""
+        return await search_problem_suggestions(
+            session,
+            field="source",
+            query=query,
+            caller_id=owner_id,
+            is_admin=True,
+        )
+
+    # Each term matches as its own substring, so a term the user has not
+    # finished typing still matches -- which neither whole-lexeme full-text
+    # matching nor a contiguous whole-query substring can do. "Needle archive
+    # Searchfixturemarker" is matched here by partial terms, by terms in the
+    # wrong order, and by terms that begin mid-word.
+    assert await _source_suggestions("needle searchfixturemark") == ["Needle archive Searchfixturemarker"]
+    assert await _source_suggestions("searchfixturemarker archiv") == ["Needle archive Searchfixturemarker"]
+    assert await _source_suggestions("earchfixturemarker eedle") == ["Needle archive Searchfixturemarker"]
+    # The terms are AND-ed, so adding one that matches nothing excludes a row
+    # the first term alone returns. The demonstration uses an absent term rather
+    # than one belonging to a *different* row, because the branches are a UNION:
+    # per-term substring matching can only add candidates, and the whole-query
+    # trigram branch keeps its own reach (similarity('Unrelated archive',
+    # 'needle unrelated') is 0.40, over the 0.3 threshold).
+    assert await _source_suggestions("needle") == ["Needle archive Searchfixturemarker"]
+    assert await _source_suggestions("needle zzzabsentterm") == []
+    assert await search_problem_suggestions(
+        session,
+        field="author",
+        query="programadores unid",
+        caller_id=owner_id,
+        is_admin=True,
+    ) == ["Programadores Unidos"]
+    assert await search_problem_suggestions(
+        session,
+        field="license",
+        query="creative attribu",
+        caller_id=owner_id,
+        is_admin=True,
+    ) == ["Creative Commons Attribution 4.0"]
     await _assert_problem_picker_behavior(session, owner_id)
 
     await session.execute(
@@ -419,6 +460,28 @@ async def test_postgresql_search_behavior_and_int4_bounds(
     assert "ix_arena_problems_search_vector_gin" in source_plan
     assert "ix_arena_problems_source_trgm" in source_plan
     assert "Seq Scan on arena_problems" not in source_plan
+
+    # Per-term substring matching stays indexable: pg_trgm drives the branch
+    # with the terms long enough to yield trigrams and rechecks the rest.
+    # EXPLAIN renders ILIKE as the `~~*` operator, so that is what names the
+    # branch in a plan.
+    multi_term_plan = await _suggestion_plan_for("source", "Needle archiv")
+    assert "~~*" in multi_term_plan
+    assert "ix_arena_problems_source_trgm" in multi_term_plan
+    assert "Seq Scan on arena_problems" not in multi_term_plan
+
+    # A term that cannot yield a trigram opens neither trigram-served branch,
+    # so neither becomes a sequential scan. Character count is not the test:
+    # `%---%`, `%²²²%`, and `%ga%` were each confirmed against this server to
+    # plan as a sequential scan, while `%gam%` and `%a-bc%` plan as bitmap index
+    # scans. `~~*` is EXPLAIN's rendering of ILIKE and `%` is the pg_trgm
+    # similarity operator the fuzzy branch uses.
+    for declined in ("a b", "---", "²²²", "ga"):
+        declined_plan = await _suggestion_plan_for("source", declined)
+        assert "~~*" not in declined_plan, declined
+        assert "Seq Scan on arena_problems" not in declined_plan, declined
+    punctuation_plan = await _suggestion_plan_for("source", "---")
+    assert "% '---'" not in punctuation_plan
 
     author_plan = await _suggestion_plan_for("author", "Planner")
     assert "ix_arena_problems_search_vector_gin" in author_plan

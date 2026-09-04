@@ -20,6 +20,13 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_users import ArenaUser
+from arena.routes.auth_throttle import (
+    PASSWORD_VERIFY_ACTION,
+    check_verification_throttle,
+    record_verification_failure,
+    reset_verification_throttle,
+    throttled_response,
+)
 from arena.routes.class_route_guards import html, problem_set_list_url, require_problem_set_manager
 from arena.services import (
     arena_batch_feedback_service,
@@ -465,7 +472,13 @@ async def class_problem_set_delete(
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a problem set after password confirmation."""
+    """Delete a problem set after password confirmation.
+
+    The confirmation shares the ``password_verify`` bucket with every other
+    route that re-checks the account password, so this field is not an
+    unthrottled oracle, and the lockout is checked before the hash so nothing
+    is deleted for a locked actor holding the right password.
+    """
     user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
@@ -474,12 +487,27 @@ async def class_problem_set_delete(
     )
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=user_or_redirect
+    )
+    if retry_after is not None:
+        return throttled_response(
+            request,
+            flash,
+            retry_after,
+            back_route="arena_class_problem_set_list",
+            back_params={"class_id": class_id},
+        )
     if not user_or_redirect.check_password(password):
+        await record_verification_failure(
+            request, session, identity, action=PASSWORD_VERIFY_ACTION, user=user_or_redirect
+        )
         flash("Incorrect password.", FlashCategory.DANGER)
         return RedirectResponse(
             url=problem_set_list_url(request, class_id=class_id, page=page, sort=sort, direction=direction),
             status_code=303,
         )
+    await reset_verification_throttle(request, identity)
     try:
         await arena_problem_set_service.delete_problem_set(
             session,

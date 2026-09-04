@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,12 +24,14 @@ from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_date_helpers import _effective_per_page, _local_midnight_to_utc, _parse_date_param
+from arena.routes.safe_redirect import same_origin_referer_path
 from arena.services import admin_login_history_service, admin_submission_service
 from arena.services.pagination_service import parse_page
 from arena.services.user_timezone_service import timezone_name_for_user
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
 from shared.enumerations import JudgmentStatus, Verdict
+from shared.services.admin_audit import record_admin_action
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
 router = APIRouter(prefix="/admin/dashboard", tags=["arena-admin"])
@@ -217,10 +219,20 @@ async def admin_dashboard_submission_reenqueue(
         await session.rollback()
         flash("Submission not found or not in a failed state.", FlashCategory.DANGER)
     else:
+        await record_admin_action(
+            session,
+            request,
+            module="arena",
+            actor_user_id=admin.id,
+            actor_label=admin.email_normalizado,
+            action="reenqueue_failed",
+            target_type="arena_submission",
+            target_id=submission_id,
+            detail=f"judgment={job.judgment_id}",
+        )
         await session.commit()
         await enqueue_arena_submission_job(request.app.state.valkey_runtime, job)
         flash("Submission re-enqueued for judging.", FlashCategory.SUCCESS)
 
-    referer = request.headers.get("referer")
-    redirect_url = referer or str(request.url_for("arena_admin_dashboard_submissions"))
+    redirect_url = same_origin_referer_path(request, fallback=str(request.url_for("arena_admin_dashboard_submissions")))
     return RedirectResponse(url=redirect_url, status_code=303)

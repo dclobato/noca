@@ -28,6 +28,7 @@ from starlette.applications import Starlette
 from shared.static_files import REVALIDATE_CACHE_CONTROL, RevalidatedStaticFiles
 
 _SHARED_CSS = Path(__file__).resolve().parents[2] / "shared" / "static" / "css"
+_SHARED_IMG = Path(__file__).resolve().parents[2] / "shared" / "static" / "img"
 
 
 def _app() -> Starlette:
@@ -88,3 +89,21 @@ async def test_every_module_mounts_static_css_and_js_this_way() -> None:
             assert isinstance(mounted, RevalidatedStaticFiles), (
                 f"{module.__name__} mounts {directory} without revalidation"
             )
+
+
+def test_arena_and_web_mount_shared_images() -> None:
+    """Arena and Web expose shared artwork through the same named mount."""
+    from starlette.staticfiles import StaticFiles
+
+    import arena.main
+    import web.main
+
+    for module in (arena.main, web.main):
+        path = module.app.url_path_for("static_shared_img", path="throttled.webp")
+        route = next(route for route in module.app.routes if route.name == "static_shared_img")
+
+        assert str(path) == "/static/shared-img/throttled.webp"
+        assert isinstance(route.app, StaticFiles)
+        assert route.app.directory is not None
+        assert Path(route.app.directory).resolve() == _SHARED_IMG.resolve()
+        assert (_SHARED_IMG / "throttled.webp").is_file()

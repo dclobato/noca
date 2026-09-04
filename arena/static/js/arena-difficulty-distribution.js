@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,6 +15,14 @@ var ArenaDifficultyDistribution = (function () {
             labels.push(((i + 1) * binWidth).toFixed(1));
         }
         return labels;
+    }
+
+    function _unmeasuredText(payload) {
+        var left = payload.unmeasured_problems || 0;
+        if (!left) return "";
+        var min = payload.min_attempts;
+        return left + " problem" + (left === 1 ? " is" : "s are") + " not yet measured (fewer than " +
+            min + " attempters) and " + (left === 1 ? "is" : "are") + " not shown.";
     }
 
     function _buildOption(payload) {
@@ -65,6 +73,7 @@ var ArenaDifficultyDistribution = (function () {
         }
 
         var mgr = NocaECharts.create(container);
+        var caption = document.querySelector("[data-difficulty-unmeasured]");
         mgr.showLoading();
 
         fetch(dataUrl)
@@ -74,6 +83,7 @@ var ArenaDifficultyDistribution = (function () {
             })
             .then(function (payload) {
                 mgr.hideLoading();
+                if (caption) caption.textContent = _unmeasuredText(payload);
                 if (!payload.counts || payload.counts.length === 0 || payload.total_problems === 0) {
                     mgr.render(function (chart) {
                         chart.setOption({
@@ -82,7 +92,7 @@ var ArenaDifficultyDistribution = (function () {
                                 left: "center",
                                 top: "middle",
                                 style: {
-                                    text: "No difficulty distribution available yet.",
+                                    text: "No measured problems yet.",
                                     fontSize: 14,
                                     fill: NocaECharts.tokens().emptyText,
                                 },

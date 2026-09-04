@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -37,7 +37,6 @@ from arena.database import get_db
 from arena.models.arena_users import ArenaUser
 from arena.services import arena_auth_service
 from arena.services.session_service import mark_auth_refresh_eligible
-from shared.age_check import AgeStatus, check_age
 from shared.services.arena_notification_service import count_unread_arena_notifications
 from shared.services.security_events import record_request_security_event
 from shared.services.user_presence import mark_user_online
@@ -70,6 +69,22 @@ class ForceLogoutException(Exception):
         """
         super().__init__("Session token identity mismatch — force logout triggered")
         self.request = request
+
+
+async def get_streaming_arena_user(request: Request) -> ArenaUser | None:
+    """Resolve the current Arena user in a short-lived, eagerly-closed session.
+
+    An SSE endpoint must not hold a request-scoped ``get_db`` session: its
+    response never finishes while the client stays connected, so a yield
+    dependency's cleanup (which runs only after the response completes) would keep
+    a database connection checked out for the entire stream and exhaust the pool.
+    This regular (non-yield) dependency opens its own session, resolves the user
+    exactly as :func:`get_current_arena_user` does, and closes the session before
+    the streaming response is returned. Shared by every Arena stream.
+    """
+    session_factory = request.app.state.arena_db_session
+    async with session_factory() as session:
+        return await get_current_arena_user(request, session)
 
 
 async def get_current_arena_user(
@@ -210,15 +225,13 @@ async def _refresh_presence(request: Request, user: ArenaUser) -> None:
 
 
 def _user_access_gates_are_clear(user: ArenaUser) -> bool:
-    """Return True when the user may keep an authenticated Arena session."""
-    if not user.ativo or not user.email_confirmado:
-        return False
-    if user.dta_nascimento is None:
-        return False
-    age_status = check_age(user.dta_nascimento)
-    if age_status == AgeStatus.BLOCKED:
-        return False
-    return not (age_status == AgeStatus.NEEDS_PARENTAL_CONSENT and not user.consentimento_responsavel)
+    """Return True when the user may keep an authenticated Arena session.
+
+    Derived from the same predicate the login paths use, so a rule change cannot
+    leave a request-time check and a login-time check disagreeing about who is
+    allowed in.
+    """
+    return arena_auth_service.evaluate_account_access_gates(user) is None
 
 
 def _write_flash(request: Request, message: str, category: str) -> None:

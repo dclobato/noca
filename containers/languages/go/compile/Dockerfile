@@ -2,9 +2,9 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned family: golang:1.26.2-bookworm (Debian bookworm)
+# Pinned family: golang:1.26.2-trixie (Debian trixie)
 
-FROM golang:1.26.2-bookworm
+FROM golang:1.26.2-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

@@ -27,6 +27,8 @@ rejects mutations from an older remote with `422`.
   `jump-team`, `jump-pending`, and `state`
 - Step 10 / Back 10, as bounded client-side sequences of single commands
 - Jump to next pending, which stops before the next `?` without revealing it
+- **Show / Hide team media**, which puts the focused team's photo and clip on
+  every projector watching the ceremony (see below)
 - Status header: scope, phase, `revealed / frozen` counts, and the next cell
 - Tappable standings list, rendered from the projection, for `jump-team`
 - Live sync from the ceremony's public SSE nudge feed, with reconnect backoff
@@ -64,10 +66,55 @@ The remote exposes four ownership states:
 - **Unavailable:** ownership couldn't be verified; commands fail closed while
   the last projection remains visible.
 
+Every successful lease operation also returns `projector_count`, the number of
+`/reveal/events` streams open on this scope — the projectors the remote's
+commands reach. The status header shows it while the remote is in control
+("3 projectors connected"), refreshed at the heartbeat cadence, and words the
+empty hall and the server not knowing (`null`) differently: an outage must never
+read as nobody watching.
+
 The remote never takes over automatically. **Take over control…** appears only
 when the remote is read-only or has lost its lease, and its confirmation warns
 that the former panel immediately loses command authority. `GET /control/state`
 remains lease-independent, so every state can still reconcile the ceremony.
+
+## Show team media
+
+The projector already knows how to put a team's photo and audio clip on screen —
+but only when someone clicks a team name in the browser driving it, which during
+a ceremony is across the room. **Show team media** does the same thing from the
+phone, for the team the ceremony is currently focused on; pressing it again
+takes the overlay down.
+
+It sits below a divider, apart from the progress controls, because that is what
+it is: a presentation action, not a ceremony one. It moves nothing and reveals
+nothing, and the separation means a hand reaching for STEP in a dark hall cannot
+land on it.
+
+Three things follow from the fact that a cue **persists nothing**:
+
+- **It is always safe to press twice.** There is no idempotency key, because
+  showing the photo that is already up changes nothing.
+- **A failure never locks the pad.** The [safety rule below](#the-safety-rule-this-app-is-built-around)
+  exists so a retried `step` cannot reveal two teams; a cue cannot reveal
+  anything, so a failed one just reports and leaves every other control alone.
+  **Hide even works while the pad *is* locked** — an unresolved command with a
+  photograph covering the board is exactly when you need the board back.
+- **The next Step, Back, or Jump takes the overlay down by itself,** so the
+  ceremony can never continue behind a photograph and you never have to remember
+  to clear it.
+
+The server publishes the cue to every projector in the scope and cannot know
+whether one rendered it, so the app reports *sent*, not *displayed*. It is not
+replayed either: a projector that was disconnected at that moment never sees it,
+and you press again.
+
+One thing to know about audio. A browser refuses to start a clip on a page that
+has received no click since it loaded, and a remotely opened overlay supplies no
+click. **Click once anywhere on the projector page after opening it** and every
+later cue will play. Until then the projector shows a quiet operator note saying
+so, and the overlay tells the room the display is muted rather than instructing
+an audience to press a button they cannot reach.
 
 ## The safety rule this app is built around
 
@@ -303,6 +350,11 @@ scope exactly, so picking the wrong entry in the **Ceremony** dropdown is a `403
 rebuilds the ranking from *current* contest data, so runs judged since the
 ceremony began are included and the reveal order may differ from what the
 audience has already seen.
+
+**Show team media** appears once the ceremony has a focused team, and stays
+available after the last reveal — the champion's photo is the moment it exists
+for. It never confirms: it changes nothing, and hesitating in front of an
+audience is the greater cost.
 
 ## Tests
 

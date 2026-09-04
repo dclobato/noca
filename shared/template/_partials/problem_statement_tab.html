@@ -39,6 +39,7 @@
                    name="statement_source"
                    id="statement_source"
                    form="edit-form"
+                   data-noca-draft-ignore
                    value="{{ 'unchanged' if (not view.is_create and (has_pdf or has_md)) else 'md' }}">
             {% if has_pdf and view.statement_view_url %}
                 <div class="mb-3" id="stmt-pdf-preview">

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,7 @@
 
 import pytest
 
-from shared.timing import format_compact_duration
+from shared.timing import format_compact_duration, icpc_minutes_from_seconds
 
 
 @pytest.mark.parametrize(
@@ -36,3 +36,29 @@ def test_format_compact_duration_rejects_negative_values() -> None:
     """Negative elapsed durations are invalid."""
     with pytest.raises(ValueError, match="cannot be negative"):
         format_compact_duration(-1)
+
+
+@pytest.mark.parametrize(
+    ("timestamp_seconds", "expected"),
+    [
+        (0, 0),
+        (59, 0),
+        (60, 1),
+        (90, 1),
+        # 91 s used to round up to 2. Truncation is the ICPC rule.
+        (91, 1),
+        (119, 1),
+        (3600, 60),
+        # 60 min 45 s scores 60 penalty minutes, not 61.
+        (3645, 60),
+        (3659, 60),
+    ],
+)
+def test_icpc_minutes_from_seconds_truncates(timestamp_seconds: int, expected: int) -> None:
+    """Scoring minutes are truncated rather than rounded to the nearest minute."""
+    assert icpc_minutes_from_seconds(timestamp_seconds) == expected
+
+
+def test_icpc_minutes_from_seconds_passes_through_none() -> None:
+    """A missing offset stays missing rather than becoming zero."""
+    assert icpc_minutes_from_seconds(None) is None

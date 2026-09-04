@@ -6,16 +6,21 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Sequence
 from functools import partial
-from pathlib import PurePosixPath
-from typing import cast
+from http import HTTPStatus
+from pathlib import Path, PurePosixPath
+from typing import Protocol, cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from starlette.background import BackgroundTask
+from starlette.staticfiles import StaticFiles
 
-from shared.enumerations import ProblemValidatorType, RoleEnum
+from shared.enumerations import Environment, ProblemValidatorType, RoleEnum
+from shared.services.problem_export_cache import ensure_cached_export, export_cache_dir
 from shared.services.problem_package import PackageError
 from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from web.config import settings
@@ -25,20 +30,39 @@ from web.models.language import Language
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
+from web.services.problem_export_rate_limit import web_problem_export_rate_limit
 from web.services.problem_list_service import build_problem_cards
 from web.services.problem_service import (
     build_problem_export,
     get_active_statement_path,
     get_contest_languages,
+    get_contest_problem_refs,
     get_contest_problems,
+    get_problem_in_contest,
     load_sample_interactions,
     read_testcase_full,
 )
 from web.services.scoreboard import ScoreboardService
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
 _scoreboard_service = ScoreboardService()
 
-router = APIRouter(prefix="/c/{slug}/problems", tags=["contest_problems"])
+#: Revalidate before reuse, so the pre-start access gate runs on every view of a
+#: statement rather than being skipped for the life of a positive ``max-age``.
+STATEMENT_CACHE_CONTROL = "private, no-cache"
+
+#: Answered when production has no export cache configured. Web refuses to start
+#: in that state, so this is the guard for a configuration that changed under a
+#: running process rather than the expected path.
+UNCACHED_IN_PRODUCTION_DETAIL = "Problem export cache is not configured."
+
+#: Borrowed purely for its conditional-request handling; it is never mounted, and
+#: ``file_response`` does not touch instance state.
+_CONDITIONAL_FILES = StaticFiles()
+
+router = APIRouter(
+    prefix="/c/{slug}/problems", tags=["contest_problems"], dependencies=[Depends(web_user_read_rate_limit)]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +99,44 @@ def _html(response: object) -> HTMLResponse:
     return cast(HTMLResponse, response)
 
 
-def _find_problem_by_label(problems: list[Problem], label: str) -> Problem | None:
+class _HasOrdinal(Protocol):
+    """The one attribute label resolution needs."""
+
+    @property
+    def ordinal(self) -> int: ...
+
+
+def _find_problem_by_label[T: _HasOrdinal](problems: Sequence[T], label: str) -> T | None:
+    """Resolve a display label to its problem, over full rows or light references."""
     label_upper = label.upper()
     for p in problems:
         if _label(p.ordinal) == label_upper:
             return p
     return None
+
+
+async def _build_public_export(ctx: ContestContext, problem_id: str, destination: Path) -> None:
+    """Write one problem's ``public`` package to ``destination``.
+
+    Loads the eager graph the builder needs only at this point: a cache hit never
+    reaches here, so the heavy query is paid on a rebuild rather than per request.
+
+    Raises:
+        PackageError: If a stored file the package needs is missing.
+    """
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None:
+        raise PackageError("Cannot export: the problem no longer exists.")
+    await anyio.to_thread.run_sync(
+        partial(
+            build_problem_export,
+            problem,
+            settings.PROBLEM_TESTCASE_DIR,
+            settings.PROBLEM_STATEMENT_DIR,
+            destination,
+            profile="public",
+        )
+    )
 
 
 async def _load_problem_view_data(ctx: ContestContext, problem: Problem) -> dict[str, object]:
@@ -211,9 +267,21 @@ async def problem_statement(
     problem_label: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
+    """Serve a problem statement, revalidated rather than rebuilt.
+
+    Every team opens its statements repeatedly during a contest, so the response
+    is conditional: a browser that already holds the file revalidates and gets a
+    bodyless ``304`` costing one ``stat()``.
+
+    The directive is ``private, no-cache`` and not a positive ``max-age``. A
+    positive age lets the browser reuse the response *without contacting the
+    server*, and therefore without re-running :func:`_check_access` -- which is
+    what withholds statements from teams until the contest starts. ``no-cache``
+    keeps the gate on every reuse while keeping that reuse cheap.
+    """
     _check_access(ctx.actor, ctx.contest)
-    problems = await get_contest_problems(ctx.session, ctx.contest)
-    problem = _find_problem_by_label(problems, problem_label)
+    refs = await get_contest_problem_refs(ctx.session, ctx.contest)
+    problem = _find_problem_by_label(refs, problem_label)
     if problem is None:
         raise HTTPException(status_code=404)
     active_path = await anyio.to_thread.run_sync(
@@ -221,52 +289,87 @@ async def problem_statement(
     )
     if active_path is None:
         return Response(content="Statement not found", status_code=404)
-    content = await anyio.to_thread.run_sync(active_path.read_bytes)
-    if active_path.suffix == ".md":
-        return Response(
-            content=content,
-            media_type="text/markdown; charset=utf-8",
-            headers={"Content-Disposition": f'inline; filename="{problem.title}-statement.md"'},
-        )
-    return Response(
-        content=content,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{problem.title}-statement.pdf"'},
-    )
+    try:
+        stat_result = await anyio.to_thread.run_sync(os.stat, active_path)
+    except OSError:
+        # The row says there is a statement but the file went away underneath us.
+        return Response(content="Statement not found", status_code=404)
+
+    is_markdown = active_path.suffix == ".md"
+    suffix = "-statement.md" if is_markdown else "-statement.pdf"
+    # `StaticFiles.file_response` evaluates `If-None-Match` / `If-Modified-Since`
+    # and returns Starlette's bodyless `NotModifiedResponse` on a match; a plain
+    # `FileResponse` emits the validators but never reads them, so it can never
+    # answer `304`. It also streams a `200` instead of reading the whole file
+    # into memory. The helper does not touch `self`, so one module-level instance
+    # serves every statement path.
+    response = _CONDITIONAL_FILES.file_response(active_path, stat_result, request.scope)
+    # Always: a `304` has to repeat the caching directives, or the next reuse is
+    # governed by whatever the client inferred instead.
+    response.headers["cache-control"] = STATEMENT_CACHE_CONTROL
+    if response.status_code == HTTPStatus.NOT_MODIFIED:
+        return response
+
+    response.headers["content-type"] = "text/markdown; charset=utf-8" if is_markdown else "application/pdf"
+    # `safe_package_filename` emits only `[A-Za-z0-9-_]`, so the quoted header
+    # cannot be broken by a title carrying quotes or non-ASCII characters.
+    filename = safe_package_filename(problem.title, suffix=suffix)
+    response.headers["content-disposition"] = f'inline; filename="{filename}"'
+    return response
 
 
-@router.get("/{problem_label}/export", name="contest_problem_export")
+@router.get(
+    "/{problem_label}/export",
+    name="contest_problem_export",
+    dependencies=[Depends(web_problem_export_rate_limit)],
+)
 async def problem_export(
     request: Request,
     problem_label: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
+    """Serve a problem's contestant-facing package, from cache when configured.
+
+    Building this package is expensive and the route is reachable by every team,
+    so a configured cache is what makes it safe to expose during a contest. In
+    production that cache is mandatory -- Web refuses to start without it -- and
+    the ``503`` below is the per-request guard for the state a misconfiguration
+    could still reach.
+    """
+    cache_dir = settings.PUBLIC_PROBLEM_PACK_PATH
+    if cache_dir is None and settings.ENVIRONMENT == Environment.PRODUCTION:
+        raise HTTPException(status_code=503, detail=UNCACHED_IN_PRODUCTION_DETAIL)
+
     _check_access(ctx.actor, ctx.contest)
-    problems = await get_contest_problems(ctx.session, ctx.contest)
-    problem = _find_problem_by_label(problems, problem_label)
-    if problem is None:
+    refs = await get_contest_problem_refs(ctx.session, ctx.contest)
+    problem_ref = _find_problem_by_label(refs, problem_label)
+    if problem_ref is None:
         raise HTTPException(status_code=404)
-    statement_dir = settings.PROBLEM_STATEMENT_DIR
-    testcase_dir = settings.PROBLEM_TESTCASE_DIR
+    filename = safe_package_filename(problem_ref.title, suffix="-public.zip")
+
+    if cache_dir is not None:
+        try:
+            archive_path = await ensure_cached_export(
+                export_cache_dir(cache_dir),
+                problem_ref.id,
+                problem_ref.public_export_generation,
+                lambda destination: _build_public_export(ctx, problem_ref.id, destination),
+            )
+        except PackageError as exc:
+            return Response(content=str(exc), status_code=409)
+        # The archive belongs to the cache, so the response must not delete it.
+        return FileResponse(archive_path, media_type="application/zip", filename=filename)
+
     with temporary_package_path() as destination:
         try:
-            await anyio.to_thread.run_sync(
-                partial(
-                    build_problem_export,
-                    problem,
-                    testcase_dir,
-                    statement_dir,
-                    destination,
-                    profile="public",
-                )
-            )
+            await _build_public_export(ctx, problem_ref.id, destination)
         except PackageError as exc:
             destination.unlink(missing_ok=True)
             return Response(content=str(exc), status_code=409)
     return FileResponse(
         destination,
         media_type="application/zip",
-        filename=safe_package_filename(problem.title, suffix="-public.zip"),
+        filename=filename,
         background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 

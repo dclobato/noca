@@ -82,13 +82,13 @@ arena (FastAPI) displays review on submission detail page
 
 | Component | Location | Responsibility |
 |-----------|----------|---------------|
-| Arena HTTP layer | `arena/routes/submissions.py` | Accepts the review request, enforces credit gate, consumes one `ai_backend_credits` when using platform key, sets `submit_to_ai`, enqueues the job with frozen `use_platform_key` |
+| Arena HTTP layer | `arena/routes/submissions.py` → `arena/services/ai_review_request_service.py` | Accepts the review request, counts it against the per-user window (`NOCA_ARENA_AI_REVIEW_RATE_LIMIT_*`) before any lookup, locks the submission row (`SELECT … FOR UPDATE`), enforces the credit gate, consumes one `ai_backend_credits` when using the platform key, sets `submit_to_ai`, commits, then enqueues **one** job with frozen `use_platform_key`. A request on an already-flagged submission answers the pending state and enqueues nothing |
 | Valkey queue | `ai:queue:pending` LIST | Holds pending `submission_id` strings |
 | Valkey inflight | `ai:queue:inflight` LIST + `ai:queue:inflight:times` ZSET | Tracks jobs being processed; used by the reaper |
 | Valkey job hash | `ai:job:{submission_id}` HASH | Stores recovery metadata while the Valkey job is active; terminal cleanup deletes it |
 | `aiassistant` worker — dequeue loop | `aiassistant/worker.py` | Dequeues jobs, dispatches to online or batch path |
 | `aiassistant` worker — reaper loop | `aiassistant/reaper.py` | Recovers stale inflight jobs |
-| `aiassistant` worker — reconciler loop | `aiassistant/reconciler.py` | Re-enqueues jobs lost between the request route's DB commit and Valkey enqueue (re-derives `use_platform_key` from the user's current key state) |
+| `aiassistant` worker — reconciler loop | `aiassistant/reconciler.py` | The **only** recovery path for jobs lost between the request route's DB commit and Valkey enqueue; re-enqueues them after the grace window with `use_platform_key` frozen from the user's key state in the database |
 | `aiassistant` worker — batch flusher loop | `aiassistant/batch_flusher.py` | Collects `staged` rows and submits them as one windowed multi-item OpenAI batch |
 | `aiassistant` worker — batch poller | `aiassistant/batch_poller.py` | Polls OpenAI for completed batches, stores results |
 | Online reviewer | `aiassistant/reviewer.py` | Synchronous OpenAI Responses API call |
@@ -539,8 +539,9 @@ On re-enqueue, `_process_job` runs the idempotency checks again:
 
 | Scenario | Protection |
 |----------|-----------|
-| Review requested twice (double-click) | Arena HTTP layer returns early when an `arena_submission_ai_reviews` row exists; when only `submit_to_ai=True` it re-enqueues idempotently to self-heal a lost job — no credit charged on the duplicate |
-| Request route crashes (or Valkey enqueue fails) after the `submit_to_ai=True` commit but before the enqueue | The reconciler loop finds the flagged submission with no pending/inflight queue presence and re-enqueues it; a user re-request also self-heals it |
+| Review requested twice (double-click, or two overlapping first requests) | The request service reads the submission row `SELECT … FOR UPDATE`, so the second request blocks on the first and then sees `submit_to_ai=True`; it returns the pending state without charging a credit and **without enqueueing**. (The route used to re-enqueue on every repeat "to self-heal" — with no dedupe on `ai:queue:pending` that pushed a duplicate, free job per click; removed in #153.) A completed review returns early too |
+| Request route crashes (or Valkey enqueue fails) after the `submit_to_ai=True` commit but before the enqueue | The reconciler loop — and only it — finds the flagged submission with no pending/inflight queue presence, no review row, and no active batch job, and re-enqueues it after `NOCA_AI_RECONCILER_GRACE_SECONDS`; worst-case recovery is the grace window plus one sweep interval (≈ 4 min by default) |
+| A user floods the request route | Every authenticated `POST` is counted per user in a Valkey fixed window (bucket `arena:ai-review`, `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_*`, default 30 per 10 min) before any database work; over budget the route flashes an error and redirects |
 | Re-request after a previous attempt failed (terminal `arena_ai_batch_jobs` row, no review) | Dequeue loop's guard deletes the spent terminal batch row and stages a fresh one instead of skipping; the flusher submits it in the next window |
 | Worker crashes after API call but before `complete_arena_ai_review_job` | Reaper re-enqueues; dequeue loop finds existing `arena_submission_ai_reviews` row and performs terminal cleanup |
 | Flusher crashes after `batches.create` but before `mark_staged_jobs_submitted` | Orphaned OpenAI batch and files; the `staged` rows are unchanged, so the next flush window submits a fresh batch (old files must be cleaned manually) |
@@ -607,4 +608,7 @@ the submission detail query (`arena/routes/submissions.py`).
 | `NOCA_AI_RECONCILER_INTERVAL_SECONDS` | `120.0` | Seconds between reconciler sweeps for jobs lost after commit (min 10) |
 | `NOCA_AI_RECONCILER_GRACE_SECONDS` | `120.0` | Minimum age before a flagged submission is reconciled, to avoid racing a fresh enqueue (min 10) |
 | `NOCA_AI_RECONCILER_BATCH_SIZE` | `100` | Maximum lost jobs re-enqueued per reconciler sweep (1–1000) |
+| `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_ENABLED` | `true` | *(Arena)* Cap AI review requests per user on `POST /submissions/{id}/request-ai-review` |
+| `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_MAX_REQUESTS` | `30` | *(Arena)* Requests accepted per user in each fixed window, whatever the outcome |
+| `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_WINDOW_SECONDS` | `600` | *(Arena)* Fixed-window length in seconds |
 | `NOCA_CRYPTO_ENV_FILE` | `.env.crypto` | Path to the crypto env file required for `EncryptedString` decryption of user API keys |

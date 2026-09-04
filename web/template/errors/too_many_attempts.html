@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Too Many Attempts{% endblock %}
+{% block content %}
+    <section class="noca-backend-error container py-5"
+             aria-labelledby="too-many-attempts-title">
+        <div class="noca-backend-error-card text-center mx-auto">
+            <p class="noca-backend-error-code mb-2">Error 429</p>
+            <h1 id="too-many-attempts-title" class="mb-3">Too many failed password confirmations</h1>
+            <p class="text-body-secondary mb-4">{{ message }}</p>
+            <div class="d-flex flex-wrap justify-content-center gap-2">
+                <a href="{{ back_url }}" class="btn btn-primary">{{ back_label }}</a>
+            </div>
+        </div>
+    </section>
+{% endblock %}

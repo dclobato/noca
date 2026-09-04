@@ -19,7 +19,6 @@ plain login uses a browser-session cookie.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -29,9 +28,6 @@ from arena.config import settings
 from arena.services.token_service import ArenaTokenAction, JWTService, TokenVerificationResult
 from shared.session_keepalive import refresh_window_seconds
 
-if TYPE_CHECKING:
-    from arena.models.arena_users import ArenaUser
-
 #: ``max_age`` for the "remember me" cookie. This governs cookie *persistence*
 #: only -- how long the browser keeps sending the cookie across restarts -- and
 #: is no longer a session lifetime. The absolute session cap is
@@ -40,13 +36,6 @@ ARENA_REMEMBER_ME_MAX_AGE = 30 * 24 * 3600
 SESSION_STARTED_AT_CLAIM = "session_started_at"
 # Must match fastapi_flash/service.py:_SESSION_KEY.
 _SESSION_FLASH_KEY = "_flash_messages"
-
-_PROFILE_COMPLETION_FIELDS = (
-    ("affiliation_id", "Affiliation"),
-    ("preferred_language_id", "Preferred programming language"),
-    ("country_code", "Country"),
-    ("prefered_language", "AI-feedback language"),
-)
 
 
 def write_flash_message(request: Request, message: str, category: str = FlashCategory.INFO) -> None:
@@ -89,39 +78,6 @@ def safe_next_url(next_url: str | None, request: Request) -> str:
     if next_url and next_url.startswith("/") and not next_url.startswith("//"):
         return next_url
     return str(request.url_for("arena_dashboard"))
-
-
-def missing_profile_fields(user: ArenaUser) -> tuple[str, ...]:
-    """Return display labels for profile information the user has not supplied.
-
-    Args:
-        user: Authenticated Arena user to inspect.
-
-    Returns:
-        tuple[str, ...]: Missing field labels in completion-page display order.
-    """
-    missing_fields: list[str] = []
-    for attribute, label in _PROFILE_COMPLETION_FIELDS:
-        value = str(getattr(user, attribute, "") or "").strip()
-        if not value:
-            missing_fields.append(label)
-    return tuple(missing_fields)
-
-
-def post_login_redirect_url(user: ArenaUser, next_url: str | None, request: Request) -> str:
-    """Choose the destination after an Arena login is fully completed.
-
-    Args:
-        user: Authenticated Arena user whose profile may be incomplete.
-        next_url: Candidate next URL from the login flow.
-        request: Current HTTP request.
-
-    Returns:
-        str: Profile completion URL when required, otherwise a safe next URL.
-    """
-    if missing_profile_fields(user):
-        return str(request.url_for("arena_user_profile_completion"))
-    return safe_next_url(next_url, request)
 
 
 def build_login_redirect_response(

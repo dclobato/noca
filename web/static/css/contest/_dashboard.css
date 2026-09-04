@@ -9,6 +9,58 @@
 /* ── Contest dashboard ───────────────────────────────────────────────────── */
 
 /*
+ * Team achievement shelf: the identity column remains one continuous surface,
+ * with spacing alone separating the solved-problem collection from account
+ * identity. The list wraps instead of truncating so every earned balloon
+ * remains visible, including at narrow widths and high problem counts.
+ */
+.noca-dashboard-identity-content {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-direction: column;
+    align-self: stretch;
+    min-width: 0;
+}
+
+.noca-dashboard-solved-problems {
+    margin-top: auto;
+    padding-top: var(--noca-space-md);
+}
+
+.noca-dashboard-solved-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--noca-space-sm);
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.noca-dashboard-solved-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3.25rem;
+    min-height: 3.25rem;
+    border-radius: 0.375rem;
+}
+
+.noca-dashboard-solved-link:hover {
+    background-color: color-mix(in srgb, var(--noca-brand) 9%, transparent);
+}
+
+.noca-dashboard-solved-link:focus-visible {
+    background-color: color-mix(in srgb, var(--noca-brand) 9%, transparent);
+    outline: 2px solid var(--noca-brand);
+    outline-offset: 2px;
+}
+
+.noca-dashboard-solved-asset {
+    width: 3rem;
+    height: auto;
+}
+
+/*
  * Contest rules summary (`contest/_rules_summary.html`): the right-hand
  * column of the dashboard identity band. On wide viewports a hairline in the
  * band's own brand tint separates it from the identity half; stacked on
@@ -50,4 +102,61 @@
 .noca-dashboard-rules-icon {
     font-size: 1rem;
     vertical-align: -0.15em;
+}
+
+/*
+ * Ranking keys row. Every other row in the summary is one flat fact on one
+ * baseline, so this row -- the only ordered sequence -- opts out of the shared
+ * flex baseline and stacks its label above the list.
+ */
+.noca-dashboard-rules-item-stacked {
+    flex-direction: column;
+    gap: 0.2rem;
+    align-items: stretch;
+}
+
+/*
+ * The tie-break order *is* the content: each key applies only where the one
+ * above it left teams level. The numerals therefore carry meaning and are
+ * rendered from the list's own counter, in a fixed gutter so the three keys
+ * align on one text edge.
+ */
+.noca-dashboard-rank-keys {
+    margin-bottom: 0;
+    padding-left: 0;
+    list-style: none;
+    counter-reset: noca-rank-key;
+}
+
+.noca-dashboard-rank-keys li {
+    display: flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    counter-increment: noca-rank-key;
+}
+
+.noca-dashboard-rank-keys li::before {
+    flex: 0 0 0.9rem;
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    /* Primary ink against the key's secondary text: the numeral is the more
+       prominent of the pair, and it separates by weight and value rather than
+       by hue. `--noca-brand-on-surface` is a marker token cleared to 3.77:1 --
+       enough for a rule or an icon, short of the 4.5:1 this small bold numeral
+       needs to be read as the ordering it encodes. */
+    color: var(--bs-body-color);
+    content: counter(noca-rank-key);
+}
+
+/*
+ * The shared-rank note. It keeps the keys' text edge so it stays grouped with
+ * the list, but needs real space above it: flush against the third key and in
+ * the same colour, it read as an unnumbered fourth key rather than as a note
+ * about all three. Space is the only separator available -- a fainter step
+ * would drop this size below 4.5:1.
+ */
+.noca-dashboard-rank-tie {
+    margin-top: 0.35rem;
+    padding-left: 1.3rem;
 }

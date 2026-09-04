@@ -60,9 +60,11 @@ from animator.dependencies import (
     ControlContest,
     ControllerId,
     DbSession,
+    FeedCache,
     IdempotencyKey,
     OperatorScope,
     RevealStore,
+    get_feed_cache,
 )
 from animator.models.control import EmptyCommandRequest, JumpTeamRequest, StartRevealRequest
 from animator.models.query_records import ContestRecord
@@ -268,7 +270,7 @@ async def _run(
     """Execute one mutating command and map every failure to its status.
 
     Args:
-        request: Current request, for structured logging.
+        request: Current request, for structured logging and the feed cache.
         db: Active database session.
         store: The durable reveal-session store.
         contest: The enabled contest.
@@ -298,6 +300,7 @@ async def _run(
             team_id=team_id,
             restart=restart,
             idempotency_key=idempotency_key,
+            cache=get_feed_cache(request),
         )
     except _MAPPED_ERRORS as exc:
         raise _mapped_refusal(request, exc, contest_id=contest.id, scope=label) from exc
@@ -491,11 +494,12 @@ async def state(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    cache: FeedCache,
 ) -> RevealProjectionResponse:
     """Return the current projection without locking, mutating, or publishing."""
     label = scope_label(scope.site_id)
     try:
-        projection = await control_service.load_projection(db, store, contest, site_id=scope.site_id)
+        projection = await control_service.load_projection(db, store, contest, site_id=scope.site_id, cache=cache)
     except _MAPPED_ERRORS as exc:
         raise _mapped_refusal(request, exc, contest_id=contest.id, scope=label) from exc
 

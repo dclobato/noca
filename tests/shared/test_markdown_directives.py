@@ -295,6 +295,28 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_markdown_table_cell_rules_outrank_easymde_preview_styles() -> None:
+    """The shared table-cell rules must beat EasyMDE's own preview styles.
+
+    EasyMDE ships `.editor-preview table td, .editor-preview table th { border:
+    1px solid #ddd; padding: 5px }` and every editor page loads its stylesheet
+    after `common.css`. A zero-specificity `:where()` host plus `* > *` for the
+    row and cell counted the same two type selectors EasyMDE's rule does, so it
+    won on source order and `::: table-border off` did nothing in the preview.
+    """
+    easymde = (_ROOT / "shared" / "static" / "vendor" / "easymde.min.css").read_text(encoding="utf-8")
+    assert ".editor-preview table td" in easymde, "EasyMDE dropped the rule this guards"
+
+    css = _CSS.read_text(encoding="utf-8")
+    for selector in (
+        ":is(.noca-markdown, .editor-preview) table > :not(caption) > tr > :is(th, td)",
+        "table.noca-markdown-table-borderless > :not(caption) > tr > :is(th, td)",
+    ):
+        assert selector in css
+
+    assert ":where(.noca-markdown, .editor-preview)" not in css
+
+
 def test_directive_assets_and_syntax_examples_cover_both_modules() -> None:
     """Arena, Contest, and standalone print views should share the extension."""
     for template_path in (*_BASE_TEMPLATES, *_PRINT_TEMPLATES):

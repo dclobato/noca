@@ -17,6 +17,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from shared.enumerations import ProblemValidatorType
+from shared.services.form_draft import problem_definition_draft_key
 from shared.services.problem_definition_view import (
     TAB_EDITORIAL,
     TAB_LIMITS,
@@ -97,6 +98,9 @@ def build_problem_form_view(
     tabs = contest_editor_tabs(validator_type)
     resolved_tab = resolve_tab(active_tab, allowed=frozenset(tabs))
     cancel_url = str(request.url_for("manage_problems", slug=slug))
+    draft_key = problem_definition_draft_key(
+        "web", contest_id=slug, problem_id=problem_id, validator_type=validator_type.value
+    )
 
     if problem_id is None:
         return ProblemDefinitionView(
@@ -119,6 +123,7 @@ def build_problem_form_view(
             judgment_url="",
             reselect_uploads=reselect_uploads,
             notices=notices,
+            draft_key=draft_key,
         )
 
     statement_url = str(request.url_for("problem_statement", slug=slug, problem_id=problem_id))
@@ -151,4 +156,5 @@ def build_problem_form_view(
         validator_status_template="admin/problems/_validator_status.html",
         reselect_uploads=reselect_uploads,
         notices=notices,
+        draft_key=draft_key,
     )

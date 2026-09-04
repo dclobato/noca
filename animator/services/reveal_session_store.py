@@ -52,8 +52,18 @@ from animator.services.controller_lease_service import (
     ControllerLeaseUnavailableError,
     acquire_controller_mutation_lock,
 )
-from shared.reveal_schema import GLOBAL_SCOPE, RevealCommand, RevealStateChangedEvent
-from shared.services.valkey_service.revelation import reveal_lock_key, reveal_state_key
+from shared.reveal_schema import (
+    GLOBAL_SCOPE,
+    RevealCommand,
+    RevealMediaCueEvent,
+    RevealStateChangedEvent,
+    RevelationEvent,
+)
+from shared.services.valkey_service.revelation import (
+    reveal_controller_key,
+    reveal_lock_key,
+    reveal_state_key,
+)
 
 __all__ = [
     "DEFAULT_LOCK_TTL_SECONDS",
@@ -156,8 +166,18 @@ class RevealStoreClient(Protocol):
         """Fenced state write; ``1`` saved, ``0`` ownership lost, ``None`` unavailable."""
         ...
 
-    async def publish_revelation(self, event: RevealStateChangedEvent) -> bool:
-        """Publish an invalidation nudge; ``True`` when it reached Valkey."""
+    async def publish_revelation(self, event: RevelationEvent) -> bool:
+        """Publish one revelation frame; ``True`` when it reached Valkey."""
+        ...
+
+    async def fenced_publish_revelation(
+        self,
+        *,
+        controller_key: str,
+        token: str,
+        event: RevelationEvent,
+    ) -> int | None:
+        """Ownership-fenced publish; ``-1`` not owner, subscriber count, ``None`` unavailable."""
         ...
 
 
@@ -409,6 +429,54 @@ class RevealSessionStore:
             logger.warning(
                 "reveal nudge publish did not reach Valkey for %s:%s (state already saved)", contest.id, scope
             )
+
+    async def publish_media_cue(self, event: RevealMediaCueEvent, *, controller_id: str) -> int | None:
+        """Publish a transient media cue, fenced on the caller still owning the scope.
+
+        Two things differ from the state-changed nudge in :meth:`_commit`, and
+        both follow from the same fact: a cue has no durable half.
+
+        First, **the ownership check and the publish are one atomic step**. A
+        nudge is published after a fenced save, so ownership was already proven
+        at the moment that mattered. A cue proves nothing by existing, so
+        checking ownership and then publishing in a second round trip would let
+        a lease that expired -- or a takeover that landed -- in between still
+        reach the projectors.
+
+        Second, **a failure is reported rather than swallowed**. A failed nudge
+        follows a state that is already durable, so the operator's command
+        really did succeed and only the invalidation signal was lost. Here the
+        publish *is* the whole action, so returning success would tell an
+        operator their photo is up when nothing left the process.
+
+        Reaching Valkey with **zero subscribers** remains a success: no
+        projector may be connected yet, and the server can never learn whether
+        one actually rendered the overlay.
+
+        Args:
+            event: The presentation cue to broadcast.
+            controller_id: The caller's opaque controller identity, which must
+                still own this scope for the publish to happen.
+
+        Returns:
+            ``-1`` when ownership was not held, the subscriber count reached
+            (``0`` included) on success, and ``None`` when Valkey could not
+            answer at all.
+        """
+        try:
+            return await self._client.fenced_publish_revelation(
+                controller_key=reveal_controller_key(event.contest_id, event.scope),
+                token=controller_id,
+                event=event,
+            )
+        except Exception as exc:
+            logger.warning(
+                "media cue publish raised for %s:%s: %s",
+                event.contest_id,
+                event.scope,
+                exc,
+            )
+            return None
 
     async def _release(self, lock_key: str, token: str) -> None:
         """Release the lock only while it still holds our token (best-effort)."""

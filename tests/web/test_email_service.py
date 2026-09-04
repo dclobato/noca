@@ -56,22 +56,24 @@ def test_canonicalize_rejects_invalid_email() -> None:
         EmailValidationService.canonicalize("invalid-email")
 
 
-def test_email_config_requires_smtp_fields_when_enabled() -> None:
+def test_worker_provider_requires_smtp_fields_when_enabled() -> None:
+    config = EmailConfig(
+        send_email=True,
+        provider_type="smtp",
+        default_from_email="no-reply@example.com",
+        default_from_name="NOCA",
+        smtp_server=None,
+        smtp_port=587,
+        smtp_username=None,
+        smtp_password=None,
+        smtp_use_tls=True,
+    )
     with pytest.raises(ValueError, match="Missing required SMTP settings"):
-        EmailConfig(
-            send_email=True,
-            provider_type="smtp",
-            default_from_email="no-reply@example.com",
-            default_from_name="NOCA",
-            smtp_server=None,
-            smtp_port=587,
-            smtp_username=None,
-            smtp_password=None,
-            smtp_use_tls=True,
-        )
+        config.create_worker_provider()
 
 
-def test_email_service_uses_mock_provider_when_send_disabled(caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.asyncio
+async def test_email_service_uses_mock_provider_when_send_disabled(caplog: pytest.LogCaptureFixture) -> None:
     config = EmailConfig(
         send_email=False,
         provider_type="smtp",
@@ -86,7 +88,7 @@ def test_email_service_uses_mock_provider_when_send_disabled(caplog: pytest.LogC
     with caplog.at_level(logging.DEBUG, logger="test-email"):
         service = EmailService(config=config, logger=logging.getLogger("test-email"))
 
-    result = service.send_email(
+    result = await service.send_email(
         to_email="recipient@example.com",
         subject="Hello",
         text_body="Body",
@@ -95,10 +97,10 @@ def test_email_service_uses_mock_provider_when_send_disabled(caplog: pytest.LogC
     assert result.success is True
     assert result.provider == "mock"
     assert result.to == "recipient@example.com"
-    assert "provider=Mock (Development) mbox_logging_enabled=False mbox_log_dir=N/A" in caplog.text
+    assert "delivery=mock provider=Mock (Development)" in caplog.text
 
 
-def test_email_service_logs_enabled_mbox_directory(caplog: pytest.LogCaptureFixture) -> None:
+def test_worker_provider_carries_the_mbox_directory() -> None:
     config = EmailConfig(
         send_email=True,
         provider_type="smtp",
@@ -112,12 +114,10 @@ def test_email_service_logs_enabled_mbox_directory(caplog: pytest.LogCaptureFixt
         mbox_log_dir="/var/log/noca/email",
     )
 
-    with caplog.at_level(logging.DEBUG, logger="test-email"):
-        EmailService(config=config, logger=logging.getLogger("test-email"))
+    provider = config.create_worker_provider()
 
-    assert (
-        "provider=SMTP (smtp.example.com) mbox_logging_enabled=True mbox_log_dir=/var/log/noca/email"
-    ) in caplog.text
+    assert provider.get_provider_name() == "SMTP (smtp.example.com)"
+    assert provider._mbox_log_dir == "/var/log/noca/email"  # type: ignore[attr-defined]
 
 
 def test_build_user_credentials_email_content_uses_expected_template() -> None:
@@ -162,7 +162,8 @@ def test_build_animator_credential_email_content_uses_expected_template(scope_la
     assert content.text_body.endswith("NOCA Contest")
 
 
-def test_send_user_credentials_email_returns_success_with_mock_provider() -> None:
+@pytest.mark.asyncio
+async def test_send_user_credentials_email_returns_success_with_mock_provider() -> None:
     config = EmailConfig(
         send_email=False,
         provider_type="smtp",
@@ -176,7 +177,7 @@ def test_send_user_credentials_email_returns_success_with_mock_provider() -> Non
     )
     service = EmailService(config=config, logger=logging.getLogger("test-email"))
 
-    result = send_user_credentials_email(
+    result = await send_user_credentials_email(
         service,
         to_email="team@example.com",
         fullname="Team One",
@@ -184,6 +185,7 @@ def test_send_user_credentials_email_returns_success_with_mock_provider() -> Non
         contest_login_url="https://example.com/c/regional-2026/login",
         username="team1",
         password="StrongPass2!",
+        actor_key="user:admin-1",
     )
 
     assert result.success is True

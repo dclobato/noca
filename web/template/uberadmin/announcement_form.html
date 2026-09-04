@@ -1,0 +1,58 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  The vendor set below is the statement editor page's (admin/problems/edit.html)
+  with the announcement glue in place of the problem glue: the body is authored
+  with the same editor as a Markdown problem statement, links allowed.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}— New Announcement{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='easymde.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='fontawesome-all.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">
+                    {{ render_icon(icon="campaign") }}
+                    New Announcement
+                </h1>
+                <p class="text-muted mb-0">Published to everyone who opens the Contests page.</p>
+            </div>
+            <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                {{ render_icon(icon="arrow_back") }}
+                Back
+            </a>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-body">{% include "_partials/announcement_form.html" %}</div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='announcement-editor.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

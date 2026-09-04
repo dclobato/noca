@@ -1,5 +1,6 @@
 {
   "status": "claimed",
   "lease_ttl_seconds": 45,
-  "heartbeat_interval_seconds": 10
+  "heartbeat_interval_seconds": 10,
+  "projector_count": 3
 }

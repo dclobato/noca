@@ -151,7 +151,7 @@
                                 <td>
                                     <a href="{{ request.url_for('arena_admin_user_profile', user_id=row.user_id) }}">
                                         <div class="d-flex align-items-center gap-2">
-                                            {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+                                            {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) ~ '?v=' ~ row.avatar_revision, img_class="rounded-circle object-fit-cover flex-shrink-0") }}
                                             <span>{{ row.user_name }}</span>
                                         </div>
                                     </a>

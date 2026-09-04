@@ -1,0 +1,71 @@
+{# Password-confirmation modal for the admin sign-in unlock.
+
+   Its own partial for the same reason as the Google-unlink modal beside it:
+   user_profile.html is already far past the size bound, and this control needs the
+   same re-confirmation its privileged siblings use, because lifting a lockout
+   weakens the brute-force guard on someone else's account.
+
+   Only the account's own buckets are cleared. The address the failures came from
+   is shared with everyone behind it, so it is lifted from the dashboard page. #}
+{% from "_macros.html" import render_icon with context %}
+<div class="modal fade"
+     id="confirmUnlockModal"
+     tabindex="-1"
+     aria-labelledby="confirmUnlockLabel"
+     aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmUnlockLabel">Unlock sign-in</h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <form method="post"
+                  action="{{ request.url_for('arena_admin_user_unlock', user_id=target_user.id) }}"
+                  data-submit-once="Unlocking…">
+                {{ back_fields() }}
+                <div class="modal-body">
+                    <p class="text-break">
+                        Clear every sign-in, two-factor and password-confirmation lockout of
+                        <strong>{{ target_user.nome }}</strong> now, instead of waiting for it to lift on its own?
+                    </p>
+                    {% if lockouts_unavailable %}
+                        <p class="text-warning-emphasis small">
+                            {{ render_icon(icon="cloud_off") }}
+                            The lockout store cannot be reached, so this account's current state is unknown. The
+                            unlock will report whatever it could not clear.
+                        </p>
+                    {% elif not lockouts %}
+                        <p class="text-arena-muted small">
+                            {{ render_icon(icon="check_circle") }}
+                            This account is not locked right now, so there is probably nothing to clear. Going ahead
+                            is harmless: an unlock that finds nothing changes nothing.
+                        </p>
+                    {% endif %}
+                    <p class="text-arena-muted small">
+                        The address the failed attempts came from is not unlocked here. If it is blocked too,
+                        use <a href="{{ request.url_for("arena_admin_dashboard_lockouts") }}">Sign-in lockouts</a>.
+                        The action is recorded in the security audit log.
+                    </p>
+                    <label class="form-label" for="confirm-pw-unlock">Your password</label>
+                    <input type="password"
+                           class="form-control"
+                           id="confirm-pw-unlock"
+                           name="confirm_password"
+                           autocomplete="current-password"
+                           required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <span data-submit-once-label>Unlock sign-in</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

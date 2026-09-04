@@ -4,6 +4,330 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [19.0.0] - 2026-09-04
+
+### ⚠ Breaking Changes
+
+- **web:** Rate-limit the anonymous problem-set download and live feed snapshot
+
+  in production (NOCA_ENVIRONMENT=production) GET
+  /problem-set/{slug}.zip now answers 503 while
+  NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH is unset, instead of rebuilding the
+  archive per request. Set the cache directory before deploying if released
+  problem sets are served; development keeps the per-request rebuild.
+- **shared,web,arena:** Route every outbound email through an async, budgeted service with queue delivery
+
+  NOCA_EMAIL_DELIVERY defaults to queue. A production install
+  with NOCA_SEND_EMAIL=true and an SMTP provider must deploy the noca-mailer
+  worker (next commit) or set NOCA_EMAIL_DELIVERY=direct; with queue and no
+  worker, email accumulates in Valkey until the job TTL drops it unsent.
+  EmailService.send_email is now a coroutine and every email wrapper service
+  in web/ and arena/ is async; callers must await them.
+  
+  Part of #155
+- **mailer,shared:** Make the mailer the only sender and settle the queue's failure semantics
+
+  Web and Arena no longer read NOCA_SEND_EMAIL,
+  NOCA_EMAIL_PROVIDER, NOCA_SMTP_*, NOCA_EMAIL_MBOX_LOG_DIR or
+  NOCA_EMAIL_DELIVERY; move them to the noca-mailer worker, which every
+  deployment -- including development -- must now run: Web and Arena fail
+  to start without a live mailer. NOCA_EMAIL_DELIVERY is removed.
+- **arena:** Throttle every admin password re-confirmation oracle
+
+  five wrong passwords on any admin confirmation form now
+  lock the acting account out of every password-confirmed Arena route for
+  NOCA_ARENA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS (default 15 min). No
+  configuration change is required.
+- **arena:** Close the anonymous token oracles on the reset, activation and consent links
+
+  five rejected activation or parental-consent tokens for
+  one account lock further bad tokens for that account for the auth
+  lockout window; valid links are unaffected. An expired reset link now
+  shows the new-password form and fails on submit instead of up front.
+- **sse:** Size the connection leases for a venue and surface a refused stream
+
+  NOCA_WEB_SSE_MAX_PER_IP and NOCA_ARENA_SSE_MAX_PER_IP
+  default to 200 (was 10), NOCA_WEB_SSE_MAX_PER_USER and
+  NOCA_ARENA_SSE_MAX_PER_USER to 10 (was 5), NOCA_ANIMATOR_SSE_MAX_PER_IP
+  to 100 (was 10). Deployments that pinned the old values keep them;
+  lower the new defaults only if the host cannot hold that many open
+  connections.
+- **arena:** Withhold a problem's difficulty until five people have attempted it
+
+  Arena surfaces no longer display a difficulty for a
+  problem with fewer than 5 unique attempters; they show a dash labelled
+  "Not enough data yet" instead of 5.0. GET /help/rating/difficulty-distribution
+  now counts measured problems only and carries two new keys,
+  `unmeasured_problems` and `min_attempts`; the stored snapshot switches on
+  the next rating cycle. No configuration change is required.
+- **arena:** Seed a problem's difficulty from an author-declared estimate
+
+  a new schema migration (202608300001) adds
+  arena_problems.expected_difficulty; Web and Arena entrypoints apply it on
+  start, and workers wait for it as usual. Once authors set estimates, the
+  stored rating (and therefore user points) of a never-attempted problem is
+  its declaration instead of 50, and its difficulty is displayed as "7.0?"
+  rather than a dash. Exported problem packages carry one new key,
+  `expected_difficulty`, which older readers ignore. No configuration change
+  is required.
+- **arena,web,shared:** Autosave problem-editor drafts so a bounced Save never loses work
+
+  an unauthenticated request under /c/{slug}/ now
+  redirects to /c/{slug}/login?next=<path> rather than the bare login URL,
+  and a successful contest login redirects to that page instead of always
+  to /c/{slug}. Clients asserting the exact Location of either redirect
+  must be updated.
+- **scoreboard:** Halve the row height across all three surfaces (#133)
+
+  the animator no longer serves `star_base` to its templates or
+  `data-star-base` to its clients, and `AnimatorRender` no longer exports
+  `createSolvedImage` or `createStarImage` (replaced by `createFirstMark`). The
+  `/assets/star/{color}` route itself is unchanged and still served. Deploy the
+  animator's templates, routes and static JS together.
+- **arena:** Give every Arena account a pseudonymous username (#176)
+
+  every existing Arena user's generated fallback avatar changes
+  once. It is now seeded on the username rather than the email address, closing a
+  confirmation oracle -- the generator is deterministic and the image is public,
+  so an email seed let anyone render a guessed address and compare it against a
+  user's avatar to test whether that person holds that mailbox. Web has always
+  seeded on its username. Uploaded photos are unaffected.
+- **arena:** Pseudonymize every public read path (#177)
+
+  Arena public surfaces no longer display a user's legal name.
+  The dashboard leaderboard, both ranking pages, the public profile page, and the
+  problem statistics solver credits now show the pseudonymous `username` for
+  every user; the legal name appears only for an adult who has set
+  `full_name_public`, and no user can set it until #178 ships the opt-in, so in
+  practice every name on those pages changes to a handle on deploy. Public
+  ranking search no longer matches an age-shielded user by their real name.
+  Public profiles of users aged 13-17 and of users with no recorded date of birth
+  now answer 404, including any that was reachable before; an adult's profile is
+  unaffected and simply shows their handle. Teacher-scoped class searches and
+  admin surfaces are unchanged.
+- **arena:** Enforce the minor shield on every write path (#178)
+
+  enabling a public profile for an age-shielded Arena account
+  (under 18, or no date of birth on record) is now refused on both the user's own
+  path and the admin path. `POST /user/profile/personal-data` gains a 400
+  `age_shielded` rejection and three response fields (`full_name_public`,
+  `age_shielded`, alongside the existing flags), and
+  `POST /admin/users/{id}/toggle-public-profile` refuses to enable for such a
+  target. Administrators can no longer publish a minor's profile page.
+- **arena:** Make the username surfaces usable and honest (#178)
+
+  a new Arena account aged 18 or over is created with
+  `full_name_public = true`, publishing the member's real name rather than their
+  handle, and the username migration backfills that flag for existing adults.
+  Accounts aged 13-17, and any account with no recorded date of birth, are
+  unaffected and remain pseudonymous. `POST /admin/users/{id}/change-username`
+  accepts a new optional `allow_immediate_change` field.
+- **arena:** Let a guardian withdraw parental consent (#179)
+
+  POST /admin/users/{id}/toggle-parental-consent now requires a
+  confirm_password field and refuses the request without it, and its revoke
+  branch deactivates the account and invalidates its sessions rather than only
+  clearing the consent flags. Any automation posting to that endpoint must be
+  updated.
+- **arena:** Require explicit POST confirmation for parental consent (#180)
+
+  GET /auth/parental-consent no longer grants consent or
+  activates an account; it renders a review page, and the grant happens only on
+  the new POST /auth/parental-consent with the token in the form body. Any
+  automation redeeming parental-consent tokens through the GET must be updated
+  to submit the POST.
+- **arena:** Rate-limit the anonymous problem search and require a real search term
+
+  a non-blank search term shorter than 3 characters (or longer
+  than 100, 64 on an autocomplete) now answers 422 on GET /problems, the ranking
+  pages and every autocomplete, and Web's GET /categories/autocomplete requires
+  q. Anonymous problem searches are refused with 429 after 30 per client IP per
+  minute; a venue behind one NAT address can raise
+  NOCA_ARENA_PUBLIC_RATE_LIMIT_PROBLEM_SEARCH_MAX_REQUESTS or list its egress
+  range in NOCA_ARENA_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS.
+- **web:** Key contest-login lockouts on the contest, not the bare username
+
+  the web/contest-login throttle bucket is now keyed on
+- **judge:** Migrate all judge images to Debian 13 (trixie)
+
+  OCAMLOPT_PATH moves from /usr/local/bin/ocamlopt to
+  /usr/bin/ocamlopt. languages.compile_cmd is a persisted column, so an existing
+  install must run `uv run python scripts/bootstrap_languages.py` as part of the
+  same deploy or every OCaml submission fails at exec. Contestant-visible compiler
+  versions change for six languages; Auto-Limit profiling must be re-run.
+- **app-base:** Move the service image base to Debian 13 (trixie)
+- **config:** Split .env.full into per-service environment layers
+
+  `.env.full` no longer exists. A container deployment copies the
+  templates its services need and lists each stack in `env_file:` (see
+  docs/ENV_LAYERS.md); a single-host development install can concatenate them into
+  one `.env`, as docs/BOOTSTRAP.md now shows. NOCA_DATA_ROOT must stay in the
+  project-root `.env`, since Compose reads that file to interpolate the Compose
+  file itself and no env_file layer can satisfy it.
+- **web:** Cache the team-reachable problem export and statement downloads
+
+  Contest backup archives written before format version 5 can no
+  longer be restored. Restore them with the release that wrote them, or re-export
+  each contest from a server still running that release before upgrading. Web also
+  now refuses to start in production when `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is
+- **arena:** Cache the public problem export and sample ZIP with #152's solution
+
+  Arena refuses to start in production when
+  `NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH` is unset, mirroring Web. A package build
+  per request reachable by every logged-in user is never acceptable there, and
+  failing the deploy beats a 503 discovered later. Set the variable and mount
+  its directory before upgrading.
+
+### Features
+
+- **arena:** Extend the per-problem statistics snapshot
+- **arena:** Match each suggestion term independently
+- **arena:** Stamp last update and hint gated editorials
+- **shared:** Generic per-IP fixed-window rate-limit dependency
+- **healthmonitor:** Cache, pipeline, and rate-limit the public routes
+- **animator:** Cache the public feeds and reveal dataset, rate-limit the anonymous routes
+- **animator:** Decide team-media 304s from metadata, rate-limit the media routes
+- **shared:** Cap concurrent SSE connections per IP and per user on every stream
+- **[BREAKING]** **web:** Rate-limit the anonymous problem-set download and live feed snapshot
+- **web:** Throttle per-team SOS, print and clarification writes
+- **arena:** Throttle, cache and de-block the reverse-geocoder proxy
+- **[BREAKING]** **shared,web,arena:** Route every outbound email through an async, budgeted service with queue delivery
+- **mailer:** Add the outbound-email worker that drains the mail queue
+- **mailer:** Record queue time and delivery attempt on the mbox audit copy
+- **mailer:** State the delivery mode and SMTP relay in the startup banner
+- **arena:** Show solvers, attempts and a yearly submission heatmap on the problem statistics page (#129)
+- **[BREAKING]** **sse:** Size the connection leases for a venue and surface a refused stream
+- **arena:** Illustrate the lockout page from a shared image mount
+- **[BREAKING]** **arena:** Withhold a problem's difficulty until five people have attempted it
+- **[BREAKING]** **arena:** Seed a problem's difficulty from an author-declared estimate
+- **web:** Render PRINT tasks as a delivery sheet with the source listing
+- **[BREAKING]** **arena,web,shared:** Autosave problem-editor drafts so a bounced Save never loses work
+- **animator:** Cue a team's media onto the projectors from the remote (#161)
+- **animator:** Report the projector count to the controller on every heartbeat
+- **[BREAKING]** **scoreboard:** Halve the row height across all three surfaces (#133)
+- **contest:** Show solved balloons on team dashboard
+- **assets:** Add Brazilian national and state flags
+- **arena:** Show Brazilian state flags across views
+- **rating:** Precompute affiliation solve totals
+- **arena:** Make affiliation ranking rows clickable
+- **shared:** Add random pseudonymous username generator (#121)
+- **[BREAKING]** **arena:** Give every Arena account a pseudonymous username (#176)
+- **[BREAKING]** **arena:** Pseudonymize every public read path (#177)
+- **[BREAKING]** **arena:** Enforce the minor shield on every write path (#178)
+- **[BREAKING]** **arena:** Make the username surfaces usable and honest (#178)
+- **[BREAKING]** **arena:** Let a guardian withdraw parental consent (#179)
+- **[BREAKING]** **arena:** Require explicit POST confirmation for parental consent (#180)
+- **arena:** Shape the parental-consent surfaces (#121)
+- **arena:** Let an admin require everyone to accept the terms again
+- **web:** Add the platform announcement board (shared foundation + Web)
+- **arena:** Bring the announcement board to Arena
+- **arena:** Make required announcements pop up until acknowledged
+- **[BREAKING]** **arena:** Rate-limit the anonymous problem search and require a real search term
+- **arena:** Add "Login with Google" as an alternative door (#24)
+- **arena:** Finish the Google-first onboarding arc (#24)
+- **arena:** Add Google avatar selection
+- **arena:** Let an admin unlink a user's Google account
+- **arena:** Let a mismatched-email Google signup fold into the existing account
+- **web,arena:** Let an admin lift a sign-in lockout early (#188)
+- **web,arena:** Loose per-actor ceilings on the polled reads
+- **[BREAKING]** **web:** Cache the team-reachable problem export and statement downloads
+- **web:** Add Uberadmin return action to contest navbar
+- **shared:** Answer 304 on image routes with a content-derived ETag
+- **[BREAKING]** **arena:** Cache the public problem export and sample ZIP with #152's solution
+- **animator:** Seed the scoreboard activity rail from the snapshot
+- **web:** Expand contest reports with Highlights, Performance, and Problem Race
+- **web:** Rework the contest reports page layout and Performance chart
+
+### Bug Fixes
+
+- **badges:** Rank CLEAN_CODE honestly and revoke it when it no longer holds
+- **shared:** Rank by last accepted solve and truncate ICPC minutes
+- **shared:** Outrank EasyMDE's preview table styles
+- **arena:** Give sample test-case blocks their own surface
+- **arena:** Render problem-form suggestions in an own listbox
+- **arena:** Require three word characters per suggestion term
+- **arena:** Count every signup attempt per IP and never reset on success
+- **arena:** Throttle password/TOTP verification and pending-flow writes
+- **arena:** Stop re-enqueueing AI review jobs on repeat requests, cap requests per user
+- **web:** Throttle the five password-confirmation oracles
+- **animator:** Lock out an IP after repeated operator-token failures
+- **arena:** Stop the geocoder proxy from describing its own configuration
+- **web,arena:** Make the mass rejudge actions confirmed, idempotent, cooled down and audited
+- **arena:** Stop relaying the Referer verbatim from the two rejudge redirects
+- **[BREAKING]** **mailer,shared:** Make the mailer the only sender and settle the queue's failure semantics
+- **arena:** Make the problem statistics charts accessible and selectable for every year (#129)
+- **arena:** Derive the first-AC submission from judgments, not solved_at
+- **[BREAKING]** **arena:** Throttle every admin password re-confirmation oracle
+- **[BREAKING]** **arena:** Close the anonymous token oracles on the reset, activation and consent links
+- **arena:** Show an estimated difficulty as plain text, sized like the bar label
+- **animator:** Keep the projector viewport from scrolling into phantom overflow
+- **animator:** Fence the media cue on ownership, and reset its label on movement
+- **animator:** Stop pretending an ended contest is live
+- **arena:** Remove login-time profile completeness gate
+- **build:** Copy Brazilian flag asset helper
+- **arena:** Type the username migration's cutoff bind (#176)
+- **migrations:** Reconcile affiliation solve insertion
+- **tests:** Seed the PostgreSQL ranking search for the username shield
+- **arena:** Enable PKCE on the Google client, and make the suite hermetic (#24)
+- **arena:** Close Google link session-hijack and stranded-guardian-email holes
+- **arena:** Keep the Google link marker across logout so the callback can refuse it
+- **arena:** Consume the Google link marker only once the OAuth round trip is redeemed
+- **arena:** Refuse the admin Google unlink for an unfinished Google-first signup
+- **arena:** State the admin Google unlink's consequences accurately
+- **arena:** Spend the signup budget on work, and the 2FA IP lock on spraying
+- **rate-limit:** Preserve writes and spray protections
+- **auth:** Clear an address's spray evidence when its lockout is lifted
+- **[BREAKING]** **web:** Key contest-login lockouts on the contest, not the bare username
+- **schema:** Match the avatar_revision comment to the database
+- **web:** Reuse request session for user media
+- **web:** Show problem author on detail page
+- **arena:** Version every per-row avatar URL so list pages hit the browser cache
+- **web,arena:** Use the dependency's session on 22 admin routes instead of opening a second
+- **arena:** Explain a failed case with a bounded side-by-side diff, not the secret answer
+- **arena:** Match any selected problem category
+- **editor:** Render Markdown syntax literally in the EasyMDE source pane
+
+### UI & Design
+
+- **tests:** Reformat the EasyMDE preview-style guard
+- **mailer:** Render the startup banner in the Doom figlet font like every other module
+- **arena:** Apply Ruff session formatting
+
+### Performance
+
+- **rating:** Rebuild Arena problem statistics in bounded per-problem batches (#136)
+- **static:** Ship the four page illustrations as WebP
+- **arena:** Skip the mandatory-announcement query when nothing is required
+
+### Refactoring
+
+- **arena:** Make the problem statistics page graphical only
+- **arena:** Split ArenaUser behavior into mixins
+- **arena:** Share the admin password re-confirmation helper
+- **arena:** Move linked accounts to profile tab
+
+### Documentation
+
+- Drop the generated backlog index in favor of Gitea directly
+- **config:** Explain how the *_TRUSTED_CIDRS lists behave
+- **arena:** Stop calling login-gated routes public in ROUTES.md, and guard it with a test
+- **arena:** Walk through the Google Cloud setup for Arena sign-in (#24)
+- **arena:** Reconcile remaining "every /auth/google route 404s" claims
+- Update terms of use and usage policy
+- **web:** Bound the export cache generation, and correct a tamper claim
+
+### Build & CI
+
+- Key the uv cache on uv.lock and document the runner cache prerequisite
+- Keep downloaded wheels in the uv cache (prune-cache: false)
+- Mint a new uv cache key so the unpruned cache can be saved
+- **[BREAKING]** **judge:** Migrate all judge images to Debian 13 (trixie)
+- **ci:** Add a registry build cache to the Bake publish path
+- **[BREAKING]** **app-base:** Move the service image base to Debian 13 (trixie)
+- **[BREAKING]** **config:** Split .env.full into per-service environment layers
+
+
+
 ## [18.0.1] - 2026-08-26
 
 ### Bug Fixes

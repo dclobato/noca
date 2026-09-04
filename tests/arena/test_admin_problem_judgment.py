@@ -27,6 +27,7 @@ from arena.models.arena_problems import ArenaProblem, ArenaTestCase
 from arena.models.arena_submissions import ArenaSubmission
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema import languages as languages_table
+from shared.db_schema.arena import arena_problems
 from shared.enumerations import ArenaRole, ProblemValidatorType
 from shared.services.testcase_files import get_problem_testcase_dir
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
@@ -563,3 +564,32 @@ async def test_successful_rejudge_returns_to_the_requesting_judgment_page(
 
     assert response.status_code == 303
     assert response.headers["location"] == return_path
+
+
+async def _generations(session: AsyncSession, problem_id: str) -> tuple[int, int]:
+    """Return ``(public_export_generation, artifact_generation)`` straight from the table."""
+    row = (
+        await session.execute(
+            select(arena_problems.c.public_export_generation, arena_problems.c.artifact_generation).where(
+                arena_problems.c.id == problem_id
+            )
+        )
+    ).one()
+    return int(row[0]), int(row[1])
+
+
+@pytest.mark.asyncio
+async def test_toggling_a_sample_invalidates_the_public_export(session: AsyncSession) -> None:
+    """Which cases are samples decides what the public package and sample ZIP ship (#204)."""
+    client, judge_id = await _client(session, "arena-judgment-export@test.example")
+    problem_id = await _make_problem(session, judge_id)
+    second_id = (await _cases(session, problem_id))[1].id
+    public_before, artifact_before = await _generations(session, problem_id)
+
+    async with client:
+        response = await client.post(_page(problem_id) + f"/{second_id}/toggle-sample")
+
+    assert response.status_code == 303
+    public_after, artifact_after = await _generations(session, problem_id)
+    assert public_after == public_before + 1
+    assert artifact_after == artifact_before

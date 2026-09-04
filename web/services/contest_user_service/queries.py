@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,6 +69,36 @@ async def get_contest_user_groups(session: AsyncSession, contest: Contest) -> Co
         team_users=_group_users_by_site([user for user in members if user.role == RoleEnum.TEAM]),
         user_users=_group_users_by_site([user for user in members if user.role == RoleEnum.USER]),
     )
+
+
+async def count_contest_teams(session: AsyncSession, contest: Contest) -> int:
+    """Return the number of TEAM-role users enrolled in the contest.
+
+    A cheap `COUNT(*)`, distinct from `active` teams (those with at least one
+    submission): this is the reports page's Highlights "enrolled" figure, not
+    a percentage denominator -- `Highlights.most_solved`/`least_solved` still
+    key off active teams alone.
+    """
+    count = await session.scalar(
+        select(func.count()).select_from(User).where(User.contest_id == contest.id, User.role == RoleEnum.TEAM)
+    )
+    return int(count or 0)
+
+
+async def count_teams_by_site(session: AsyncSession, contest: Contest) -> dict[str, int]:
+    """Return TEAM-role user counts per site, keyed by site id.
+
+    A team with no site is excluded (there is no site to attribute it to);
+    `count_contest_teams` remains the source of the unscoped total. One
+    grouped query, used by the reports page to label each site tile without
+    a query per site.
+    """
+    result = await session.execute(
+        select(User.site_id, func.count())
+        .where(User.contest_id == contest.id, User.role == RoleEnum.TEAM, User.site_id.is_not(None))
+        .group_by(User.site_id)
+    )
+    return {str(site_id): int(count) for site_id, count in result.all()}
 
 
 async def get_user_in_contest(

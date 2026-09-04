@@ -19,7 +19,7 @@ accidental ``NOCA_NOCA_HEALTHMON_*`` double prefix).
 import logging
 from ipaddress import ip_address, ip_network
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
@@ -136,6 +136,79 @@ class Settings(BaseSettings):
         validation_alias="NOCA_HEALTHMON_RETENTION_DAYS",
         description="Days of per-slot uptime history kept for the heatmap (7-90; default 30).",
     )
+
+    # ------------------------------------------------------------------
+    # Rate limiting
+    # ------------------------------------------------------------------
+    # Deliberately unprefixed (NOCA_HEALTH_RATE_LIMIT_*): the same four settings
+    # govern the /health limiter of every HTTP module.
+    HEALTH_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="Enable public /health endpoint rate limiting.",
+    )
+    HEALTH_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        description="Fixed-window length in seconds for /health rate limiting.",
+    )
+    HEALTH_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=30,
+        ge=1,
+        description="Maximum public /health requests per client IP in each window.",
+    )
+    HEALTH_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        description="Comma-separated CIDRs exempt from /health rate limiting.",
+    )
+    RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_HEALTHMON_RATE_LIMIT_ENABLED",
+        description="Enable per-IP rate limiting of the public dashboard routes (/, /refresh, /uptime.json).",
+    )
+    RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=120,
+        ge=1,
+        validation_alias="NOCA_HEALTHMON_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Maximum dashboard requests per client IP in each fixed window, shared by /, /refresh "
+            "and /uptime.json. One idle tab issues four requests per minute."
+        ),
+    )
+    RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_HEALTHMON_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for dashboard rate limiting.",
+    )
+    RATE_LIMIT_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_HEALTHMON_RATE_LIMIT_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from dashboard rate limiting.",
+    )
+
+    @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", "RATE_LIMIT_TRUSTED_CIDRS", mode="after")
+    @classmethod
+    def normalize_rate_limit_trusted_cidrs(cls, v: str, info: ValidationInfo) -> str:
+        """Normalize a trusted-CIDR bypass list and reject empty or invalid entries."""
+        variable = (
+            "NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS"
+            if info.field_name == "HEALTH_RATE_LIMIT_TRUSTED_CIDRS"
+            else "NOCA_HEALTHMON_RATE_LIMIT_TRUSTED_CIDRS"
+        )
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            try:
+                ip_network(part, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"{variable} must contain valid CIDRs only. Invalid value: '{part}'") from exc
+            normalized_parts.append(part)
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError(f"{variable} cannot be empty.")
+        return normalized
 
     @field_validator("FORWARDED_ALLOW_IPS", mode="after")
     @classmethod

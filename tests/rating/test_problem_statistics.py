@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Tests for compute_all_problem_statistics (shared.services.arena_stats)."""
+"""Tests for compute_all_problem_statistics (shared.services.arena_problem_stats)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from shared.db_schema.arena import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.services.arena_stats import HISTOGRAM_BINS, compute_all_problem_statistics
+from shared.services.arena_problem_stats import HISTOGRAM_BINS, compute_all_problem_statistics
 
 
 async def _make_language(session: AsyncSession, name: str) -> str:

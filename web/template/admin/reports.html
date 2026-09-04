@@ -20,6 +20,41 @@
 {% endblock %}
 {% block content %}
     <div class="py-4 px-4">
+        {% if not access_blocked and sites %}
+            {# ════════════════════════════════════════════════════════════════════ #}
+            {# Site picker: collapsed by default, scopes every figure below   #}
+            {# ════════════════════════════════════════════════════════════════════ #}
+            <div class="w-100 mb-4">
+                <button class="btn btn-link text-decoration-none fw-semibold text-body p-0 d-inline-flex align-items-center gap-1"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#reports-site-collapse"
+                        aria-expanded="false"
+                        aria-controls="reports-site-collapse">
+                    {{ render_icon(icon="location_on", classes="noca-report-icon") }}
+                    <span>Site: {{ selected_site_name or "All Sites" }}</span>
+                    {{ render_icon(icon="expand_more", classes="noca-collapse-caret") }}
+                </button>
+                <div id="reports-site-collapse" class="collapse">
+                    <div class="noca-reports-site-grid mt-2">
+                        <a href="{{ request.url_for('contest_reports', slug=contest.login_slug) }}"
+                           class="noca-reports-site-tile{{ ' noca-reports-site-tile--active' if not selected_site_id else '' }}"
+                           {% if not selected_site_id %}aria-current="page"{% endif %}>
+                            <span class="noca-reports-site-tile-name">All Sites</span>
+                            <span class="noca-reports-site-tile-count">{{ total_enrolled_teams }} team{{ 's' if total_enrolled_teams != 1 else '' }}</span>
+                        </a>
+                        {% for s in sites %}
+                            <a href="{{ request.url_for('contest_reports', slug=contest.login_slug) }}?site={{ s.id }}"
+                               class="noca-reports-site-tile{{ ' noca-reports-site-tile--active' if selected_site_id == s.id else '' }}"
+                               {% if selected_site_id == s.id %}aria-current="page"{% endif %}>
+                                <span class="noca-reports-site-tile-name">{{ s.name }}</span>
+                                <span class="noca-reports-site-tile-count">{{ s.team_count }} team{{ 's' if s.team_count != 1 else '' }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
         {% if access_blocked %}
             <div class="text-center text-muted py-5">
                 {{ render_icon(icon="schedule", classes=["display-6", "d-block", "mb-2"]) }}
@@ -35,18 +70,25 @@
         {% elif not report or report.total_runs == 0 %}
             <div class="text-center text-muted py-5">
                 {{ render_icon(icon="bar_chart", classes=["display-6", "d-block", "mb-2"]) }}
-                <p>No judged runs yet.</p>
+                <p>
+                    No judged runs yet
+                    {% if selected_site_name %}for <strong>{{ selected_site_name }}</strong>{% endif %}
+                    .
+                </p>
             </div>
         {% else %}
             {% set r = report %}
-            <div class="d-flex flex-column align-items-center gap-5">
+            <div class="d-flex flex-column align-items-center noca-reports-sections">
                 {% set accept_label = "AC + PE" if r.accept_pe else "AC" %}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 {# Page header                                                          #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <div class="noca-dashboard-live-band d-flex flex-wrap align-items-center justify-content-between gap-3 w-100">
                     <div>
-                        <p class="noca-gateway-eyebrow mb-1">{{ contest.contest_name }}</p>
+                        <p class="noca-gateway-eyebrow mb-1">
+                            {{ contest.contest_name }}
+                            {% if selected_site_name %}&middot; {{ selected_site_name }}{% endif %}
+                        </p>
                         <h1 class="h2 mb-0 fw-semibold d-inline-flex align-items-center gap-2">
                             {{ render_icon(icon="bar_chart", filled=True, classes=["noca-reports-header-icon"]) }}
                             Reports
@@ -64,6 +106,20 @@
                          alt="Problem {{ p.label }}: {{ p.title }}"
                          class="noca-balloon-report me-1">
                 {% endmacro %}
+                {# ── Macro: balloon above the problem's title ──
+                     Used by the first table only, which is where the page now
+                     states what each letter means -- the standalone "Problems"
+                     legend that used to do it is gone. Every later table keeps
+                     the bare balloon, since the reader has met the names by
+                     then and repeating them would widen six tables. ── #}
+                {% macro problem_cell_named(p) %}
+                    <span class="noca-problem-named">
+                        <img src="/assets/balloon/{{ p.color }}/{{ p.label }}"
+                             alt="Problem {{ p.label }}: {{ p.title }}"
+                             class="noca-balloon-report">
+                        <span class="noca-problem-named-title" title="{{ p.title }}">{{ p.title }}</span>
+                    </span>
+                {% endmacro %}
                 {# ── Macro: language icon + name ── #}
                 {% macro lang_header(l) %}
                     {% if l.icon %}<i class="{{ l.icon }} me-1"></i>{% endif %}
@@ -79,56 +135,327 @@
                         <span class="text-muted small">({{ "%.1f"|format(cell.pct) }}%)</span>
                     {% endif %}
                 {% endmacro %}
+                {# ── Macro: nullable contest-minute value, one decimal, "'" suffix ── #}
+                {% macro mins(value) %}
+                    {% if value is none %}
+                        <span class="text-muted">-</span>
+                    {% else %}
+                        {{ "%.1f"|format(value) }}'
+                    {% endif %}
+                {% endmacro %}
+                {# ── Macro: nullable contest-minute value, whole minutes, "'" suffix ── #}
+                {% macro mins_int(value) %}
+                    {% if value is none %}
+                        <span class="text-muted">-</span>
+                    {% else %}
+                        {{ value }}'
+                    {% endif %}
+                {% endmacro %}
+                {# ── Macro: nullable percentage, one decimal ── #}
+                {% macro pctval(value) %}
+                    {% if value is none %}
+                        <span class="text-muted">-</span>
+                    {% else %}
+                        {{ "%.1f"|format(value) }}%
+                    {% endif %}
+                {% endmacro %}
+                {# ── Macro: nullable plain number, configurable decimals ── #}
+                {% macro numval(value, decimals=1) %}
+                    {% if value is none %}
+                        <span class="text-muted">-</span>
+                    {% else %}
+                        {{ ("%." ~ decimals ~ "f")|format(value) }}
+                    {% endif %}
+                {% endmacro %}
+                {# ── Macro: flush-left section heading, no caption to toggle ── #}
+                {% macro plain_heading(icon, title, mb="mb-3") %}
+                    <h2 class="h4 fw-semibold {{ mb }}">
+                        <span class="noca-report-heading">{{ render_icon(icon=icon, classes=["noca-report-icon", "me-1"]) }} {{ title }}</span>
+                    </h2>
+                {% endmacro %}
+                {# ── Macro: flush-left section heading whose button toggles the
+                     caption collapse below it (same mechanism as the site picker,
+                     collapsed by default) ── #}
+                {% macro section_heading(icon, title, collapse_id, mb="mb-3") %}
+                    <h2 class="h4 fw-semibold {{ mb }}">
+                        <button class="btn btn-link text-decoration-none fw-semibold text-body p-0 d-inline-flex align-items-center gap-1 noca-report-heading-btn"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#{{ collapse_id }}"
+                                aria-expanded="false"
+                                aria-controls="{{ collapse_id }}">
+                            <span class="noca-report-heading">{{ render_icon(icon=icon, classes=["noca-report-icon", "me-1"]) }} {{ title }}</span>
+                            {{ render_icon(icon="expand_more", classes="noca-collapse-caret") }}
+                        </button>
+                    </h2>
+                {% endmacro %}
+                {# ── Macro: the collapse target a `section_heading` button opens ── #}
+                {% macro caption_collapse(collapse_id) %}
+                    <div id="{{ collapse_id }}" class="collapse">{{ caller() }}</div>
+                {% endmacro %}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Problem legend: letter → title                                       #}
+                {# Highlights: at-a-glance KPI cards                                    #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    <h2 class="h4 fw-semibold text-center mb-3">
-                        <span class="noca-report-heading">{{ render_icon(icon="label", classes=["noca-report-icon", "me-1"]) }} Problems</span>
-                    </h2>
-                    <div class="noca-legend-grid mx-auto">
-                        {% for pi in r.problems %}
-                            <span class="d-flex align-items-center justify-content-center text-center">
-                                <img src="/assets/balloon/{{ pi.color }}/{{ pi.label }}"
-                                     alt=""
-                                     class="noca-balloon-report me-1">
-                                {{ pi.title }}
-                            </span>
-                        {% endfor %}
+                    {{ plain_heading('insights', 'Highlights') }}
+                    <div class="noca-report-highlights">
+                        <div class="noca-report-highlight-card">
+                            {{ render_icon(icon="groups", classes="noca-report-highlight-icon") }}
+                            <div class="noca-report-highlight-body">
+                                <span class="noca-report-highlight-value">{{ r.highlights.active_teams.active }}</span>
+                                <span class="noca-report-highlight-label">Active Teams</span>
+                                <small class="noca-report-highlight-detail">
+                                    {{ "%.1f"|format(r.highlights.active_teams.pct) }}% of {{ r.highlights.active_teams.enrolled }} enrolled team{{ 's' if r.highlights.active_teams.enrolled != 1 else '' }}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="noca-report-highlight-card noca-report-highlight-card--success">
+                            {{ render_icon(icon="trending_up", classes="noca-report-highlight-icon") }}
+                            <div class="noca-report-highlight-body">
+                                <span class="noca-report-highlight-value">
+                                    {{ r.highlights.most_solved.problems | map(attribute="label") | join(", ") }}
+                                </span>
+                                <span class="noca-report-highlight-label">
+                                    Most Solved Problem{{ 's' if r.highlights.most_solved.problems | length > 1 else '' }}
+                                </span>
+                                <small class="noca-report-highlight-detail">
+                                    {{ r.highlights.most_solved.solved_teams }} team{{ 's' if r.highlights.most_solved.solved_teams != 1 else '' }} with {{ accept_label }}
+                                    ({{ "%.1f"|format(r.highlights.most_solved.pct_of_teams) }}% of active teams)
+                                </small>
+                            </div>
+                        </div>
+                        {% if r.highlights.least_solved %}
+                            <div class="noca-report-highlight-card noca-report-highlight-card--warning">
+                                {{ render_icon(icon="trending_down", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {{ r.highlights.least_solved.problems | map(attribute="label") | join(", ") }}
+                                    </span>
+                                    <span class="noca-report-highlight-label">
+                                        Least Solved Problem{{ 's' if r.highlights.least_solved.problems | length > 1 else '' }}
+                                    </span>
+                                    <small class="noca-report-highlight-detail">
+                                        {{ r.highlights.least_solved.solved_teams }} team{{ 's' if r.highlights.least_solved.solved_teams != 1 else '' }} with {{ accept_label }}
+                                        ({{ "%.1f"|format(r.highlights.least_solved.pct_of_teams) }}% of active teams)
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+                        {# Only while something is still unsolved: an empty card
+                           saying "none" would take a slot from a figure that has
+                           something to report. #}
+                        {% if r.highlights.unsolved %}
+                            <div class="noca-report-highlight-card noca-report-highlight-card--danger">
+                                {{ render_icon(icon="lock", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">{{ r.highlights.unsolved | map(attribute="label") | join(", ") }}</span>
+                                    <span class="noca-report-highlight-label">
+                                        Unsolved Problem{{ 's' if r.highlights.unsolved | length > 1 else '' }}
+                                    </span>
+                                    <small class="noca-report-highlight-detail">
+                                        {{ r.highlights.unsolved | length }} of {{ r.problems | length }} with no {{ accept_label }} yet
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+                        <div class="noca-report-highlight-card noca-report-highlight-card--info">
+                            {% if r.highlights.most_used_language %}
+                                {% set top_lang = r.highlights.most_used_language.language %}
+                                {% if top_lang.icon %}
+                                    <i class="{{ top_lang.icon }} noca-report-highlight-icon"></i>
+                                {% else %}
+                                    {{ render_icon(icon="code", classes="noca-report-highlight-icon") }}
+                                {% endif %}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">{{ top_lang.name }}</span>
+                                    <span class="noca-report-highlight-label">Most Used Language</span>
+                                    <small class="noca-report-highlight-detail">
+                                        {{ r.highlights.most_used_language.count }} submission{{ 's' if r.highlights.most_used_language.count != 1 else '' }}
+                                        ({{ "%.1f"|format(r.highlights.most_used_language.pct) }}% of all submissions)
+                                    </small>
+                                </div>
+                            {% else %}
+                                {{ render_icon(icon="code", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">-</span>
+                                    <span class="noca-report-highlight-label">Most Used Language</span>
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="noca-report-highlight-card noca-report-highlight-card--brand">
+                            {{ render_icon(icon="verified", classes="noca-report-highlight-icon") }}
+                            <div class="noca-report-highlight-body">
+                                <span class="noca-report-highlight-value">{{ "%.1f"|format(r.highlights.global_acceptance_pct) }}%</span>
+                                <span class="noca-report-highlight-label">Global {{ accept_label }} Rate</span>
+                                <small class="noca-report-highlight-detail">{{ r.total_accepted }} of {{ r.total_runs }} judged runs</small>
+                            </div>
+                        </div>
                     </div>
+                </section>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Performance: contest-wide distribution across active teams           #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <section class="w-100">
+                    {% set performance_min_teams = 30 %}
+                    {% if r.performance.active_team_count < performance_min_teams %}
+                        {{ plain_heading('leaderboard', 'Performance') }}
+                        <div class="text-center text-muted py-4">
+                            {{ render_icon(icon="groups", classes=["display-6", "d-block", "mb-2"]) }}
+                            <p class="mb-0">
+                                Performance data only makes sense with a large enough field, so it is
+                                hidden below {{ performance_min_teams }} active teams. This scope has
+                                {{ r.performance.active_team_count }} active team{{ 's' if r.performance.active_team_count != 1 else '' }}.
+                            </p>
+                        </div>
+                    {% else %}
+                        {{ section_heading('leaderboard', 'Performance', 'performance-caption') }}
+                        {% call caption_collapse("performance-caption") %}
+                            <p class="text-muted small mb-3">
+                                How the {{ r.performance.active_team_count }} active team{{ 's' if r.performance.active_team_count != 1 else '' }}
+                                (at least one submission) performed overall &mdash; the same population as the
+                                Active Teams highlight above. Penalty follows the contest's own scoring rules
+                                (each solved problem's solve-minute plus its penalizing attempts &times;
+                                {{ contest.wa_penalty }}); a team that solved nothing contributes 0 to both
+                                distributions below.
+                            </p>
+                        {% endcall %}
+                        <div class="noca-report-highlights mb-4">
+                            <div class="noca-report-highlight-card">
+                                {{ render_icon(icon="check_circle", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {{ numval(r.performance.solved_summary.mean if r.performance.solved_summary else none, 2) }}
+                                    </span>
+                                    <span class="noca-report-highlight-label">Avg Problems Solved</span>
+                                </div>
+                            </div>
+                            <div class="noca-report-highlight-card">
+                                {{ render_icon(icon="check_circle", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {{ numval(r.performance.solved_summary.median if r.performance.solved_summary else none, 1) }}
+                                    </span>
+                                    <span class="noca-report-highlight-label">Median Problems Solved</span>
+                                </div>
+                            </div>
+                            <div class="noca-report-highlight-card noca-report-highlight-card--brand">
+                                {{ render_icon(icon="military_tech", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {% if r.performance.top_10pct_solved is none %}
+                                            <span class="text-muted">-</span>
+                                        {% else %}
+                                            {{ r.performance.top_10pct_solved }}
+                                        {% endif %}
+                                    </span>
+                                    <span class="noca-report-highlight-label">Solved to be Top 10%</span>
+                                </div>
+                            </div>
+                            <div class="noca-report-highlight-card">
+                                {{ render_icon(icon="timer", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {{ mins(r.performance.penalty_summary.mean if r.performance.penalty_summary else none) }}
+                                    </span>
+                                    <span class="noca-report-highlight-label">Avg Penalty</span>
+                                </div>
+                            </div>
+                            <div class="noca-report-highlight-card">
+                                {{ render_icon(icon="timer", classes="noca-report-highlight-icon") }}
+                                <div class="noca-report-highlight-body">
+                                    <span class="noca-report-highlight-value">
+                                        {{ mins(r.performance.penalty_summary.median if r.performance.penalty_summary else none) }}
+                                    </span>
+                                    <span class="noca-report-highlight-label">Median Penalty</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="noca-report-distribution">
+                            <h3 class="h6 fw-semibold text-center mb-2">Active Teams by Problems Solved</h3>
+                            <div id="chart-solved-histogram" class="noca-report-distribution-chart">
+                                <p class="text-muted small text-center noca-chart-placeholder">Chart unavailable. Reload the page to try again.</p>
+                            </div>
+                            <p class="text-muted small text-center mb-0">
+                                Min {{ r.performance.solved_summary.minimum }} &middot;
+                                Q1 {{ "%.1f"|format(r.performance.solved_summary.q1) }} &middot;
+                                Median {{ "%.1f"|format(r.performance.solved_summary.median) }} &middot;
+                                Q3 {{ "%.1f"|format(r.performance.solved_summary.q3) }} &middot;
+                                Max {{ r.performance.solved_summary.maximum }}
+                            </p>
+                        </div>
+                    {% endif %}
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
                 {# Report 1: Problem Summary + Runs Distribution + Pie Chart            #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="pie_chart", classes=["noca-report-icon", "me-1"]) }} Runs Distribution by Problem
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        How the contest's total run volume is split across problems. The percentage is
-                        each problem's share of all judged runs (sums to 100%); the pie below visualizes
-                        the same split, colored by balloon.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading('pie_chart', 'Runs Distribution by Problem', 'report1-caption') }}
+                    {% call caption_collapse("report1-caption") %}
+                        <p class="text-muted small mb-3">
+                            How the contest's total run volume is split across problems. The percentage is
+                            each problem's share of all judged runs (sums to 100%); the pie below visualizes
+                            the same split, colored by balloon. The columns to the right split runs into
+                            per-team and per-solve figures: <strong>Avg Submissions</strong> and
+                            <strong>Median Submissions</strong> are the mean and median submission count per
+                            team that attempted the problem; the remaining five (including
+                            <strong>First Solver</strong>) are computed from each solving team's first accepted
+                            submission only, so a "-" means nobody has solved the problem yet.
+                            <strong>Dirt Ratio</strong> is the ICPC resolver metric: the share of solving teams'
+                            submissions that were wrong before they solved it (pooled across every solver, not
+                            averaged per team) &mdash; high dirt means the problem punishes small mistakes, low
+                            dirt with few solves means it is hard to think through rather than to get exactly
+                            right.
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
-                                    <th></th>
-                                    {% for row in r.problem_summary %}<th class="text-center">{{ problem_cell(row.problem) }}</th>{% endfor %}
-                                    <th class="text-end noca-col-6">Total</th>
+                                    <th class="align-bottom">Problem</th>
+                                    <th class="align-bottom text-end">Runs</th>
+                                    <th class="noca-th-vertical">Avg Submissions</th>
+                                    <th class="noca-th-vertical">Median Submissions</th>
+                                    <th class="noca-th-vertical">Dirt Ratio</th>
+                                    <th class="noca-th-vertical">Avg Time Solved</th>
+                                    <th class="noca-th-vertical">Median Time Solved</th>
+                                    <th class="noca-th-vertical">Time First Solved</th>
+                                    <th class="align-bottom">First Solver</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <th class="text-nowrap">Runs</th>
-                                    {% for row in r.problem_summary %}
+                                {% for row in r.problem_summary %}
+                                    <tr>
+                                        <th>{{ problem_cell_named(row.problem) }}</th>
                                         <td class="text-end">{{ cv({"count": row.total_runs, "pct": r.runs_distribution[loop.index0].pct}) }}</td>
-                                    {% endfor %}
-                                    <td class="text-end noca-reports-key-total">{{ r.total_runs }}</td>
-                                </tr>
+                                        <td class="text-end">{{ "%.2f"|format(row.solve_metrics.avg_submissions) }}</td>
+                                        <td class="text-end">{{ "%.1f"|format(row.solve_metrics.median_submissions) }}</td>
+                                        <td class="text-end">{{ pctval(row.solve_metrics.dirt_ratio) }}</td>
+                                        <td class="text-end">{{ mins(row.solve_metrics.avg_time_solved) }}</td>
+                                        <td class="text-end">{{ mins(row.solve_metrics.median_time_solved) }}</td>
+                                        <td class="text-end">{{ mins_int(row.solve_metrics.first_solved_minutes) }}</td>
+                                        <td class="text-nowrap">
+                                            {% if row.solve_metrics.first_solver_name %}
+                                                {{ row.solve_metrics.first_solver_name }}
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
                             </tbody>
+                            <tfoot class="noca-reports-thead fw-semibold">
+                                <tr>
+                                    <td>Total</td>
+                                    <td class="text-end noca-reports-key-total">{{ r.total_runs }}</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-end text-muted">-</td>
+                                    <td class="text-muted">-</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                     <div id="chart-runs-dist" style="min-width:500px;height:350px">
@@ -138,19 +465,19 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 2: Accepted Runs Distribution + Pie Chart                     #}
+                {# Report 2: Solved-By Distribution + Pie Chart                         #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="pie_chart", classes=["noca-report-icon", "me-1"]) }} {{ accept_label }} Runs Distribution by Problem
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        The same distribution restricted to accepted runs. % Total is each problem's share
-                        of all {{ accept_label }} runs in the contest (sums to 100%).
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading("pie_chart", accept_label ~ " Solves Distribution by Problem", "report2-caption") }}
+                    {% call caption_collapse("report2-caption") %}
+                        <p class="text-muted small mb-3">
+                            How many distinct teams solved each problem &mdash; unlike Runs Distribution above,
+                            a team that submits {{ accept_label }} more than once to the same problem (a
+                            cleaner rewrite, a second language) is still counted once here. % Total is each
+                            problem's share of all solves in the contest (sums to 100%).
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
@@ -161,9 +488,9 @@
                             </thead>
                             <tbody>
                                 <tr>
-                                    <th class="text-nowrap">{{ accept_label }}</th>
+                                    <th class="text-nowrap">Teams Solved</th>
                                     {% for row in r.accepted_distribution %}<td class="text-end">{{ row.count }}</td>{% endfor %}
-                                    <td class="text-end fw-semibold">{{ r.total_accepted }}</td>
+                                    <td class="text-end fw-semibold">{{ r.accepted_distribution | sum(attribute="count") }}</td>
                                 </tr>
                                 <tr>
                                     <th class="text-nowrap">% Total</th>
@@ -182,19 +509,39 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 3: Runs by Problem x Verdict                                  #}
+                {# Report 3: Problem Race (cumulative solves over contest time)         #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="grid_on", classes=["noca-report-icon", "me-1"]) }} Runs by Problem and Verdict
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        Per problem, where its runs landed across verdicts. Each cell's percentage is that
-                        verdict's share of the problem's runs (the row); footer percentages are shares of all runs.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading('show_chart', 'Problem Race', 'report3-caption') }}
+                    {% call caption_collapse("report3-caption") %}
+                        <p class="text-muted small mb-3">
+                            One line per problem: the cumulative number of teams that had solved it by each
+                            moment in the contest. Steeper, earlier-rising lines are problems teams found and
+                            cracked fast; lines that stay flat for a long stretch before climbing show a
+                            problem nobody found the trick to until well into the contest. Reading the curves'
+                            relative order over time is a better sense of real difficulty than a single
+                            end-of-contest solve count, since it also shows <b>when</b> the field figured each
+                            problem out.
+                        </p>
+                    {% endcall %}
+                    <div id="chart-problem-race"
+                         class="noca-reports-time-chart"
+                         aria-label="Problem race chart">
+                        <p class="text-muted small text-center noca-chart-placeholder">Chart unavailable. Reload the page to try again.</p>
+                    </div>
+                </section>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 4: Runs by Problem x Verdict                                  #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <section class="w-100">
+                    {{ section_heading('grid_on', 'Runs by Problem and Verdict', 'report4-caption') }}
+                    {% call caption_collapse("report4-caption") %}
+                        <p class="text-muted small mb-3">
+                            Per problem, where its runs landed across verdicts. Each cell's percentage is that
+                            verdict's share of the problem's runs (the row); footer percentages are shares of all runs.
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
@@ -229,19 +576,17 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 4: Runs by Problem x Language                                 #}
+                {# Report 5: Runs by Problem x Language                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="code", classes=["noca-report-icon", "me-1"]) }} Runs by Problem and Language
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        The language mix contestants chose for each problem. Each cell's percentage is that
-                        language's share of the problem's runs (the row); footer percentages are shares of all runs.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading('code', 'Runs by Problem and Language', 'report5-caption') }}
+                    {% call caption_collapse("report5-caption") %}
+                        <p class="text-muted small mb-3">
+                            The language mix contestants chose for each problem. Each cell's percentage is that
+                            language's share of the problem's runs (the row); footer percentages are shares of all runs.
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
@@ -276,19 +621,17 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 5: Runs by Language x Verdict                                 #}
+                {# Report 6: Runs by Language x Verdict                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="code", classes=["noca-report-icon", "me-1"]) }} Runs by Language and Verdict
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        How each language fared across verdicts. Each cell's percentage is that verdict's
-                        share of the language's runs (the row); footer percentages are shares of all runs.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading('code', 'Runs by Language and Verdict', 'report6-caption') }}
+                    {% call caption_collapse("report6-caption") %}
+                        <p class="text-muted small mb-3">
+                            How each language fared across verdicts. Each cell's percentage is that verdict's
+                            share of the language's runs (the row); footer percentages are shares of all runs.
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
@@ -320,23 +663,21 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 6: Runs by Team x Problem                                     #}
+                {# Report 7: Runs by Team x Problem                                     #}
                 {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="groups", classes=["noca-report-icon", "me-1"]) }} Runs by Team and Problem
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-4 text-center noca-reports-caption">
-                        How each team spread its attempts among the problems. Each cell's percentage is that
-                        problem's share of the team's runs; the {{ accept_label }} column is the team's accepted
-                        share. Click <strong>Team</strong> to order by name, <strong>Total</strong> to order by
-                        busiest teams, or <strong>{{ accept_label }}</strong> to order by most effective &mdash;
-                        ranked by a sample-size-aware acceptance rate, so a lucky 1/1 does not outrank a solid
-                        40/50.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
+                <section class="w-100">
+                    {{ section_heading('groups', 'Runs by Team and Problem', 'report7-caption') }}
+                    {% call caption_collapse("report7-caption") %}
+                        <p class="text-muted small mb-3">
+                            How each team spread its attempts among the problems. Each cell's percentage is that
+                            problem's share of the team's runs; the {{ accept_label }} column is the team's accepted
+                            share. Click <strong>Team</strong> to order by name, <strong>Total</strong> to order by
+                            busiest teams, or <strong>{{ accept_label }}</strong> to order by most effective &mdash;
+                            ranked by a sample-size-aware acceptance rate, so a lucky 1/1 does not outrank a solid
+                            40/50.
+                        </p>
+                    {% endcall %}
+                    <div class="overflow-auto d-flex justify-content-center noca-report-table">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
                             <thead class="noca-reports-thead">
                                 <tr>
@@ -396,22 +737,20 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 7: Runs by Time Window (stacked AC / non-AC)                  #}
+                {# Report 8: Runs by Time Window (stacked AC / non-AC)                  #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    <h2 class="h4 fw-semibold text-center mb-2">
-                        <span class="noca-report-heading">
-                            {{ render_icon(icon="bar_chart", classes=["noca-report-icon", "me-1"]) }} Runs by Time (10-minute windows)
-                        </span>
-                    </h2>
-                    <p class="text-muted small mb-3 text-center noca-reports-caption">
-                        All judged runs bucketed into 10-minute windows by contest-relative time. Each bar's
-                        total height is that window's run volume, split into {{ accept_label }} and non-{{ accept_label }}
-                        runs so you can see when accepted solutions arrived relative to overall activity. The
-                        two lines (see legend) track the running total of runs and of {{ accept_label }}
-                        solutions through the contest; the gap between them is overall activity that hasn't
-                        converted into an accepted solution yet.
-                    </p>
+                    {{ section_heading('bar_chart', 'Runs by Time (10-minute windows)', 'report8-caption') }}
+                    {% call caption_collapse("report8-caption") %}
+                        <p class="text-muted small mb-3">
+                            All judged runs bucketed into 10-minute windows by contest-relative time. Each bar's
+                            total height is that window's run volume, split into {{ accept_label }} and non-{{ accept_label }}
+                            runs so you can see when accepted solutions arrived relative to overall activity. The
+                            two lines (see legend) track the running total of runs and of {{ accept_label }}
+                            solutions through the contest; the gap between them is overall activity that hasn't
+                            converted into an accepted solution yet.
+                        </p>
+                    {% endcall %}
                     <div id="chart-runs-time"
                          class="noca-reports-time-chart"
                          aria-label="Runs by time chart">

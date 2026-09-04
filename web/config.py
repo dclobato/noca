@@ -9,7 +9,7 @@ import os
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 
-from pydantic import DirectoryPath, Field, field_validator, model_validator
+from pydantic import DirectoryPath, Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
@@ -96,8 +96,10 @@ class Settings(BaseSettings):
         ),
     )
     COOKIE_SECURE: bool = False
-    SEND_EMAIL: bool = Field(default=False, description="Enable real email sending in web layer")
-    EMAIL_PROVIDER: str = Field(default="mock", description="Email provider backend: mock or smtp")
+    # Outbound email. Web never talks to a mail provider: every message is rendered
+    # here and handed to the noca-mailer worker over Valkey, which sends or logs it.
+    # NOCA_SEND_EMAIL, NOCA_EMAIL_PROVIDER, NOCA_SMTP_* and NOCA_EMAIL_MBOX_LOG_DIR are
+    # the mailer's settings alone.
     EMAIL_SENDER: str = Field(
         default="no-reply@noca.local",
         description="Default sender email used by EmailService",
@@ -106,14 +108,24 @@ class Settings(BaseSettings):
         default=None,
         description="Optional default sender display name (falls back to BRAND_NAME)",
     )
-    SMTP_SERVER: str | None = Field(default=None, description="SMTP server hostname")
-    SMTP_PORT: int = Field(default=587, gt=0, le=65535, description="SMTP server port (1 to 65535)")
-    SMTP_USE_TLS: bool = Field(default=True, description="Whether SMTP should use STARTTLS")
-    SMTP_USERNAME: str | None = Field(default=None, description="SMTP username")
-    SMTP_PASSWORD: str | None = Field(default=None, description="SMTP password")
-    EMAIL_MBOX_LOG_DIR: str | None = Field(
-        default=None,
-        description="Directory for the mbox audit log of sent emails; empty disables logging",
+    EMAIL_QUEUE_JOB_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=60,
+        description="Seconds a queued email may wait for the mailer before it is dropped unsent.",
+    )
+    EMAIL_BUDGET_ENABLED: bool = Field(default=True, description="Enforce the per-actor outbound-email budget.")
+    EMAIL_BUDGET_WINDOW_SECONDS: int = Field(
+        default=600, ge=1, description="Fixed-window length in seconds for the per-actor email budget."
+    )
+    EMAIL_BUDGET_USER_MAX: int = Field(
+        default=20,
+        ge=0,
+        description="Emails one ordinary user or anonymous IP may trigger per window; 0 disables that tier.",
+    )
+    EMAIL_BUDGET_ADMIN_MAX: int = Field(
+        default=200,
+        ge=0,
+        description="Emails one admin actor may trigger per window; 0 disables that tier.",
     )
     HEALTHMON_URL: str = Field(
         default="",
@@ -199,6 +211,131 @@ class Settings(BaseSettings):
         ge=1,
         description="Maximum submissions a team may send within the rate-limit window.",
     )
+    # ------------------------------------------------------------------
+    # Team write throttles (SOS tasks, print requests, clarifications)
+    # ------------------------------------------------------------------
+    TEAM_TASK_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_TEAM_TASK_RATE_LIMIT_WINDOW_SECONDS",
+        description="Rolling window in seconds for per-team SOS and print task budgets.",
+    )
+    TEAM_TASK_RATE_LIMIT_MAX_SOS_REQUESTS: int = Field(
+        default=5,
+        ge=0,
+        validation_alias="NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_SOS_REQUESTS",
+        description="SOS tasks a team may create within the window; 0 disables this limit.",
+    )
+    TEAM_TASK_RATE_LIMIT_MAX_OPEN_SOS: int = Field(
+        default=3,
+        ge=0,
+        validation_alias="NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_OPEN_SOS",
+        description="Unfinished SOS tasks a team may hold at once; 0 disables this limit.",
+    )
+    TEAM_TASK_RATE_LIMIT_MAX_PRINT_REQUESTS: int = Field(
+        default=10,
+        ge=0,
+        validation_alias="NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_PRINT_REQUESTS",
+        description="Print tasks a team may create within the window; 0 disables this limit.",
+    )
+    CLARIFICATION_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_CLARIFICATION_RATE_LIMIT_WINDOW_SECONDS",
+        description="Rolling window in seconds for per-team clarification requests.",
+    )
+    CLARIFICATION_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=5,
+        ge=0,
+        validation_alias="NOCA_WEB_CLARIFICATION_RATE_LIMIT_MAX_REQUESTS",
+        description="Clarifications a team may ask within the window; 0 disables this limit.",
+    )
+    CLARIFICATION_RATE_LIMIT_MAX_UNANSWERED: int = Field(
+        default=3,
+        ge=0,
+        validation_alias="NOCA_WEB_CLARIFICATION_RATE_LIMIT_MAX_UNANSWERED",
+        description="Unanswered clarifications a team may hold at once; 0 disables this limit.",
+    )
+    # ------------------------------------------------------------------
+    # Mass rejudge cooldown (limit-change batch "Rejudge All Pending")
+    # ------------------------------------------------------------------
+    REJUDGE_COOLDOWN_SECONDS: int = Field(
+        default=300,
+        ge=0,
+        validation_alias="NOCA_WEB_REJUDGE_COOLDOWN_SECONDS",
+        description=(
+            "Seconds after a batch-wide rejudge during which another batch-wide rejudge of the "
+            "same problem is refused; 0 disables the cooldown."
+        ),
+    )
+    # ------------------------------------------------------------------
+    # SSE connection limits (concurrent streams per IP / per user)
+    # ------------------------------------------------------------------
+    SSE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_SSE_LIMIT_ENABLED",
+        description="Cap the number of SSE streams one client may hold open at once.",
+    )
+    SSE_MAX_PER_IP: int = Field(
+        default=200,
+        ge=1,
+        validation_alias="NOCA_WEB_SSE_MAX_PER_IP",
+        description="Concurrent SSE streams allowed per client IP across this module's event routes.",
+    )
+    SSE_MAX_PER_USER: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_WEB_SSE_MAX_PER_USER",
+        description="Concurrent SSE streams allowed per authenticated user, across IPs.",
+    )
+    SSE_CONNECTION_TTL_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_SSE_CONNECTION_TTL_SECONDS",
+        description="Lease lifetime of one held SSE slot in Valkey; renewed while the stream is open.",
+    )
+    SSE_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_WEB_SSE_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from the SSE connection caps.",
+    )
+    # ------------------------------------------------------------------
+    # Public read rate limiting (/problem-set/{slug}.zip, /c/{slug}/live/feed.json)
+    # ------------------------------------------------------------------
+    PUBLIC_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_ENABLED",
+        description="Enable per-IP rate limiting of the anonymous problem-set download and live-feed snapshot.",
+    )
+    PUBLIC_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from both public read limits.",
+    )
+    PUBLIC_RATE_LIMIT_PROBLEM_SET_MAX_REQUESTS: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_PROBLEM_SET_MAX_REQUESTS",
+        description="Problem-set archive downloads accepted per client IP in each fixed window.",
+    )
+    PUBLIC_RATE_LIMIT_PROBLEM_SET_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_PROBLEM_SET_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for problem-set downloads.",
+    )
+    PUBLIC_RATE_LIMIT_LIVE_FEED_MAX_REQUESTS: int = Field(
+        default=120,
+        ge=1,
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_LIVE_FEED_MAX_REQUESTS",
+        description="Live-feed snapshot requests accepted per client IP in each fixed window.",
+    )
+    PUBLIC_RATE_LIMIT_LIVE_FEED_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_WEB_PUBLIC_RATE_LIMIT_LIVE_FEED_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for live-feed snapshot requests.",
+    )
     HEALTH_RATE_LIMIT_ENABLED: bool = Field(
         default=True,
         description="Enable public /health endpoint rate limiting.",
@@ -213,6 +350,51 @@ class Settings(BaseSettings):
         ge=1,
         description="Maximum public /health requests per client IP in each window.",
     )
+    USER_READ_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_USER_READ_RATE_LIMIT_ENABLED",
+        description="Enable the loose per-actor ceiling on authenticated reads and polled partials.",
+    )
+    USER_READ_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="NOCA_WEB_USER_READ_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Requests one actor may make to the rate-limited read routers in each window. Generous by "
+            "design: legitimate clients poll these every few seconds and each call costs a bounded amount."
+        ),
+    )
+    USER_READ_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_WEB_USER_READ_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for the per-actor read ceiling.",
+    )
+
+    # ------------------------------------------------------------------
+    # Per-problem export limiting (/c/{slug}/problems/{label}/export)
+    # ------------------------------------------------------------------
+    PROBLEM_EXPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_ENABLED",
+        description="Enable the tight per-actor budget on per-problem package downloads.",
+    )
+    PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Problem package downloads accepted per actor in each fixed window, cached or not. Tight by "
+            "design: building one package is expensive and a contestant downloads a given problem once."
+        ),
+    )
+    PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-actor problem package downloads.",
+    )
+
     HEALTH_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
         default="127.0.0.0/8,::1/128",
         description="Comma-separated CIDRs exempt from /health rate limiting.",
@@ -446,6 +628,30 @@ class Settings(BaseSettings):
             raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot combine '*' with specific IPs/CIDRs.")
         return normalized
 
+    @field_validator("SSE_TRUSTED_CIDRS", "PUBLIC_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
+    @classmethod
+    def normalize_sse_trusted_cidrs(cls, v: str, info: ValidationInfo) -> str:
+        """Normalize trusted CIDRs for the SSE connection-cap and public-read bypasses."""
+        env_name = (
+            "NOCA_WEB_SSE_TRUSTED_CIDRS"
+            if info.field_name == "SSE_TRUSTED_CIDRS"
+            else "NOCA_WEB_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS"
+        )
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            try:
+                ip_network(part, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"{env_name} must contain valid CIDRs only. Invalid value: '{part}'") from exc
+            normalized_parts.append(part)
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError(f"{env_name} cannot be empty.")
+        return normalized
+
     @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
     @classmethod
     def normalize_health_rate_limit_trusted_cidrs(cls, v: str) -> str:
@@ -466,19 +672,6 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS cannot be empty.")
         return normalized
-
-    @field_validator("EMAIL_MBOX_LOG_DIR", mode="after")
-    @classmethod
-    def normalize_mbox_log_dir(cls, v: str | None) -> str | None:
-        """Treat empty/blank values as disabled and require an absolute path."""
-        if v is None:
-            return None
-        v = v.strip()
-        if not v:
-            return None
-        if not Path(v).is_absolute():
-            raise ValueError("NOCA_EMAIL_MBOX_LOG_DIR must be an absolute path.")
-        return v
 
     @field_validator("PUBLIC_PROBLEM_PACK_PATH", mode="after")
     @classmethod
@@ -502,26 +695,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_email_settings(self) -> Settings:
-        """Validate email configuration consistency."""
-        provider = self.EMAIL_PROVIDER.casefold()
-        if provider not in {"mock", "smtp"}:
-            raise ValueError("NOCA_EMAIL_PROVIDER must be 'mock' or 'smtp'.")
-
+        """Validate the sender identity every queued email carries."""
         if not self.EMAIL_SENDER.strip():
             raise ValueError("NOCA_EMAIL_SENDER cannot be empty.")
-
-        if not self.SEND_EMAIL or provider != "smtp":
-            return self
-
-        missing: list[str] = []
-        if not self.SMTP_SERVER:
-            missing.append("NOCA_SMTP_SERVER")
-        if not self.SMTP_USERNAME:
-            missing.append("NOCA_SMTP_USERNAME")
-        if not self.SMTP_PASSWORD:
-            missing.append("NOCA_SMTP_PASSWORD")
-        if missing:
-            raise ValueError(f"Missing required SMTP settings: {', '.join(missing)}")
         return self
 
     @model_validator(mode="after")

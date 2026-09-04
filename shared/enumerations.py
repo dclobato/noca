@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 
 
 class RoleEnum(StrEnum):
@@ -212,6 +212,58 @@ _STATEMENT_LANGUAGE_LABELS: dict[StatementLanguage, str] = {
 """Display names for :class:`StatementLanguage`, kept out of the enum body so it stays a pure StrEnum."""
 
 
+class ArenaExpectedDifficulty(IntEnum):
+    """Author-declared expected difficulty of an Arena problem, as a worded anchor.
+
+    The value is the anchor's position on the internal ``[1, 100]`` rating scale
+    (display value = value / 10). It seeds the rating's solve-rate prior so a
+    fresh problem starts where its author expects instead of at the flat centre;
+    evidence overrides it as attempts accumulate. Arena-only: the Web
+    ``problems`` table has no rating system.
+
+    The column stores any integer in ``[1, 100]`` -- a package may carry a value
+    that is not an anchor -- so this enum is the *form vocabulary*, not a
+    constraint on the column. ``from_internal`` returns ``None`` for a stored
+    value that is not an exact anchor.
+    """
+
+    INTRODUCTORY = 15
+    EASY = 30
+    STANDARD = 50
+    CHALLENGING = 70
+    HARD = 85
+
+    @property
+    def label(self) -> str:
+        """Return the English display name of the anchor."""
+        return _EXPECTED_DIFFICULTY_LABELS[self]
+
+    @property
+    def display_value(self) -> float:
+        """Return the anchor on the 0.1-10.0 user-facing scale."""
+        return self.value / 10.0
+
+    @classmethod
+    def from_internal(cls, value: int | None) -> ArenaExpectedDifficulty | None:
+        """Return the anchor stored as ``value``, or ``None`` when it is not an exact anchor."""
+        if value is None:
+            return None
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
+
+_EXPECTED_DIFFICULTY_LABELS: dict[ArenaExpectedDifficulty, str] = {
+    ArenaExpectedDifficulty.INTRODUCTORY: "Introductory",
+    ArenaExpectedDifficulty.EASY: "Easy",
+    ArenaExpectedDifficulty.STANDARD: "Standard",
+    ArenaExpectedDifficulty.CHALLENGING: "Challenging",
+    ArenaExpectedDifficulty.HARD: "Hard",
+}
+"""Display names for :class:`ArenaExpectedDifficulty`, kept out of the enum body so it stays a pure IntEnum."""
+
+
 class ContestStatus(StrEnum):
     """
     Lifecycle states of a contest.
@@ -259,6 +311,13 @@ class ArenaClassRegistrationStatus(StrEnum):
     PENDING = "PENDING"  # awaiting teacher/admin decision
     APPROVED = "APPROVED"  # accepted; an ACTIVE membership was created
     DENIED = "DENIED"  # rejected by teacher/admin
+
+
+class AnnouncementDomain(StrEnum):
+    """Surface that published a platform announcement (``announcements.domain``)."""
+
+    WEB = "web"
+    ARENA = "arena"
 
 
 class ArenaNotificationKind(StrEnum):
@@ -387,7 +446,7 @@ ARENA_BADGE_METADATA: dict[str, dict[str, str]] = {
     },
     ArenaBadge.CLEAN_CODE.value: {
         "label": "Clean Code",
-        "description": "Solution for a problem in the top 5% by execution time or memory",
+        "description": "Solution for a problem in the top 5% by execution time and memory",
         "image": "cleancode.png",
     },
     ArenaBadge.BIT_SCRUBBER.value: {

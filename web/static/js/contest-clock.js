@@ -65,14 +65,27 @@
     // saying "Updating..." instead, and the resync loop below is still running.
     if (!synced) return;
     const nowMs = Date.now() + offsetMs;
-    el.textContent = ContestClockUtils.countdownText(nowMs, startMs, endMs);
-    el.dataset.urgency = ContestClockUtils.countdownUrgency(nowMs, startMs, endMs);
+    // Write only what changed. Outside the last five minutes the text is
+    // minute-granular, so most ticks change nothing -- and a DOM write that
+    // stores the same value still invalidates the node, which a browser with
+    // an accessibility consumer attached pays for on every tick.
+    setText(el, ContestClockUtils.countdownText(nowMs, startMs, endMs));
+    setData(el, "urgency", ContestClockUtils.countdownUrgency(nowMs, startMs, endMs));
     if (!phaseEl) return;
     const phase = ContestClockUtils.contestPhase(nowMs, startMs, endMs, freezeMs, blindMs);
     const label = ContestClockUtils.phaseLabel(phase);
-    phaseEl.textContent = label;
-    phaseEl.dataset.phase = phase;
-    phaseEl.hidden = label === "";
+    setText(phaseEl, label);
+    setData(phaseEl, "phase", phase);
+    const hidden = label === "";
+    if (phaseEl.hidden !== hidden) phaseEl.hidden = hidden;
+  }
+
+  function setText(node, value) {
+    if (node.textContent !== value) node.textContent = value;
+  }
+
+  function setData(node, key, value) {
+    if (node.dataset[key] !== value) node.dataset[key] = value;
   }
 
   // ── Server sync ─────────────────────────────────────────────────────────────

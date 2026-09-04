@@ -1,6 +1,6 @@
 [project]
 name = "noca-workspace"
-version = "18.0.1"
+version = "19.0.0"
 description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
@@ -12,7 +12,7 @@ requires-python = ">=3.14"
 package = false
 
 [tool.uv.workspace]
-members = ["shared", "web", "arena", "autojudge", "rating", "aiassistant", "healthmonitor", "animator"]
+members = ["shared", "web", "arena", "autojudge", "rating", "aiassistant", "healthmonitor", "animator", "mailer"]
 
 [tool.uv.sources]
 noca-shared = { workspace = true }
@@ -23,6 +23,7 @@ noca-rating = { workspace = true }
 noca-aiassistant = { workspace = true }
 noca-healthmonitor = { workspace = true }
 noca-animator = { workspace = true }
+noca-mailer = { workspace = true }
 
 [tool.assets]
 vendor_dir = "shared/static/vendor"
@@ -49,6 +50,8 @@ public_sans_weights = "400;600;700;800;900"
 sortablejs = "1.15.7"
 country_flags_sha = "c09927e63705529bbf59ca6684cd9b23225dddad"
 country_flags_sha256 = "fe3e40259e3d26f130e1516d988f5454cb3b47b66bba97ec3b8a17079d0ca183"
+brazilian_flags_sha = "ed474119920976089da4c793687126d3bf707d06"
+brazilian_flags_sha256 = "8957c14bedbccf959aa960fd78ffbaeddc38e1e5892b5cc5ae6f7f42b2252d2d"
 
 [dependency-groups]
 dev = [
@@ -106,13 +109,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassistant", "healthmonitor", "animator"]
+known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassistant", "healthmonitor", "animator", "mailer"]
 
 [tool.mypy]
 python_version = "3.14"
 strict = true
 plugins = ["sqlalchemy.ext.mypy.plugin"]
-# `mypy .` checks exactly the eight runtime modules -- the same surface the
+# `mypy .` checks exactly the nine runtime modules -- the same surface the
 # documented `mypy web shared autojudge arena rating aiassistant healthmonitor
 # animator` covers -- so crawling the repo cannot disagree with CI about what is
 # type-clean. The excluded trees are outside that surface on purpose:

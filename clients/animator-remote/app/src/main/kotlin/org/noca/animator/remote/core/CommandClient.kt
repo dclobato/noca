@@ -322,6 +322,78 @@ class CommandClient(
     suspend fun jumpPending(): CommandOutcome =
         runCommand(Attempt(HttpMethod.POST, endpoints.jumpPending, null, nextKey()))
 
+    /** `POST /control/show-team-media`; shows the ceremony's focused team. */
+    suspend fun showMedia(): MediaCueOutcome = mediaCue(endpoints.showTeamMedia, hiding = false)
+
+    /** `POST /control/hide-team-media`; takes the overlay down. */
+    suspend fun hideMedia(): MediaCueOutcome = mediaCue(endpoints.hideTeamMedia, hiding = true)
+
+    /**
+     * Sends one media cue, deliberately outside [runCommand] and its lock.
+     *
+     * Three differences from a reveal command, each of which is the reason a cue
+     * is safe where a reveal command is not:
+     *
+     *  1. **No `Idempotency-Key`.** A cue persists nothing, so there is no
+     *     receipt ring on the server to match one against, and re-cueing is
+     *     inherently a no-op rather than a second reveal.
+     *  2. **A failure never sets [isBlocked].** The ambiguity lock exists to stop
+     *     a retried `step` revealing two teams; a cue cannot reveal anything, so
+     *     locking the pad over one would be pure cost to the operator.
+     *  3. **`hide` is dispatched even while the pad *is* blocked.** That is the
+     *     case where it matters most: an ambiguous `5xx` with a photograph
+     *     covering the board is exactly when the operator needs the board back,
+     *     and hiding can never double-apply. `show` stays suppressed, because
+     *     raising an overlay while the ceremony's true position is unknown would
+     *     put the wrong team's face on the screen.
+     *
+     * It also leaves [lastAttempt] untouched: **Retry same command** must keep
+     * naming the reveal command whose outcome is genuinely unresolved, not a cue
+     * the operator can simply press again.
+     */
+    private suspend fun mediaCue(url: String, hiding: Boolean): MediaCueOutcome {
+        if (isBusy || secret == null || leaseState != ControllerLeaseState.ACTIVE) {
+            return MediaCueOutcome.Suppressed
+        }
+        if (isBlocked && !hiding) {
+            return MediaCueOutcome.Suppressed
+        }
+        val token = secret ?: return MediaCueOutcome.Suppressed
+        isBusy = true
+        try {
+            val response = try {
+                transport.send(
+                    HttpRequest(
+                        method = HttpMethod.POST,
+                        url = url,
+                        headers = buildHeaders(
+                            token,
+                            withBody = false,
+                            idempotencyKey = null,
+                            withControllerId = true,
+                        ),
+                    ),
+                )
+            } catch (failure: TransportFailure) {
+                return MediaCueOutcome.Failed(failure.message ?: "The media cue could not be delivered.")
+            }
+            if (response.status in 200..299) {
+                return MediaCueOutcome.Sent
+            }
+            if (response.status == 403) {
+                forgetSecret()
+                return MediaCueOutcome.AuthFailure
+            }
+            val detail = parseErrorDetail(response.body)
+            if (response.status == 409 && detail == CONTROLLER_LEASE_LOST_DETAIL) {
+                leaseState = ControllerLeaseState.LOST
+            }
+            return MediaCueOutcome.Refused(response.status, detail)
+        } finally {
+            isBusy = false
+        }
+    }
+
     /**
      * Sends [count] separate `step` commands, stopping at the first that is not
      * confirmed.

@@ -9,11 +9,11 @@
 # Short-lived container — one per submission, destroyed after syntax check.
 #
 # artifact_is_source=True: the source .sh file is the artifact injected into
-# the run container; bash is pre-installed in debian:bookworm-slim.
+# the run container; bash is pre-installed in debian:trixie-slim.
 #
-# Pinned family: debian:bookworm-slim (Debian 12)
+# Pinned family: debian:trixie-slim (Debian 13)
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

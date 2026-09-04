@@ -189,7 +189,7 @@
 }
 
 .arena-live-feed-table {
-    min-width: 47rem;
+    min-width: 58rem;
     margin-bottom: 0;
 }
 
@@ -214,8 +214,51 @@
     border-bottom: 0;
 }
 
-.arena-live-feed-table tbody td:first-child {
+.arena-live-feed-col-date {
     width: 12rem;
+}
+
+.arena-live-feed-col-affiliation {
+    width: 14rem;
+}
+
+.arena-live-feed-col-origin {
+    width: 6rem;
+}
+
+.arena-live-feed-affiliation,
+.arena-live-feed-origin {
+    display: flex;
+    align-items: center;
+}
+
+.arena-live-feed-affiliation {
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.arena-live-feed-affiliation-name {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.arena-live-feed-origin {
+    gap: 0.375rem;
+    white-space: nowrap;
+}
+
+.arena-live-feed-origin .arena-country-flag {
+    flex: 0 0 auto;
+    margin-right: 0;
+}
+
+.arena-live-feed-state-flag {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: 0 0 auto;
+    object-fit: contain;
 }
 
 .arena-live-feed-table tbody a {

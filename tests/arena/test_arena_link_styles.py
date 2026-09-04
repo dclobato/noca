@@ -48,7 +48,6 @@ def test_link_contract_covers_content_shell_and_component_exclusions() -> None:
         ".arena-icon-link",
         ".arena-problem-row",
         ".arena-problem-set-report-status-summary",
-        ".arena-ranking-affiliation-link",
         # Whole-row and section-index links on the help surface: the row itself is
         # the target, so underlining part of its text is noise.
         ".arena-topic-row",
@@ -75,7 +74,7 @@ def test_text_links_do_not_bypass_the_shared_contract() -> None:
     assert sortable_anchors
     assert all("arena-sort-link" in anchor for anchor in sortable_anchors)
     assert 'class="arena-icon-link small"' in template_source
-    assert template_source.count("arena-link-no-underline") == 4
+    assert template_source.count("arena-link-no-underline") == 5
 
 
 def test_shared_template_apps_stub_the_live_feed_route() -> None:

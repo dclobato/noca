@@ -66,6 +66,25 @@ def test_common_css_exposes_semantic_typography_contract() -> None:
     assert "font-variant-ligatures: var(--noca-font-variant-ligatures-literal);" in common
 
 
+def test_markdown_editor_source_pane_disables_contextual_alternates() -> None:
+    """The rule reaches the `pre` CodeMirror actually puts the characters in.
+
+    CodeMirror re-enables `calt` on `.CodeMirror pre.CodeMirror-line`, which
+    outranks anything said about `.CodeMirror` alone. Inter then swaps its
+    case-sensitive asterisk in beside a capital, so the two halves of
+    `**Entrada**` rendered as different glyphs at different heights. A Markdown
+    source pane must show its syntax literally, so the override has to name the
+    same `pre` with more classes than CodeMirror uses.
+    """
+    common = COMMON_PATH.read_text(encoding="utf-8")
+    selector = ".EasyMDEContainer .CodeMirror pre.CodeMirror-line,"
+
+    assert selector in common
+    rule = common.split(selector, maxsplit=1)[1].split("}", maxsplit=1)[0]
+    assert ".EasyMDEContainer .CodeMirror pre.CodeMirror-line-like" in rule
+    assert "font-variant-ligatures: var(--noca-font-variant-ligatures-literal);" in rule
+
+
 def test_inline_code_matches_prose_size_repo_wide() -> None:
     """Inline code is legible everywhere without changing code-block typography."""
     common = COMMON_PATH.read_text(encoding="utf-8")

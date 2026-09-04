@@ -28,9 +28,11 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.help import router as arena_help_router
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema import languages
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_PRIORITY
+from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_PRIORITY, ArenaExpectedDifficulty
 from shared.language_registry import default_language_seed_rows
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 from shared.services.arena_difficulty_histogram import BIN_COUNT, persist_difficulty_histogram
+from shared.services.arena_rating import prior_solve_rate_for_difficulty
 from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 TEST_JWT_SECRET = "test-secret-key-for-help-rating-tests-32b!!"
@@ -49,6 +51,7 @@ _NAV_ROUTE_NAMES = (
     "arena_admin_dashboard_security_events",
     "arena_admin_dashboard_service_status",
     "arena_admin_dashboard_submissions",
+    "arena_admin_dashboard_terms",
     "arena_admin_problem_list",
     "arena_admin_user_list",
     "arena_classes_index",
@@ -150,6 +153,14 @@ async def test_help_rating_renders_for_guest(session: AsyncSession) -> None:
     # The derivations disclose; the plain answer above them never does.
     assert "arena-help-detail-summary" in body
     assert "nav-tabs" not in body
+    # The evidence threshold and the three display states are documented.
+    assert f"{MIN_ATTEMPTS_FOR_DISPLAY} people" in body
+    assert "7.0?" in body
+    assert "Not enough data yet" in body
+    # The author-estimate anchors are tabulated from the same function the worker uses.
+    for level in ArenaExpectedDifficulty:
+        assert level.label in body
+    assert f"{prior_solve_rate_for_difficulty(ArenaExpectedDifficulty.HARD.value):.2f}" in body
 
 
 @pytest.mark.asyncio
@@ -221,13 +232,19 @@ async def test_difficulty_distribution_empty_before_first_cycle(session: AsyncSe
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload == {"counts": [], "total_problems": 0, "computed_at": None}
+    assert payload == {
+        "counts": [],
+        "total_problems": 0,
+        "unmeasured_problems": 0,
+        "min_attempts": MIN_ATTEMPTS_FOR_DISPLAY,
+        "computed_at": None,
+    }
 
 
 @pytest.mark.asyncio
 async def test_difficulty_distribution_returns_latest_snapshot(session: AsyncSession) -> None:
     """The JSON endpoint surfaces the persisted histogram snapshot once one exists."""
-    await persist_difficulty_histogram(session, [1, 55, 100], datetime.now(UTC))
+    await persist_difficulty_histogram(session, [1, 55, 100], datetime.now(UTC), unmeasured_problems=4)
     await session.commit()
 
     app = _build_help_app(session)
@@ -239,4 +256,6 @@ async def test_difficulty_distribution_returns_latest_snapshot(session: AsyncSes
     assert payload["bins"] == BIN_COUNT
     assert payload["total_problems"] == 3
     assert sum(payload["counts"]) == 3
+    assert payload["unmeasured_problems"] == 4
+    assert payload["min_attempts"] == MIN_ATTEMPTS_FOR_DISPLAY
     assert payload["computed_at"] is not None

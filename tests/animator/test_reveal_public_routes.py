@@ -48,9 +48,10 @@ from animator.routes.public import router as public_router
 from animator.routes.reveal_public import router as reveal_public_router
 from animator.routes.team_media import router as team_media_router
 from animator.services import control_service
+from animator.services.feed_cache import AnimatorFeedCache
 from animator.services.reveal_session_store import RevealSessionStore
-from shared.reveal_schema import GLOBAL_SCOPE, RevealStateChangedEvent
-from shared.services.valkey_service.revelation import reveal_state_key
+from shared.reveal_schema import GLOBAL_SCOPE, RevealMediaCueEvent, RevealStateChangedEvent, RevelationEvent
+from shared.services.valkey_service.revelation import reveal_projectors_key, reveal_state_key
 from tests.animator._asgi_stream import ASGIStream, parse_event
 from tests.animator._fake_reveal_store import FakeRevealStoreClient
 from tests.animator._feed_seed import make_contest, make_site
@@ -90,7 +91,7 @@ class FakeValkey(FakeRevealStoreClient):
         """
         kwargs.setdefault("bootstrap_controller_leases", True)
         super().__init__(**kwargs)
-        self.events: asyncio.Queue[RevealStateChangedEvent] = asyncio.Queue()
+        self.events: asyncio.Queue[RevelationEvent] = asyncio.Queue()
         self.subscriptions: list[tuple[str, str]] = []
         self.closed_subscriptions = 0
         self.subscribed = asyncio.Event()
@@ -102,8 +103,8 @@ class FakeValkey(FakeRevealStoreClient):
         scope: str,
         *,
         on_subscribed: Callable[[], None] | None = None,
-    ) -> AsyncGenerator[RevealStateChangedEvent]:
-        """Yield queued nudges for one scope until the consumer goes away."""
+    ) -> AsyncGenerator[RevelationEvent]:
+        """Yield queued frames for one scope until the consumer goes away."""
         if self._subscribe_gate is not None:
             await self._subscribe_gate.wait()
         self.subscriptions.append((contest_id, scope))
@@ -126,7 +127,7 @@ class FailedSubscriptionValkey(FakeValkey):
         scope: str,
         *,
         on_subscribed: Callable[[], None] | None = None,
-    ) -> AsyncGenerator[RevealStateChangedEvent]:
+    ) -> AsyncGenerator[RevelationEvent]:
         """End without invoking ``on_subscribed``, as an unavailable runtime does."""
         if False:  # pragma: no cover - keeps this an async generator
             yield RevealStateChangedEvent.model_construct()
@@ -135,6 +136,7 @@ class FailedSubscriptionValkey(FakeValkey):
 def _build_app(engine: AsyncEngine, valkey: FakeValkey) -> FastAPI:
     """Wire a minimal app around the spectator router."""
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.valkey_runtime = valkey
     app.include_router(reveal_public_router)
@@ -432,6 +434,62 @@ async def test_events_stream_delivers_nudges_for_the_requested_scope(
     assert payload["command"] == "step"
     assert payload["revealed_count"] == 1
     assert "reveal_log" not in payload
+
+
+async def test_events_stream_counts_as_one_projector_of_its_scope_while_open(
+    session: AsyncSession, uberadmin: UberAdmin
+) -> None:
+    """An open stream registers presence for exactly its scope, and leaves on disconnect."""
+    ceremony = await seed_ceremony(session, uberadmin)
+    valkey = FakeValkey()
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    key = reveal_projectors_key(ceremony.contest_id, ceremony.site_a)
+
+    stream = ASGIStream(app, f"/c/{ceremony.slug}/reveal/events", query_string=f"scope={ceremony.site_a}")
+    async with stream:
+        await stream.read_events(1)
+        assert len(valkey.projectors.get(key, {})) == 1
+        assert not valkey.projectors.get(reveal_projectors_key(ceremony.contest_id, GLOBAL_SCOPE))
+        await stream.disconnect()
+
+    # Departure is detached from the cancelled response; give it its turn.
+    await asyncio.sleep(0.05)
+    assert valkey.projectors.get(key) == {}
+
+
+async def test_events_stream_names_a_media_cue_as_its_own_event(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """A cue is a separate SSE event name, interleaved with nudges on one stream.
+
+    The distinction is load-bearing on the client: a nudge means "refetch the
+    authoritative state", while a cue changes no state and must trigger no fetch
+    at all. Sharing one event name would cost a round trip on every press of the
+    operator's button and invite a client to read a cue as a state signal.
+    """
+    ceremony = await seed_ceremony(session, uberadmin)
+    valkey = FakeValkey()
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+
+    async with ASGIStream(app, f"/c/{ceremony.slug}/reveal/events", query_string="scope=global") as conn:
+        await conn.read_events(1)  # reveal_ready
+        valkey.events.put_nowait(
+            RevealMediaCueEvent(
+                contest_id=ceremony.contest_id,
+                scope=GLOBAL_SCOPE,
+                action="show",
+                team_id=ceremony.a1,
+                published_at=datetime.now(UTC),
+            )
+        )
+        valkey.events.put_nowait(_nudge(ceremony, GLOBAL_SCOPE))
+        frames = [parse_event(frame) for frame in await conn.read_events(2)]
+
+    assert [frame["event"] for frame in frames] == ["reveal_media_cue", "reveal_state_changed"]
+    cue = json.loads(frames[0]["data"])
+    assert cue["action"] == "show"
+    assert cue["team_id"] == ceremony.a1
+    # A cue carries its whole payload; it is not a pointer into ceremony state.
+    assert "phase" not in cue
+    assert "revealed_count" not in cue
 
 
 async def test_events_stream_subscribes_to_the_site_scope(session: AsyncSession, uberadmin: UberAdmin) -> None:

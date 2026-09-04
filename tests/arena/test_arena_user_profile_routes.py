@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -25,11 +26,11 @@ import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
-from arena.dependencies.auth import get_current_arena_user
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
+from arena.routes.auth_google import router as arena_auth_google_router
 from arena.routes.help import router as arena_help_router
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.notifications import router as arena_notifications_router
@@ -37,8 +38,8 @@ from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
 from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
+from arena.routes.user_username_api import router as arena_user_username_api_router
 from arena.routes.users import router as arena_users_router
-from arena.services.session_service import missing_profile_fields
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema.arena import (
     arena_ai_credit_transactions,
@@ -63,7 +64,7 @@ from shared.enumerations import (
     Verdict,
 )
 from shared.services.network_utils import NetworkService
-from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
+from tests.arena.conftest import FakeGeocodeValkey, install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-profile-tests-only-32bytes"
@@ -118,6 +119,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     )
     app.state.reverse_geocoder_network_service = _ReverseGeocoderStub()
     app.state.reverse_geocoder_user_agent = "noca-test"
+    app.state.valkey_runtime = FakeGeocodeValkey()
 
     @app.get("/auth/login", name="arena_login")
     async def _arena_login() -> Response:
@@ -193,8 +195,10 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         return Response(f"submission {submission_id}")
 
     app.include_router(arena_root_router)
+    app.include_router(arena_auth_google_router)
     app.include_router(arena_help_router)
     app.include_router(arena_users_router)
+    app.include_router(arena_user_username_api_router)
     app.include_router(arena_user_public_profile_router)
     app.include_router(arena_user_submission_status_router)
     app.include_router(arena_notifications_router)
@@ -397,9 +401,9 @@ async def test_dashboard_renders_real_top_rated_users(session: AsyncSession, mon
     monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_GOLD_CUTOFF", 1)
     monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_SILVER_CUTOFF", 2)
     monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_BRONZE_CUTOFF", 3)
-    await _create_ranked_arena_user(session, name="Top One", rating=900)
-    await _create_ranked_arena_user(session, name="Top Two", rating=800)
-    await _create_ranked_arena_user(session, name="Below Cutoff", rating=100)
+    top_one = await _create_ranked_arena_user(session, name="Top One", rating=900)
+    top_two = await _create_ranked_arena_user(session, name="Top Two", rating=800)
+    below_cutoff = await _create_ranked_arena_user(session, name="Below Cutoff", rating=100)
     # Eight more filler users so the leaderboard fills its top-10 window and
     # "Below Cutoff" (lowest rating) is pushed to rank 11, outside the top 10.
     for index in range(3, 11):
@@ -414,10 +418,13 @@ async def test_dashboard_renders_real_top_rated_users(session: AsyncSession, mon
         response = await client.get("/dashboard")
 
     assert response.status_code == 200
-    assert "Top One" in response.text
+    # The dashboard is anonymous, so it renders handles rather than legal names.
+    assert top_one.username in response.text
     assert "900" in response.text
-    assert "Top Two" in response.text
+    assert top_two.username in response.text
     assert "tourist" not in response.text
+    assert below_cutoff.username not in response.text
+    assert "Top One" not in response.text
     assert "Below Cutoff" not in response.text
     assert "/assets/medal/gold" in response.text
     assert "/assets/medal/silver" in response.text
@@ -457,97 +464,6 @@ async def test_user_profile_redirects_guest_to_login(session: AsyncSession) -> N
     location = urlparse(response.headers["location"])
     assert location.path == "/auth/login"
     assert parse_qs(location.query) == {"next": ["/user/profile"]}
-
-
-@pytest.mark.asyncio
-async def test_profile_completion_redirects_guest_to_login(session: AsyncSession) -> None:
-    """The profile completion notice must require authentication."""
-    app = _build_arena_app(session)
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/user/profile/complete", follow_redirects=False)
-
-    assert response.status_code == 303
-    location = urlparse(response.headers["location"])
-    assert location.path == "/auth/login"
-    assert parse_qs(location.query) == {"next": ["/user/profile/complete"]}
-
-
-@pytest.mark.asyncio
-async def test_profile_completion_lists_exact_missing_fields(session: AsyncSession) -> None:
-    """The completion notice lists only missing required profile values."""
-    user = await _create_arena_user(session)
-    user.affiliation_id = None
-    user.preferred_language_id = None
-    user.country_code = None
-    user.prefered_language = " "
-    app = _build_arena_app(session)
-    app.dependency_overrides[get_current_arena_user] = lambda: user
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/user/profile/complete")
-
-    assert response.status_code == 200
-    for label in ("Affiliation", "Preferred programming language", "Country", "AI-feedback language"):
-        assert f"<li>{label}</li>" in response.text
-    assert 'href="http://testserver/user/profile?tab=personal-security"' in response.text
-    assert 'href="http://testserver/dashboard"' in response.text
-
-
-@pytest.mark.asyncio
-async def test_profile_completion_redirects_complete_user_to_dashboard(
-    session: AsyncSession,
-) -> None:
-    """Users with complete profiles cannot remain on the completion notice."""
-    user = await _create_arena_user(session)
-    user.affiliation_id = "affiliation-id"
-    user.preferred_language_id = "python"
-    user.country_code = "BR"
-    user.subdivision_code = None
-    user.prefered_language = "en-US"
-    app = _build_arena_app(session)
-    app.dependency_overrides[get_current_arena_user] = lambda: user
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/user/profile/complete", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/dashboard")
-
-
-def test_missing_profile_fields_treats_country_as_complete_without_subdivision() -> None:
-    """Country alone satisfies location while blank AI language remains missing."""
-    user = ArenaUser(
-        affiliation_id="affiliation-id",
-        preferred_language_id="python",
-        country_code="BR",
-        subdivision_code=None,
-        prefered_language="",
-    )
-
-    assert missing_profile_fields(user) == ("AI-feedback language",)
-
-
-@pytest.mark.parametrize(
-    ("attribute", "label"),
-    [
-        ("affiliation_id", "Affiliation"),
-        ("preferred_language_id", "Preferred programming language"),
-        ("country_code", "Country"),
-        ("prefered_language", "AI-feedback language"),
-    ],
-)
-def test_missing_profile_fields_reports_each_required_value(attribute: str, label: str) -> None:
-    """Each required profile value is reported independently when blank."""
-    user = ArenaUser(
-        affiliation_id="affiliation-id",
-        preferred_language_id="python",
-        country_code="BR",
-        prefered_language="en-US",
-    )
-    setattr(user, attribute, " ")
-
-    assert missing_profile_fields(user) == (label,)
 
 
 @pytest.mark.asyncio
@@ -616,6 +532,30 @@ async def test_profile_personal_tab_renders_rating(session: AsyncSession) -> Non
     assert 'value="2000-01-01"' in response.text
     assert "flatpickr/flatpickr.min.css" in response.text
     assert "flatpickr-init.js" in response.text
+
+
+@pytest.mark.asyncio
+async def test_profile_linked_accounts_tab_owns_google_and_picture_controls(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Google connection and avatar controls render in their dedicated tab."""
+    monkeypatch.setattr(arena_settings, "GOOGLE_OAUTH_ENABLED", True)
+    user = await _create_arena_user(session)
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=linked-accounts")
+
+    assert response.status_code == 200
+    assert 'id="linked-accounts-tab-pane"' in response.text
+    assert 'id="profile-linked-accounts-heading"' in response.text
+    assert 'id="profile-picture-source-heading"' in response.text
+    assert "Link a Google account" in response.text
+    assert "Link a Google account to use its profile picture" in response.text
+    assert 'id="profile-security-heading"' not in response.text
 
 
 @pytest.mark.asyncio
@@ -1278,17 +1218,24 @@ async def test_public_profile_viewer_renders_opted_in_user(session: AsyncSession
         response = await client.get(f"/profile/{user.id}")
 
     assert response.status_code == 200
-    assert user.nome in response.text
+    # The heading renders the shielded display name, never ``nome`` directly.
+    assert user.public_display_name in response.text
     assert "321 pts" in response.text
     assert "public-user-rating-chart" in response.text
     assert "public-user-submission-heatmap" in response.text
+    # The profile keeps the auto-fetching heatmap binding: URL entry point unchanged.
+    assert "data-arena-submission-heatmap" in response.text
+    assert f"/profile/{user.id}/submission-heatmap.json" in response.text
+    assert "arena-submission-heatmap.js" in response.text
     assert f"/profile/{user.id}/statistics.json" in response.text
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("ranking_visible", "public_profile"),
-    [(False, False), (False, True), (True, False)],
+    # `ranking_visible=False, public_profile=True` is deliberately absent: it is
+    # no longer a state a row can hold. See the CHECK-constraint test below.
+    [(False, False), (True, False)],
 )
 async def test_public_profile_viewer_gets_404_without_both_visibility_flags(
     session: AsyncSession,
@@ -1310,6 +1257,26 @@ async def test_public_profile_viewer_gets_404_without_both_visibility_flags(
         response = await client.get(f"/profile/{user.id}")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_database_refuses_a_public_profile_without_ranking_visibility(
+    session: AsyncSession,
+) -> None:
+    """The `public_profile => ranking_visible` invariant is enforced by the database.
+
+    It used to live only in three application call sites, each of which could be
+    bypassed, and the column comment claimed a guarantee nothing provided. The
+    route-level test above no longer covers this combination because a row can
+    no longer reach it.
+    """
+    user = await _create_arena_user(session)
+    user.ranking_visible = False
+    user.public_profile = True
+
+    with pytest.raises(IntegrityError):
+        await session.commit()
+    await session.rollback()
 
 
 @pytest.mark.asyncio
@@ -1496,3 +1463,62 @@ async def test_public_profile_json_endpoints_return_stored_snapshots(session: As
     assert statistics_response.status_code == 200
     assert statistics_response.json()["total_submissions"] == 3
     assert statistics_response.json()["computed_at"].startswith("2026-06-22T12:00:00")
+
+
+# ---------------------------------------------------------------------------
+# The visibility settings partial, rendered in all three shield states
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_profile_renders_the_visibility_settings_for_an_adult(session: AsyncSession) -> None:
+    """An adult is offered both publication opt-ins, enabled."""
+    user = await _create_arena_user(session)
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=personal-security")
+
+    assert response.status_code == 200
+    assert 'id="profile-username-input"' in response.text
+    assert 'id="profile-full-name-public-input"' in response.text
+    assert 'id="profile-age-shield-note"' not in response.text
+    assert "saved only after clicking" in response.text
+    assert "profile-username.js" in response.text
+
+
+@pytest.mark.asyncio
+async def test_profile_renders_the_shield_explanation_and_disables_both_opt_ins(
+    session: AsyncSession,
+) -> None:
+    """A shielded account sees both opt-ins disabled with a stated reason.
+
+    Only the 13-17 case is exercised here, because it is the only shielded state
+    that can reach this page: ``_user_access_gates_are_clear`` refuses a session
+    to an account with no recorded date of birth, so that user is bounced to the
+    regularization flow instead. The admin surface, which *can* display such an
+    account, covers it in ``test_admin_users.py``.
+    """
+    user = await _create_arena_user(session)
+    user.dta_nascimento = date.today().replace(year=date.today().year - 15)
+    await session.commit()
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=personal-security")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="profile-age-shield-note"' in body
+    assert "until you turn 18" in body
+    # Both opt-ins carry `disabled`, and both point at the explanation, so the
+    # reason is reachable without sight and without a mouse.
+    for control_id in ("profile-public-profile-input", "profile-full-name-public-input"):
+        marker = f'id="{control_id}"'
+        fragment = body[body.index(marker) : body.index(marker) + 600]
+        assert "disabled" in fragment, control_id
+        assert 'aria-describedby="profile-age-shield-note"' in fragment, control_id

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -66,7 +66,7 @@ async def arena_affiliation_logo(
         raise HTTPException(status_code=404, detail="No logo available")
     data = b64decode(str(affiliation.logo_base64))
     image_service = _get_image_service(request)
-    return image_service.build_image_response(data, affiliation.logo_mime)
+    return image_service.build_image_response(data, affiliation.logo_mime, request=request)
 
 
 @router.get("/affiliations/{affiliation_id}/logo/thumbnail", name="arena_affiliation_logo_thumbnail")
@@ -102,7 +102,7 @@ async def arena_affiliation_logo_thumbnail(
     if thumbnail is not None:
         data, mime = thumbnail
         image_service = _get_image_service(request)
-        return image_service.build_image_response(data, mime)
+        return image_service.build_image_response(data, mime, request=request)
     full_url = str(request.url_for("arena_affiliation_logo", affiliation_id=affiliation_id))
     return RedirectResponse(url=full_url, status_code=302)
 

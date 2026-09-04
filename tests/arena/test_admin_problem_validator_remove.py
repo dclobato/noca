@@ -22,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response
@@ -34,6 +35,7 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
 from arena.services import admin_problem_interaction_service, admin_problem_service
 from arena.services.token_service import ArenaTokenAction
+from shared.db_schema.arena import arena_problems
 from shared.enumerations import (
     ArenaRole,
     CustomValidatorActiveState,
@@ -336,3 +338,31 @@ async def test_dropping_interactions_deletes_them_permanently(session: AsyncSess
     session.expire_all()
     assert await session.get(ArenaProblemCustomValidator, problem_id) is None
     assert await admin_problem_interaction_service.count_interactions(session, problem_id) == 0
+
+
+async def _generations(session: AsyncSession, problem_id: str) -> tuple[int, int]:
+    """Return ``(public_export_generation, artifact_generation)`` straight from the table."""
+    row = (
+        await session.execute(
+            select(arena_problems.c.public_export_generation, arena_problems.c.artifact_generation).where(
+                arena_problems.c.id == problem_id
+            )
+        )
+    ).one()
+    return int(row[0]), int(row[1])
+
+
+@pytest.mark.asyncio
+async def test_removing_a_validator_invalidates_the_public_export(session: AsyncSession) -> None:
+    """Removal hides or deletes the interactions the public package ships (#204)."""
+    app = _build_app(session)
+    judge = await _judge(session)
+    problem = await _interactive_problem_with_interaction(session, judge)
+    public_before, artifact_before = await _generations(session, problem.id)
+
+    response = await _post_remove(app, judge, problem.id, {"keep_interactions": "true"})
+
+    assert response.status_code == 303
+    public_after, artifact_after = await _generations(session, problem.id)
+    assert public_after == public_before + 1
+    assert artifact_after == artifact_before

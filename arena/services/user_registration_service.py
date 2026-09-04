@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,7 +21,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
@@ -33,6 +33,8 @@ from arena.services.user_service import (
     UserServiceResult,
     _utcnow,
 )
+from arena.services.user_visibility_service import is_shielded
+from arena.services.username_service import generate_unique_username
 from shared.enumerations import ArenaRole
 from shared.services.email_service import EmailService
 from shared.services.email_validation import EmailValidationService
@@ -40,6 +42,73 @@ from shared.services.email_validation import EmailValidationService
 logger = logging.getLogger(__name__)
 
 _EMAIL_VALIDATION_TIMEOUT = 86_400  # 24 hours in seconds
+
+#: How many handles to try before giving up on a new account. Each attempt
+#: already asks the database for an unclaimed name; a clash here means another
+#: transaction took that exact name in the window between the check and the
+#: insert, which needs two independent 1-in-2.5-million coincidences to happen
+#: three times running.
+_USERNAME_INSERT_ATTEMPTS = 3
+
+#: How the two backends name the violated username constraint. PostgreSQL
+#: reports the constraint (`uq_arena_users_username`); SQLite names the columns
+#: instead (`UNIQUE constraint failed: arena_users.username`). Both markers are
+#: specific to this constraint -- a duplicate email reports
+#: `uq_arena_users_email_normalizado` or `arena_users.email_normalizado` -- so
+#: neither widens the retry loop to unrelated integrity errors, which would be
+#: retried pointlessly and then misreported as a username problem.
+_USERNAME_CONFLICT_MARKERS = ("uq_arena_users_username", "arena_users.username")
+
+
+def _is_username_conflict(exc: IntegrityError) -> bool:
+    """Report whether an integrity error was the username uniqueness constraint.
+
+    Args:
+        exc: The error raised by the failed insert.
+
+    Returns:
+        bool: True when the username constraint was the one violated.
+    """
+    message = str(exc.orig)
+    return any(marker in message for marker in _USERNAME_CONFLICT_MARKERS)
+
+
+async def _insert_with_unique_username(session: AsyncSession, usuario: ArenaUser) -> bool:
+    """Insert a new user, redrawing the username on a uniqueness clash.
+
+    The insert runs inside a savepoint so that a clash rolls back only the
+    failed attempt. Rolling back the whole session instead would discard
+    whatever the caller had already done in its own transaction.
+
+    Args:
+        session: Open Arena database session.
+        usuario: The unsaved user, with every field but ``username`` set.
+
+    Returns:
+        bool: True when the row was inserted; False when every attempt clashed.
+
+    Raises:
+        IntegrityError: If the insert failed for any reason other than the
+            username constraint.
+    """
+    for attempt in range(_USERNAME_INSERT_ATTEMPTS):
+        usuario.username = await generate_unique_username(session)
+        try:
+            async with session.begin_nested():
+                session.add(usuario)
+                await session.flush()
+        except IntegrityError as exc:
+            if not _is_username_conflict(exc):
+                raise
+            logger.warning(
+                "Username %r was taken between check and insert (attempt %d of %d)",
+                usuario.username,
+                attempt + 1,
+                _USERNAME_INSERT_ATTEMPTS,
+            )
+            continue
+        return True
+    return False
 
 
 def _gerar_token_confirmacao_email(usuario: ArenaUser, jwt_service: JWTService) -> str:
@@ -64,11 +133,13 @@ def _gerar_token_consentimento_responsavel(usuario: ArenaUser, jwt_service: JWTS
     )
 
 
-def _enviar_email_confirmacao(
+async def _enviar_email_confirmacao(
     usuario: ArenaUser,
     token: str,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> bool:
     """Send the email confirmation link to the user.
 
@@ -77,26 +148,30 @@ def _enviar_email_confirmacao(
         token: Short-lived JWT for email validation.
         email_service: Configured email delivery service.
         url_base: Base URL used to build the activation link.
+        actor_key: Budget identity of the requester (the client IP before login).
 
     Returns:
         ``True`` when the email was dispatched successfully.
     """
     url = f"{url_base.rstrip('/')}/auth/activate?token={token}"
     body = _render_email_template("confirm_your_email.jinja2", nome=usuario.nome, url=url)
-    result = email_service.send_email(
+    result = await email_service.send_email(
         to_email=usuario.email_normalizado,
         to_name=usuario.nome,
         subject="Confirm your email to activate your account",
         text_body=body,
+        actor_key=actor_key,
     )
     return result.success
 
 
-def _enviar_email_consentimento_responsavel_interno(
+async def _enviar_email_consentimento_responsavel_interno(
     usuario: ArenaUser,
     token: str,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> bool:
     """Send the parental consent link to the registered guardian email."""
     if not usuario.email_responsavel_legal:
@@ -107,42 +182,49 @@ def _enviar_email_consentimento_responsavel_interno(
         nome=usuario.nome,
         url=url,
     )
-    result = email_service.send_email(
+    result = await email_service.send_email(
         to_email=usuario.email_responsavel_legal,
         to_name="Parent or legal guardian",
         subject=f"Consent required for {settings.BRAND_NAME} account",
         text_body=body,
+        actor_key=actor_key,
     )
     return result.success
 
 
-def _enviar_email_conta_criada_confirmada(
+async def _enviar_email_conta_criada_confirmada(
     usuario: ArenaUser,
     email_service: EmailService,
+    *,
+    actor_key: str,
 ) -> bool:
     """Send a welcome email to a user whose account was created with email pre-confirmed.
 
     Args:
         usuario: Recipient Arena user.
         email_service: Configured email delivery service.
+        actor_key: Budget identity of the requester.
 
     Returns:
         ``True`` when the email was dispatched successfully.
     """
     body = _render_email_template("account_activated.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
+    result = await email_service.send_email(
         to_email=usuario.email_normalizado,
         to_name=usuario.nome,
         subject="Your account has been created",
         text_body=body,
+        actor_key=actor_key,
     )
     return result.success
 
 
-def enviar_email_conta_existente(
+async def enviar_email_conta_existente(
     email: str,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> bool:
     """Notify an address that a signup was attempted for an existing account.
 
@@ -155,6 +237,7 @@ def enviar_email_conta_existente(
         email: Raw email address submitted on the sign-up form.
         email_service: Configured email delivery service.
         url_base: Base URL used to build the login and reset links.
+        actor_key: Budget identity of the requester (the client IP).
 
     Returns:
         ``True`` when the email was dispatched successfully.
@@ -165,11 +248,12 @@ def enviar_email_conta_existente(
         login_url=f"{base}/auth/login",
         reset_url=f"{base}/auth/password-reset",
     )
-    result = email_service.send_email(
+    result = await email_service.send_email(
         to_email=email,
         to_name=f"{settings.BRAND_NAME} user",
         subject=f"You already have a {settings.BRAND_NAME} account",
         text_body=body,
+        actor_key=actor_key,
     )
     return result.success
 
@@ -242,9 +326,15 @@ async def registrar_usuario(
                     status=UserOperationStatus.INVALID_EMAIL,
                     error_message=f"Invalid parent/legal guardian email: {email_responsavel_legal!r}",
                 )
+        # An adult is published under the name they gave; a 13-17 year-old, or an
+        # account with no recorded date of birth, under their handle. The shield
+        # is re-derived on every read regardless -- this only decides the stored
+        # opt-in, so that an adult is not silently pseudonymized by a default they
+        # never chose, and a minor is never published by one.
         usuario = ArenaUser(
             id=str(uuid.uuid4()),
             nome=nome,
+            full_name_public=not is_shielded(dta_nascimento),
             dta_nascimento=dta_nascimento,
             email_responsavel_legal=normalized_guardian_email,
             consentimento_responsavel=consentimento_responsavel,
@@ -269,16 +359,23 @@ async def registrar_usuario(
         )
         usuario.email = email
         usuario.password = password
-        session.add(usuario)
-        await session.flush()
+        if not await _insert_with_unique_username(session, usuario):
+            return UserServiceResult(
+                status=UserOperationStatus.USERNAME_CONFLICT,
+                error_message="Could not allocate a unique username for the new account.",
+            )
         await session.refresh(usuario)
         token = _gerar_token_confirmacao_email(usuario, jwt_service)
         email_sent = False
         if enviar_email:
             if email_confirmado:
-                email_sent = _enviar_email_conta_criada_confirmada(usuario, email_service)
+                email_sent = await _enviar_email_conta_criada_confirmada(
+                    usuario, email_service, actor_key=f"user:{usuario.id}"
+                )
             else:
-                email_sent = _enviar_email_confirmacao(usuario, token, email_service, url_base)
+                email_sent = await _enviar_email_confirmacao(
+                    usuario, token, email_service, url_base, actor_key=f"user:{usuario.id}"
+                )
         logger.info("Registered user %s (ativo=%s, email_confirmado=%s)", usuario.email, ativo, email_confirmado)
         return UserServiceResult(
             status=UserOperationStatus.SUCCESS,
@@ -291,11 +388,13 @@ async def registrar_usuario(
         return UserServiceResult(status=UserOperationStatus.DATABASE_ERROR, error_message=str(exc))
 
 
-def enviar_email_ativacao(
+async def enviar_email_ativacao(
     usuario: ArenaUser,
     token: str,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> bool:
     """Send the account-activation confirmation link to the user.
 
@@ -308,18 +407,23 @@ def enviar_email_ativacao(
         token: Short-lived VALIDATE_EMAIL JWT.
         email_service: Configured email delivery service.
         url_base: Base URL used to build the activation link.
+        actor_key: Budget identity of the requester.
 
     Returns:
         ``True`` when the email was dispatched successfully.
     """
-    return _enviar_email_confirmacao(usuario, token, email_service, url_base)
+    return await _enviar_email_confirmacao(usuario, token, email_service, url_base, actor_key=actor_key)
 
 
-def enviar_email_consentimento_responsavel(
+async def enviar_email_consentimento_responsavel(
     usuario: ArenaUser,
     token: str,
     email_service: EmailService,
     url_base: str,
+    *,
+    actor_key: str,
 ) -> bool:
     """Send a parent/legal guardian consent link for a pending Arena user."""
-    return _enviar_email_consentimento_responsavel_interno(usuario, token, email_service, url_base)
+    return await _enviar_email_consentimento_responsavel_interno(
+        usuario, token, email_service, url_base, actor_key=actor_key
+    )

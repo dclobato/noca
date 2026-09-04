@@ -153,8 +153,34 @@ var NocaECharts = (function () {
             if (renderFn) renderFn(inst);
         }
 
+        // Debounced *and* size-gated. A page with several charts (the reports
+        // page mounts six) previously gave each one its own synchronous
+        // resize listener: a collapsing section changes page height, which
+        // can toggle the scrollbar and fire a real `window resize`, and every
+        // chart then redid a full layout and canvas repaint at once, on the
+        // main thread, while a CSS transition was still running.
+        //
+        // The debounce coalesces a burst into one pass; the size gate is what
+        // makes a feedback loop impossible -- `inst.resize()` runs only when
+        // the container's box actually changed since the last pass, so a
+        // resize event that leaves this chart's geometry untouched (the common
+        // case when something *elsewhere* on the page expands) costs a pair of
+        // property reads instead of a re-layout and repaint.
+        var resizeTimer = null;
+        var lastWidth = el.clientWidth;
+        var lastHeight = el.clientHeight;
         function resize() {
-            if (!inst.isDisposed()) inst.resize();
+            if (resizeTimer) clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function () {
+                resizeTimer = null;
+                if (inst.isDisposed()) return;
+                var width = el.clientWidth;
+                var height = el.clientHeight;
+                if (width === lastWidth && height === lastHeight) return;
+                lastWidth = width;
+                lastHeight = height;
+                inst.resize();
+            }, 120);
         }
 
         var mgr = {
@@ -170,6 +196,7 @@ var NocaECharts = (function () {
             dispose: function () {
                 _registry = _registry.filter(function (e) { return e !== entry; });
                 window.removeEventListener("resize", resize);
+                if (resizeTimer) clearTimeout(resizeTimer);
                 inst.dispose();
             },
         };

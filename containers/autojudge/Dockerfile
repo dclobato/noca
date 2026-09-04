@@ -20,6 +20,10 @@ COPY migrations /app/migrations
 COPY scripts/wait_for_migrations.py /app/scripts/wait_for_migrations.py
 COPY scripts/autojudge/probe_sandbox_limits.py /app/scripts/autojudge/probe_sandbox_limits.py
 COPY scripts/autojudge/smoke_test_judge.py /app/scripts/autojudge/smoke_test_judge.py
+# Fixtures for smoke_test_judge.py. Only the token-compared sample ships: it is the
+# one carrying matching in/out pairs, so it is the only sample that can drive the
+# compile+run pipeline. Without it the smoke test in this image can never succeed.
+COPY sample_question/token_validator /app/sample_question/token_validator
 COPY containers/autojudge/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh

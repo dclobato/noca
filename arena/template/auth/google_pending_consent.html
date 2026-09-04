@@ -1,0 +1,65 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+{% extends "_auth_base.html" %}
+{% from "auth/_consent_macros.html" import consent_welcome, consent_milestone, consent_back_to_login with context %}
+{% block title_suffix %}&mdash; Waiting for consent{% endblock %}
+{% block auth_content %}
+    {#
+      This is the guardian chronology's rail seen from the other side: the same
+      account_created -> consent -> 18th-birthday timeline the guardian pages
+      draw, but the "now" node is a statement this visitor cannot act on rather
+      than a decision they can. The resend action is a secondary utility, not the
+      primary path forward -- the primary path forward is simply waiting, which is
+      why there is no full-width primary button here.
+    #}
+    <div class="container arena-auth-flow-page arena-auth-flow-page--prose my-auto">
+        <div class="arena-auth-flow-shell">
+            {{ consent_welcome("Almost there.", "Your account is ready the moment your parent or guardian says yes.", mascot=True) }}
+            <main class="arena-auth-card arena-auth-flow-card arena-consent-page">
+                <div class="arena-auth-flow-heading">
+                    <h1 class="arena-auth-title">Waiting for consent</h1>
+                    <p class="arena-auth-subtitle">A parent or legal guardian needs to approve your account before you can sign in.</p>
+                </div>
+                {% if google_email %}
+                    <div class="arena-auth-identity-strip">
+                        <img src="{{ request.url_for("arena_static_img", path="google.svg") }}"
+                             alt=""
+                             width="16"
+                             height="16">
+                        <span>Signed up with Google as <strong>{{ google_email }}</strong></span>
+                    </div>
+                {% endif %}
+                <ol class="arena-consent-rail">
+                    {% if timeline.created_on %}{{ consent_milestone("Account created", timeline.created_on) }}{% endif %}
+                    <li class="arena-consent-node arena-consent-node--now">
+                        <div class="arena-consent-decision">
+                            <p class="arena-consent-account">
+                                We emailed <strong>{{ guardian_email }}</strong> to ask your parent or legal
+                                guardian for consent.
+                            </p>
+                            <p class="arena-consent-note">
+                                Nothing else to do here &mdash; once they approve it, come back and sign in with
+                                Google again.
+                            </p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_google_pending_consent_resend") }}">
+                                <button type="submit"
+                                        class="btn btn-outline-secondary arena-icon-button arena-consent-submit">
+                                    Resend the consent email
+                                </button>
+                            </form>
+                        </div>
+                    </li>
+                    {{ consent_milestone("Once they consent, you can sign in", none, "Come back to this page or start Google sign-in again — either works.") }}
+                    {% if timeline.consent_ends_on %}
+                        {{ consent_milestone("Consent is no longer required", timeline.consent_ends_on, "You turn 18 and manage the account alone from that day.") }}
+                    {% endif %}
+                </ol>
+                {{ consent_back_to_login() }}
+            </main>
+        </div>
+    </div>
+{% endblock %}

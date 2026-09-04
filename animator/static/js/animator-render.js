@@ -39,6 +39,7 @@
 
   var HEX_COLOR = /^[0-9a-fA-F]{3,8}$/;
   var MEDAL_BANDS = ["gold", "silver", "bronze"];
+  var SHEET_ID = "animator-problem-colors";
 
   function pad2(value) {
     return value < 10 ? "0" + value : String(value);
@@ -53,12 +54,57 @@
     return pad2(hours) + ":" + pad2(minutes) + ":" + pad2(seconds);
   }
 
+  // A hidden window as a person would say it: "45 min", "1 h", "1 h 20 min".
+  function formatHiddenWindow(ms) {
+    var minutes = Math.floor(ms / 60000);
+    if (minutes < 60) {
+      return minutes + " min";
+    }
+    var hours = Math.floor(minutes / 60);
+    var rest = minutes % 60;
+    return rest === 0 ? hours + " h" : hours + " h " + rest + " min";
+  }
+
+  // "Frozen · last 45 min hidden" -- the question a frozen board actually raises
+  // is "how much am I not seeing?", and this answers it outright instead of
+  // leaving the reader to subtract a freeze time from an elapsed clock.
+  //
+  // The window is measured to NOW while the contest runs and to the END once it
+  // is over, because those are genuinely different amounts: at 03:15 on a board
+  // frozen at 02:40, only 35 minutes are hidden, not the 60 the contest rules
+  // set aside. Stating the planned window during the contest would overstate it.
+  // It also means the figure depends on `end_time` only after the end, by which
+  // point the end can no longer move.
+  //
+  // Degrades to a bare "Frozen" whenever the window is unknown, nonsensical, or
+  // still under a minute: a wrong or absurd number here is worse than none,
+  // because a room reads it as authoritative.
+  function frozenLabel(startMs, endMs, freezeMs, nowMs) {
+    var unusable =
+      freezeMs === null ||
+      freezeMs === undefined ||
+      isNaN(freezeMs) ||
+      freezeMs < startMs ||
+      endMs === null ||
+      endMs === undefined ||
+      isNaN(endMs);
+    if (unusable) {
+      return "Frozen";
+    }
+    var hidden = Math.min(nowMs, endMs) - freezeMs;
+    if (hidden < 60000) {
+      return "Frozen";
+    }
+    return "Frozen · last " + formatHiddenWindow(hidden) + " hidden";
+  }
+
   // Pure timer projection covering all contest and public-scoreboard states.
   // Once the contest ends, two independent badges remain visible: Frozen or
   // Final for scoreboard visibility, plus Ended for the contest lifecycle.
   // `running` reports whether the caller should keep ticking (false once the
   // contest has ended or the timing is unknown, so no interval is scheduled).
-  function computeTimerView(startMs, endMs, frozen, nowMs) {
+  // `freezeMs` is optional: omitted, the frozen states just read "Frozen".
+  function computeTimerView(startMs, endMs, frozen, nowMs, freezeMs) {
     var invalid = startMs === null || endMs === null || isNaN(startMs) || isNaN(endMs);
     if (invalid) {
       return { state: "unknown", label: "Contest", text: "--:--:--", running: false };
@@ -70,7 +116,7 @@
       // Pin the final elapsed duration; the contest is over, so stop ticking.
       return {
         state: frozen ? "frozen" : "final",
-        label: frozen ? "Frozen" : "Final",
+        label: frozen ? frozenLabel(startMs, endMs, freezeMs, nowMs) : "Final",
         ended: true,
         text: formatDuration(endMs - startMs),
         running: false,
@@ -78,7 +124,13 @@
     }
     var elapsed = formatDuration(nowMs - startMs);
     if (frozen) {
-      return { state: "frozen", label: "Frozen", ended: false, text: elapsed, running: true };
+      return {
+        state: "frozen",
+        label: frozenLabel(startMs, endMs, freezeMs, nowMs),
+        ended: false,
+        text: elapsed,
+        running: true,
+      };
     }
     return { state: "running", label: "Running", ended: false, text: elapsed, running: true };
   }
@@ -98,9 +150,10 @@
   }
 
   // Normalize the /meta problem objects into the shape the renderer needs. The
-  // optional `assets` carries the balloon/star image mount bases so each problem
-  // object can build its own <img> src without threading extra parameters
-  // through the render/board call chain.
+  // optional `assets` carries the balloon image mount base so each problem object
+  // can build its own header artwork src without threading extra parameters
+  // through the render/board call chain. There is no star base: the first-solve
+  // mark is a glyph coloured by renderProblemColors, not a served asset.
   function extractProblems(meta, assets) {
     var opts = assets || {};
     var list = meta && Array.isArray(meta.problems) ? meta.problems : [];
@@ -110,12 +163,11 @@
         color: problem.balloon_color,
         problemId: problem.problem_id,
         balloonBase: opts.balloonBase || null,
-        starBase: opts.starBase || null,
       };
     });
   }
 
-  // Build the src for a balloon/star asset served by the animator's own /assets
+  // Build the src for a balloon asset served by the animator's own /assets
   // route. Returns null when the base or color is unusable so the caller can
   // omit src entirely. The letter segment is added only for a real ASCII letter
   // (the route renders its first letter), and both segments are URL-encoded so a
@@ -150,33 +202,80 @@
     return createAssetImage(doc, problem.balloonBase, problem, "animator-balloon", "Problem ");
   }
 
-  // The star artwork (letter baked in) marking the first solver of a problem.
-  function createStarImage(doc, problem) {
-    return createAssetImage(
-      doc,
-      problem.starBase,
-      problem,
-      "animator-balloon animator-cell-star",
-      "First to solve ",
-    );
+  // The star marking the first solver of a problem, drawn INSIDE the solve-minute
+  // line so it costs no row height. An ordinary solve carries no artwork at all:
+  // a problem's balloon identifies its column from the header, and repeating it in
+  // every solved cell is what made each row 80px tall.
+  //
+  // A text glyph rather than the /assets/star artwork: at one line tall that SVG
+  // showed more white backing disc and outline than colour. The glyph takes the
+  // problem's colour from `--noca-cell-balloon`, which renderProblemColors sets
+  // per column, so this element needs no per-cell wiring at all.
+  //
+  // Decorative on purpose: fillProblemCell already appends a visually-hidden
+  // "first solve" span, and two announcements for one fact is worse than none.
+  function createFirstMark(doc) {
+    var mark = doc.createElement("span");
+    mark.setAttribute("class", "noca-cell-first-mark animator-cell-star");
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = "★";
+    return mark;
   }
 
-  // Compact solved-cell artwork, matching the Web scoreboard's 23 × 35 layout.
-  // A first solve uses the star route; every other solve uses the balloon route.
-  function createSolvedImage(doc, problem, first) {
-    var image = doc.createElement("img");
-    image.setAttribute(
-      "class",
-      "animator-cell-result-balloon mb-1" + (first ? " animator-cell-star" : ""),
-    );
-    var src = assetSrc(first ? problem.starBase : problem.balloonBase, problem.color, null);
-    if (src) {
-      image.setAttribute("src", src);
+  // Give each problem column its balloon colour, as one stylesheet keyed on
+  // column position rather than a per-cell attribute.
+  //
+  // It cannot be a class: a problem's colour is free-form hex (the admin form
+  // offers a native colour picker beside the palette), so the value space is
+  // every colour there is. The colour is validated against HEX_COLOR before it
+  // reaches the sheet — a stylesheet, unlike the /assets/balloon route that
+  // answers 400, would execute whatever it is handed — and a column whose
+  // colour does not validate is simply left out, falling back to no bar.
+  //
+  // Four fixed columns (rank, team, solved, time) precede the problems on both
+  // animator surfaces, hence the +5.
+  function problemColorRules(problems) {
+    var rules = [];
+    (problems || []).forEach(function (problem, index) {
+      var color = problem && problem.color;
+      if (typeof color !== "string" || !HEX_COLOR.test(color)) {
+        return;
+      }
+      rules.push(
+        ".animator-scoreboard .animator-cell:nth-child(" +
+          (index + 5) +
+          "){--noca-cell-balloon:#" +
+          color +
+          "}",
+      );
+    });
+    return rules.join("\n");
+  }
+
+  // The sheet is created here rather than shipped in the page: both animator
+  // templates assert that the served HTML carries nothing inline, and an empty
+  // <style> element in the markup would break that contract to no purpose.
+  function ensureProblemColorSheet(doc) {
+    var existing = doc.getElementById ? doc.getElementById(SHEET_ID) : null;
+    if (existing) {
+      return existing;
     }
-    image.setAttribute("alt", (first ? "First to solve " : "Solved ") + problem.label);
-    image.setAttribute("width", "23");
-    image.setAttribute("height", "35");
-    return image;
+    var sheet = doc.createElement("style");
+    sheet.setAttribute("id", SHEET_ID);
+    if (doc.head && doc.head.appendChild) {
+      doc.head.appendChild(sheet);
+    }
+    return sheet;
+  }
+
+  // Replaced wholesale on every /meta, never appended to, so a problem set that
+  // shrinks cannot leave a departed column still coloured.
+  function renderProblemColors(doc, problems) {
+    var sheet = ensureProblemColorSheet(doc);
+    if (sheet) {
+      sheet.textContent = problemColorRules(problems);
+    }
+    return sheet;
   }
 
   // The oversized medal watermark served by the animator's own /assets/medal/{band}
@@ -251,6 +350,7 @@
     "animator-cell--attempted",
     "animator-cell--pending",
     "animator-cell--first",
+    "noca-cell-balloon-edge",
   ];
 
   function createProblemCell(doc, problem) {
@@ -267,6 +367,15 @@
     block.setAttribute("class", className);
     block.textContent = text;
     return block;
+  }
+
+  // An inline run inside one of the cell's lines, so a line can hold both the
+  // first-solve star and its text without the two stacking.
+  function textSpan(doc, className, text) {
+    var span = doc.createElement("span");
+    span.setAttribute("class", className);
+    span.textContent = text;
+    return span;
   }
 
   // Populate a (possibly reused) problem cell from its data, preserving any
@@ -287,38 +396,36 @@
     // Glyph, state, and wording come from the shared formatter, which is also
     // what the reveal projector draws from — one owner for what a cell means.
     var state = format.cellState(cellData);
-    var attempts = format.attemptsOf(cellData);
-    var penalty = format.penaltyOf(cellData);
     var stackPending = !!(options && options.stackPending && format.isPending(cellData));
     if (stackPending) {
       inner.appendChild(
-        textBlock(
-          doc,
-          "text-warning-emphasis small fw-semibold",
-          format.formatPendingMarks(cellData),
-        ),
+        textBlock(doc, "fw-semibold", format.formatPendingMarks(cellData)),
       );
     }
 
     if (state === "solved") {
       td.classList.add("animator-cell--solved");
+      td.classList.add("noca-cell-balloon-edge");
       var first = format.isFirst(cellData);
       if (first) {
         td.classList.add("animator-cell--first");
       }
-      var resultImage = createSolvedImage(doc, problem, first);
-      if (resultImage.getAttribute("src")) {
-        inner.appendChild(resultImage);
-      }
       if (cellData.solved_at_minutes !== null && cellData.solved_at_minutes !== undefined) {
-        inner.appendChild(
-          textBlock(doc, "fw-semibold text-success small", cellData.solved_at_minutes + "'"),
+        // The star rides INSIDE the minute line rather than above it, so marking a
+        // first solve adds no row height. An ordinary solve gets no artwork at all.
+        var minuteLine = doc.createElement("div");
+        minuteLine.setAttribute("class", "fw-semibold");
+        if (first) {
+          minuteLine.appendChild(createFirstMark(doc));
+        }
+        minuteLine.appendChild(
+          textSpan(doc, "animator-cell-minutes", cellData.solved_at_minutes + "'"),
         );
+        inner.appendChild(minuteLine);
       }
-      if (attempts > 0) {
-        inner.appendChild(
-          textBlock(doc, "text-danger small", "+" + attempts + " (" + penalty + "')"),
-        );
+      var solvedNote = format.formatAttemptLine(cellData);
+      if (solvedNote) {
+        inner.appendChild(textBlock(doc, "noca-cell-note", solvedNote));
       }
       if (first) {
         appendHidden(doc, td, "first solve");
@@ -326,29 +433,27 @@
       appendHidden(doc, td, "solved");
     } else if (state === "pending") {
       td.classList.add("animator-cell--pending");
-      if (stackPending) {
-        if (attempts > 0) {
-          inner.appendChild(
-            textBlock(doc, "text-warning-emphasis small fw-semibold", format.MINUS + attempts),
-          );
-        }
-      } else {
+      // Stacked (the projector) puts the "?" marks on their own line with the
+      // attempts and penalty beneath; unstacked (the live board) is one line.
+      // Either way the attempts and the penalty stay together on one line.
+      var pendingLine = format.formatAttemptLine(cellData, { stacked: stackPending });
+      if (pendingLine) {
         inner.appendChild(
-          textBlock(doc, "text-warning-emphasis small fw-semibold", format.formatCellText(cellData)),
+          textBlock(
+            doc,
+            stackPending
+              ? "noca-cell-note"
+              : "fw-semibold",
+            pendingLine,
+          ),
         );
-      }
-      if (penalty > 0) {
-        inner.appendChild(textBlock(doc, "text-warning-emphasis small", "(" + penalty + "')"));
       }
       appendHidden(doc, td, format.describeCell(cellData));
     } else if (state === "attempted") {
       td.classList.add("animator-cell--attempted");
       inner.appendChild(
-        textBlock(doc, "text-danger small fw-semibold", format.formatCellText(cellData)),
+        textBlock(doc, "fw-semibold", format.formatAttemptLine(cellData)),
       );
-      if (penalty > 0) {
-        inner.appendChild(textBlock(doc, "text-danger small", "(" + penalty + "')"));
-      }
       appendHidden(doc, td, format.describeCell(cellData));
     } else {
       appendHidden(doc, td, "no attempts");
@@ -465,11 +570,14 @@
   return {
     formatDuration: formatDuration,
     computeTimerView: computeTimerView,
+    formatHiddenWindow: formatHiddenWindow,
+    frozenLabel: frozenLabel,
     isReleasedFinal: isReleasedFinal,
     extractProblems: extractProblems,
     createBalloonImage: createBalloonImage,
-    createSolvedImage: createSolvedImage,
-    createStarImage: createStarImage,
+    createFirstMark: createFirstMark,
+    problemColorRules: problemColorRules,
+    renderProblemColors: renderProblemColors,
     createMedalImage: createMedalImage,
     syncMedalAttribute: syncMedalAttribute,
     isBandEnd: isBandEnd,

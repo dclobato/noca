@@ -92,10 +92,12 @@ def test_the_theme_control_keeps_a_visible_focus_marker() -> None:
     """
     css = (_ROOT / "web" / "static" / "css" / "contest" / "_chrome.css").read_text(encoding="utf-8")
 
-    # The shared hover/focus rule ends in `:focus-visible {` too, so the question
-    # is whether *some* rule states the outline, not which one does.
-    focus_bodies = re.findall(r"\.noca-navbar-theme-toggle:focus-visible\s*\{([^}]*)\}", css)
-    glyph_rule = re.search(r"\.noca-navbar-theme-toggle \.material-symbols-outlined\s*\{([^}]*)\}", css)
+    # The theme toggle shares `.noca-navbar-icon-action` with the UberAdmin return
+    # link, so one rule states the outline for every icon action on the bar. The
+    # shared hover/focus rule ends in `:focus-visible {` too, so the question is
+    # whether *some* rule states the outline, not which one does.
+    focus_bodies = re.findall(r"\.noca-navbar-icon-action:focus-visible\s*\{([^}]*)\}", css)
+    glyph_rule = re.search(r"\.noca-navbar-icon-action \.material-symbols-outlined\s*\{([^}]*)\}", css)
 
     assert any("outline: 2px solid var(--noca-brand-on-surface)" in body for body in focus_bodies)
     # The glyph is targeted through the button: the toggle script replaces the

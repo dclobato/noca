@@ -19,19 +19,47 @@
         {# Identity banner: who is signed in and in what role, unmistakable above the module
            grid, alongside the contest rules summary every participant needs on arrival #}
         <div class="noca-dashboard-live-band noca-dashboard-identity-band mb-5">
-            <div class="row g-4 align-items-center">
-                <div class="col-12 col-lg-7 d-flex flex-wrap align-items-center gap-4">
+            <div class="row g-4 align-items-stretch">
+                <div class="col-12 col-lg-7 d-flex flex-wrap align-items-start gap-4">
                     {% with identity_user = current_user,
                         identity_size_class = "noca-dashboard-identity-avatar" %}
                         {% include "_partials/_identity_avatar.html" %}
                     {% endwith %}
-                    <div>
+                    <div class="noca-dashboard-identity-content">
                         <p class="noca-gateway-eyebrow mb-1">{{ contest.contest_name }}</p>
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                             <h1 class="h2 mb-0 fw-semibold">{{ current_user.fullname or current_user.username }}</h1>
                             {{ role_pill(current_user, contest=contest) }}
                         </div>
                         <p class="text-muted small mb-0 font-monospace">{{ current_user.username }}</p>
+                        {% if current_user.role == RoleEnum.TEAM.value %}
+                            <section id="dashboard-solved-problems"
+                                     class="noca-dashboard-solved-problems"
+                                     aria-labelledby="dashboard-solved-problems-label">
+                                <p id="dashboard-solved-problems-label"
+                                   class="noca-gateway-eyebrow mb-2">Problems solved</p>
+                                {% if solved_problems %}
+                                    <ul class="noca-dashboard-solved-list" role="list">
+                                        {% for solved_problem in solved_problems %}
+                                            {% set asset_name = "star" if solved_problem.is_first_solve else "balloon" %}
+                                            {% set accessible_label = "Problem " ~ solved_problem.label ~ " — " ~ solved_problem.title ~ (", contest-first solve" if solved_problem.is_first_solve else ", solved") %}
+                                            <li>
+                                                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=solved_problem.label) }}"
+                                                   class="noca-dashboard-solved-link"
+                                                   aria-label="{{ accessible_label }}"
+                                                   title="{{ accessible_label }}">
+                                                    <img src="{{ request.url_for(asset_name, color=solved_problem.color, letter=solved_problem.label) }}"
+                                                         alt=""
+                                                         class="noca-dashboard-solved-asset">
+                                                </a>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <p class="text-muted small mb-0">None yet</p>
+                                {% endif %}
+                            </section>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="col-12 col-lg-5">{% include "contest/_rules_summary.html" %}</div>
@@ -43,7 +71,8 @@
              hx-trigger="every 60s"
              hx-target="#dashboard-live-counters"
              hx-swap="outerHTML"
-             hx-select="#dashboard-live-counters">
+             hx-select="#dashboard-live-counters"
+             {% if current_user.role == RoleEnum.TEAM.value %}hx-select-oob="#dashboard-solved-problems"{% endif %}>
             <div class="row g-4">
                 {# Start Now - admin, uberadmin, only when contest has not started yet #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}

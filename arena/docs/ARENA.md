@@ -94,6 +94,152 @@ Arena currently enforces all of these before a user can keep a logged-in session
 - users under 13 are blocked
 - users aged 13-17 require parental/legal-guardian consent
 
+### Guardian consent withdrawal (LGPD art. 8 §5)
+
+A parent or legal guardian may withdraw consent at any time, through a signed link in the
+confirmation email they receive once they grant it. Opening the link renders a confirmation
+page; the withdrawal itself is a `POST`, because mail scanners and link prefetchers follow
+links in email and a `GET` that suspends an account would be triggered by a robot.
+
+**Granting follows the same shape.** The link in the consent invitation opens a review
+page that explains what consent enables, shows only the child's masked address, and
+mutates nothing -- not even throttle accounting; only the guardian's explicit `POST`
+records the grant, re-validating the token under a row lock at submission time. On both
+pages the secondary action returns to the public dashboard without touching the account,
+and the two primary buttons carry distinct copy so the actions cannot be confused. A
+robot following either emailed link can therefore neither grant nor withdraw consent.
+
+**Withdrawal suspends; it does not erase.** The account is deactivated, live sessions end
+immediately, and both public-identity opt-ins are cleared — but submissions, verdicts,
+badges, ratings and class memberships are all kept, and the account works again as soon as
+consent is granted once more. Erasure is a separate right with its own flow. Two paths
+restore an account: the child attempts a login, lands on the pending-parental screen, and
+triggers a fresh consent email; or an administrator grants consent from the user profile.
+
+`ranking_visible` is deliberately left alone. The public user ranking already drops the row
+through `ativo`, while the affiliation aggregation filters on `ranking_visible` alone — so
+a suspended user still counts toward their institution's rating, and clearing the flag
+would move a third party's score as a side effect of one family's decision.
+
+**One live link at a time.** Every consent transition bumps `arena_users.consent_generation`,
+and a link carries the epoch it was minted against, so a used link cannot withdraw twice and
+a former guardian loses authority the moment the guardian address changes. A link also goes
+inert on its own the morning the holder turns 18, because the age check is evaluated per
+request. Every refusal — unknown account, stale epoch, consent never granted, holder now an
+adult, malformed token — renders one identical page, so the link is never an oracle for
+whether an account exists.
+
+Administrators toggle the same consent state from the user profile, and it is the *same*
+operation: password-confirmed, audited, and with exactly the effect the guardian's own link
+has. An admin cannot revoke more gently than a guardian can.
+
+### The minor shield: pseudonymous public display
+
+Every account carries a globally unique handle (`arena_users.username`, e.g.
+`coruja-serena-042`), and which name a public surface renders — that handle or the legal
+name in `arena_users.nome` — turns on age:
+
+- An **adult** is published under their **legal name by default**
+  (`full_name_public` is set at signup, and the migration set it for every adult that
+  already existed). They may switch to the handle at any time. Pseudonymity is offered to
+  them, not imposed: silently retracting the name someone was already listed under is its
+  own kind of surprise.
+- A user aged **13-17** is published under the handle, and **cannot** change that. So is an
+  account whose date of birth is unknown: the shield **fails closed**.
+
+The surfaces this governs are the dashboard leaderboard, the two ranking pages, the public
+profile page, and the problem-statistics solver credits.
+
+Three properties are worth stating plainly, because each was a deliberate choice:
+
+- **The shield never removes anyone from the ranking.** It changes the name a participant
+  appears under, not whether they appear. `ranking_visible` remains the user's own separate
+  choice, and `_eligible_users_where()` carries no age predicate.
+- **Age is evaluated per request**, by `shared.age_check`. A shielded account stops being
+  shielded on the morning of its eighteenth birthday, with no scheduler and no stored expiry.
+  Turning 18 only *unblocks* the opt-in; it never turns a flag on.
+- **Search is shielded too.** The public ranking search will not match a shielded user by
+  their real name, only by their handle. Rendering a pseudonym while still answering "is this
+  real name in the ranking?" would be a confirmation oracle that reconstructs the secret. The
+  teacher-scoped class autocompletes are untouched: looking a student up by the name on the
+  roll has a legitimate basis.
+
+**The shield has a write half as well as a read half, and they are not
+alternatives.** Masking a stored `public_profile = true` at read time would
+publish that profile on the owner's eighteenth birthday, when the mask lifts and
+nobody has chosen anything. So the flags are also refused on the way in and
+cleared on the way through:
+
+- `POST /user/profile/personal-data` answers `400 {"error": "age_shielded"}` when
+  a shielded account asks to enable either opt-in, evaluated against the
+  *submitted* date of birth and checked before any field is written. Clearing
+  either flag is always allowed.
+- `admin_user_service.toggle_public_profile()` refuses the same accounts. An
+  administrator may not override the age shield: it is a legal control, not a
+  moderation control, and an admin path weaker than the user path it mirrors is
+  just a way around it. There is deliberately no admin toggle for
+  `full_name_public` at all — publishing someone's legal name on their behalf is
+  not an administrative act.
+- Every date-of-birth path (`update_date_of_birth`,
+  `regularizar_data_nascimento`) clears both flags when the account lands in the
+  shielded band.
+
+The invariant this establishes is that **no shielded row ever persists
+`public_profile = true` or `full_name_public = true`**. The profile page shows
+both opt-ins `disabled` with a plain-language explanation rather than hiding
+them, per LGPD transparency; that `disabled` attribute is an affordance only,
+since every write path re-derives the rule server-side.
+
+The rule is owned by exactly one module, `arena/services/user_visibility_service.py`; see
+[SERVICES.md](SERVICES.md). Problem **author credit** is deliberately outside the shield —
+that name is published only where its owner opted into authorship credit for a problem they
+wrote, and `hide_author_show_source` is the opt-out.
+
+### Usernames
+
+Every Arena account carries a unique lowercase handle in `arena_users.username`,
+assigned at signup by drawing an `animal-adjetivo-NNN` pair from the shared word
+lists (`shared/services/random_username_service.py`) and checking it against the
+table. It is the name Arena publishes on every public surface — a 13-17
+year-old must not have their legal name on a public page — and users change it
+themselves from the Personal & Security profile tab.
+
+Rules worth knowing:
+
+- **The handle is not a login identifier.** Email remains the only way to log
+  in. Accepting a handle at `/auth/login` would make the pseudonym an
+  account-enumeration vector.
+- **The stored form is the display form.** Handles are canonicalized (NFKC,
+  casefold) at every write path, so they carry no display casing. Arena keeps
+  no second canonical column and no functional `lower()` index — one place for
+  the invariant, at the cost of casing.
+- **Changes are rate-limited** by `NOCA_ARENA_USERNAME_CHANGE_COOLDOWN_DAYS`
+  (default 30), enforced against `dta_troca_username` by
+  `POST /user/profile/username`. Unlimited churn would let an observer correlate
+  a shielded user's old and new handles across the ranking and undo the
+  pseudonymity. Resubmitting the handle already held does not restart the
+  window. An **administrator** bypasses the cooldown through
+  `POST /admin/users/{id}/change-username`, which re-confirms their password and
+  writes both an admin-audit row and a `username_changed` security event naming
+  the old and the new handle — the cooldown protects a user from their own
+  churn, not from a rename made in response to a report. Whether that rename
+  *restarts* the user's window or clears it is the admin's own choice on the
+  form, defaulting to restarting: a handle taken down after a report must not be
+  restored a moment later, while a typo fixed on request should not cost the user
+  a month of not choosing their own name.
+- `arena_users.full_name_public` is the **adult** opt-in to publish the legal
+  name instead of the handle, offered on the same profile tab and refused for
+  every shielded account. `consent_generation` is the parental-consent epoch;
+  the date-of-birth paths bump it, and the guardian-revocation flow that reads
+  it is still to come.
+
+**The fallback avatar is seeded on the handle, not the email address.** This is
+a one-time visible change: every existing user's generated avatar differs after
+the migration. It closes a confirmation oracle — the generator is deterministic
+and the avatar is public, so an email seed let anyone render a guessed address
+and compare it against a user's image to test whether that person holds that
+mailbox. Web has always seeded on its username; Arena now matches.
+
 ### Implemented auth flows
 
 The `/auth/*` routes currently implement:
@@ -242,6 +388,7 @@ The Arena admin area is already substantial:
 | `qrcode_service.py` | QR code rendering for TOTP setup |
 | `token_service.py` | Arena JWT configuration and action enum |
 | `profile_location_service.py` | countries/subdivisions, reverse geocoding, affiliation search/update |
+| `geocode_service.py` | per-user cap, cached 0.001-degree cells, and the fail-closed deployment-wide pacing/budget gate in front of the reverse geocoder |
 | `leaderboard_service.py` | top-rated user query for the dashboard |
 | `user_progress_service.py` | solved/attempted problem lists for profiles |
 | `pagination_service.py` | reusable pagination primitives |
@@ -270,7 +417,7 @@ Arena now has a complete shared schema namespace in `shared/db_schema/arena/`.
 | Table | Notes |
 |---|---|
 | `arena_users` | Arena identity, auth state, password/session state, rating summary, location, affiliation |
-| `arena_affiliations` | externally managed affiliation catalog with optional rating |
+| `arena_affiliations` | externally managed affiliation catalog with a rating and precomputed total of member solves |
 | `arena_backup_2fa` | one-time recovery codes |
 | `arena_login_history` | Immutable login audit records with a sequential BIGINT primary key and a `(arena_user_id, dta_login)` browsing index |
 
@@ -360,7 +507,7 @@ The `rating` package runs three sequential loops:
 
 1. recompute all problem ratings
 2. recompute all user ratings from the fresh problem ratings
-3. recompute all affiliation ratings from the fresh user ratings
+3. recompute all affiliation ratings and member-solve totals from the fresh user ratings
 
 This runs in a dedicated `noca-rating` process so multiple Arena web replicas do not compete for the
 same scheduler responsibility.
@@ -408,14 +555,12 @@ Arena already has a working backend path for submissions even though the public 
 
 ### What is still missing in Arena web
 
-- public rankings pages
 - AI review is implemented (submission detail page with request endpoint) but not yet surfaced in rankings or user profile tabs beyond the notification badge
 
 ---
 
 ## What is notably incomplete today
 
-- public rankings pages are not implemented yet
 - dashboard cards for top countries and top leagues are still static placeholders
 - login history is available to administrators from each admin user profile
 

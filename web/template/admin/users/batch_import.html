@@ -74,8 +74,13 @@
                                                 <td>
                                                     {% if r.email_delivery_status == "sent" %}
                                                         <span class="badge bg-success">sent</span>
+                                                    {% elif r.email_delivery_status == "queued" %}
+                                                        <span class="badge bg-info text-dark">queued</span>
                                                     {% elif r.email_delivery_status == "failed" %}
                                                         <span class="badge bg-danger" title="{{ r.email_delivery_detail or '' }}">failed</span>
+                                                    {% elif r.email_delivery_status == "budget_exceeded" %}
+                                                        <span class="badge bg-warning text-dark"
+                                                              title="{{ r.email_delivery_detail or '' }}">budget</span>
                                                     {% else %}
                                                         -
                                                     {% endif %}

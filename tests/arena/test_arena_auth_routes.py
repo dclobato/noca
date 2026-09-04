@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 import arena.models.arena_users  # noqa: F401
+from arena.config import settings
 from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
 from arena.routes.auth import router as arena_auth_router
@@ -513,50 +514,8 @@ async def test_activation_confirms_email_and_activates_account(session: AsyncSes
     assert "account_activated" in event_types
 
 
-@pytest.mark.asyncio
-async def test_minor_account_activates_only_after_email_and_parental_consent(
-    session: AsyncSession,
-) -> None:
-    app = _build_arena_app(session)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        await client.post(
-            "/auth/signup",
-            data={
-                "full_name": "Minor User",
-                "date_of_birth": "2010-01-02",
-                "email": "minor@test.example",
-                "email_responsavel_legal": "parent@test.example",
-                "password": "StrongPass1!",
-                "confirm_password": "StrongPass1!",
-                "terms": "on",
-            },
-        )
-        activation_token = _sent_email_text(app, 0).split("token=", 1)[1].splitlines()[0]
-        parental_token = _sent_email_text(app, 1).split("token=", 1)[1].splitlines()[0]
-
-        consent_response = await client.get(
-            f"/auth/parental-consent?token={parental_token}",
-            follow_redirects=False,
-        )
-        after_consent = await _user_by_email(session, "minor@test.example")
-        assert after_consent is not None
-        assert after_consent.consentimento_responsavel is True
-        assert after_consent.ativo is False
-
-        activation_response = await client.get(f"/auth/activate?token={activation_token}", follow_redirects=False)
-
-    await session.refresh(after_consent)
-    user = after_consent
-    assert consent_response.status_code == 303
-    assert activation_response.status_code == 303
-    assert user is not None
-    assert user.email_confirmado is True
-    assert user.consentimento_responsavel is True
-    assert user.ativo is True
-    event_types = await _security_event_types_for_user(session, user.id)
-    assert "email_confirmed" in event_types
-    assert "parental_consent_confirmed" in event_types
-    assert "account_activated" in event_types
+# The minor-activation flow test moved to ``test_parental_consent_grant.py`` with the
+# grant route: consenting now takes a review-page GET plus an explicit POST.
 
 
 @pytest.mark.asyncio
@@ -606,3 +565,122 @@ async def test_password_reset_changes_password_for_valid_token(session: AsyncSes
     assert response.status_code == 303
     assert user is not None
     assert user.check_password("NewStrongPass1!") is True
+
+
+@pytest.mark.asyncio
+async def test_password_reset_request_stays_neutral_when_the_email_cannot_be_sent(
+    session: AsyncSession,
+) -> None:
+    """A provider outage or a spent budget must answer exactly like an unknown address (issue #155)."""
+    from shared.services.email_providers import EmailProviderError
+
+    app = _build_arena_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        await client.post(
+            "/auth/signup",
+            data={
+                "full_name": "Arena User",
+                "date_of_birth": "2000-01-02",
+                "email": "user@test.example",
+                "password": "StrongPass1!",
+                "confirm_password": "StrongPass1!",
+                "terms": "on",
+            },
+        )
+        provider = cast(Any, app.state.email_service.provider)
+
+        def _boom(message: Any) -> Any:
+            raise EmailProviderError("SMTP down")
+
+        provider.send = _boom
+        known = await client.post("/auth/password-reset", data={"email": "user@test.example"}, follow_redirects=False)
+        unknown = await client.post(
+            "/auth/password-reset", data={"email": "missing@test.example"}, follow_redirects=False
+        )
+
+    assert known.status_code == unknown.status_code == 303
+    assert known.headers["location"] == unknown.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# The signup page's username disclosure
+# ---------------------------------------------------------------------------
+
+
+def _collapsed(html: str) -> str:
+    """Collapse whitespace so assertions survive a djlint reflow.
+
+    djlint rewraps template prose, so a sentence that reads as one line in the
+    source arrives with newlines and indentation inside it. Asserting on the raw
+    markup would make these tests fail on a pure formatting pass.
+    """
+    return " ".join(html.split())
+
+
+@pytest.mark.asyncio
+async def test_signup_page_discloses_the_assigned_username(session: AsyncSession) -> None:
+    """Everyone is told they get a handle, because nobody chooses one.
+
+    The username is drawn server-side at signup and never appears on this form,
+    so without this note the first a user learns of their public identity is
+    seeing it on a ranking. That is a poor thing to discover, and for a 13-17
+    year-old it is the mechanism protecting them.
+    """
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/auth/signup")
+
+    assert response.status_code == 200
+    body = _collapsed(response.text)
+    assert 'id="signup-username-note"' in body
+    assert "You will be given a public username." in body
+    # The cooldown is stated as a number, from the setting rather than hardcoded
+    # in the copy, so the page cannot drift from what the server enforces.
+    assert f"once every {settings.USERNAME_CHANGE_COOLDOWN_DAYS} days" in body
+
+
+@pytest.mark.asyncio
+async def test_signup_page_states_the_minor_rule_and_its_legal_basis(session: AsyncSession) -> None:
+    """The 13-17 half is present in the markup and names why it is mandatory.
+
+    It is hidden until a qualifying date of birth is entered, so this asserts the
+    text is *served* -- the visibility toggle is the browser's business, but the
+    disclosure has to exist for it to reveal.
+    """
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/auth/signup")
+
+    assert response.status_code == 200
+    body = _collapsed(response.text)
+    assert 'id="signup-username-note-minor"' in body
+    assert "While you are under 18, the username is mandatory." in body
+    assert "LGPD" in body
+    assert "18th birthday" in body
+    # The claim that nothing publishes itself is the one the write-path guards
+    # actually implement; it must not be softened here.
+    assert "nothing is published automatically" in body
+    assert "/legal/privacy" in body
+
+
+@pytest.mark.asyncio
+async def test_signup_page_states_the_adult_default_is_the_real_name(session: AsyncSession) -> None:
+    """The asymmetry must be on the page, because the two defaults differ.
+
+    An adult is created showing their legal name and may switch to the handle;
+    a 13-17 year-old is created showing the handle and may not. Stating only the
+    half that applies to minors would leave every adult believing they had been
+    pseudonymized when they had not.
+    """
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/auth/signup")
+
+    assert response.status_code == 200
+    body = _collapsed(response.text)
+    assert "If you are 18 or over, using it is optional." in body
+    assert "real name" in body
+    assert "While you are under 18, the username is mandatory." in body

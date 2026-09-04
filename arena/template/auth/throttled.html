@@ -1,0 +1,35 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_auth_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}&mdash; Too many attempts{% endblock %}
+{% block auth_content %}
+    <div class="container arena-auth-flow-page my-auto">
+        <div class="arena-auth-flow-shell">
+            <aside class="arena-auth-flow-welcome">
+                <img class="arena-auth-flow-mascot arena-auth-flow-mascot--throttled"
+                     src="{{ request.url_for('static_shared_img', path='throttled.webp') }}"
+                     alt="">
+            </aside>
+            <main class="arena-auth-card arena-auth-flow-card">
+                <div class="arena-auth-flow-heading">
+                    <div class="arena-auth-flow-title-row">
+                        {{ render_icon(icon="timer") }}
+                        <h1 class="arena-auth-title mb-0">Too many attempts</h1>
+                    </div>
+                </div>
+                <p class="arena-auth-subtitle">
+                    This action is temporarily locked. You can try again in about
+                    {{ retry_after_minutes }} minute{{ "s" if retry_after_minutes != 1 else "" }}.
+                </p>
+                <a href="{{ back_url }}"
+                   class="btn arena-btn-primary arena-auth-flow-submit w-100">Go back</a>
+            </main>
+        </div>
+    </div>
+{% endblock %}

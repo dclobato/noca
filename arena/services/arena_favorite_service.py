@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,6 +23,7 @@ from shared.db_schema.arena import (
     arena_problem_ratings,
     arena_problems,
 )
+from shared.services.arena_difficulty_display import DifficultyDisplay, difficulty_display
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ class FavoriteProblemRow:
         arena_number: Public sequential problem number.
         title: Problem title.
         categories: Category chip list.
-        rating: Display-scale difficulty (0.1–10.0).
+        difficulty: Evidence-gated difficulty presentation.
         activity_at: Always ``None``; favorites carry no timestamp.
     """
 
@@ -42,7 +43,7 @@ class FavoriteProblemRow:
     arena_number: int
     title: str
     categories: list[_ProgressCategory]
-    rating: float
+    difficulty: DifficultyDisplay
     activity_at: datetime | None = None
 
 
@@ -203,7 +204,9 @@ async def get_favorites_paginated(
             arena_problems.c.id,
             arena_problems.c.arena_number,
             arena_problems.c.title,
-            func.coalesce(arena_problem_ratings.c.rating, 0) / 10.0,
+            arena_problem_ratings.c.rating,
+            arena_problem_ratings.c.attempted_users,
+            arena_problems.c.expected_difficulty,
         )
         .select_from(
             arena_problem_favorites.join(
@@ -236,8 +239,8 @@ async def get_favorites_paginated(
             arena_number=arena_number,
             title=title,
             categories=categories.get(problem_id, []),
-            rating=float(rating),
+            difficulty=difficulty_display(rating, attempted_users, expected_difficulty),
         )
-        for problem_id, arena_number, title, rating in rows
+        for problem_id, arena_number, title, rating, attempted_users, expected_difficulty in rows
     ]
     return Pagination(items=items, page=page, per_page=params.per_page, total=total)

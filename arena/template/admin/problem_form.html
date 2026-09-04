@@ -38,36 +38,54 @@
         <form id="edit-form"
               method="post"
               action="{{ view.save_url }}"
-              enctype="multipart/form-data">
+              enctype="multipart/form-data"
+              data-noca-draft="{{ view.draft_key }}">
             {% if return_state is defined %}
-                <input type="hidden" name="return_page" value="{{ return_state.page }}">
                 <input type="hidden"
+                       data-noca-draft-ignore
+                       name="return_page"
+                       value="{{ return_state.page }}">
+                <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_per_page"
                        value="{{ return_state.per_page }}">
-                <input type="hidden" name="return_search" value="{{ return_state.search }}">
                 <input type="hidden"
+                       data-noca-draft-ignore
+                       name="return_search"
+                       value="{{ return_state.search }}">
+                <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_sort_by"
                        value="{{ return_state.sort_by }}">
                 <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_owner_id"
                        value="{{ return_state.owner_id }}">
                 {% for category_slug in return_state.category_slugs %}
                     <input type="hidden"
+                           data-noca-draft-ignore
                            name="return_category_slugs"
                            value="{{ category_slug }}">
                 {% endfor %}
                 <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_language"
                        value="{{ return_state.language | default("") }}">
                 <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_enabled"
                        value="{{ return_state.enabled | default("") }}">
                 <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_editorial"
                        value="{{ return_state.editorial | default("") }}">
             {% endif %}
-            <input type="hidden" name="next_url" value="{{ next_url | default("") }}">
             <input type="hidden"
+                   data-noca-draft-ignore
+                   name="next_url"
+                   value="{{ next_url | default("") }}">
+            <input type="hidden"
+                   data-noca-draft-ignore
                    name="language_confirmed"
                    id="language-confirmed"
                    value="">
@@ -127,6 +145,7 @@
                name="active_tab"
                id="active-tab-input"
                form="edit-form"
+               data-noca-draft-ignore
                value="{{ view.active_tab }}">
         {% if mode == 'edit' %}
             {% include "_partials/problem_danger_zone.html" %}
@@ -183,7 +202,10 @@
     <script src="{{ request.url_for('static_shared_js', path='problem-edit-tabs.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='problem-statement-editor.js') }}?v={{ app_version }}"></script>
+    {# The shared .arena-combo controller must load before both of its callers. #}
+    <script src="{{ request.url_for('arena_static_js', path='arena-combo-listbox.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-problem-form.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-suggest-combobox.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='problem-image-preview.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-statement-language.js') }}?v={{ app_version }}"></script>
     {# Row reordering and inline case/transcript rows belong to the judgment-data

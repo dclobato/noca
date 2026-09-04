@@ -32,6 +32,10 @@ build/
 #CLAUDE.md
 
 /.docker/
+/caddy_logs/
+/email_log/
+/problem_statements/
+/problem_testcases/
 .scratch
 /temp
 

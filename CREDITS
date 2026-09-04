@@ -30,6 +30,12 @@ backend services.
   NOCA uses this collection of ISO 3166-1 country flag SVGs to display
   national flags throughout the Arena interface.
 
+- Brazil State Flags Icons
+  Author: Pierre Lapalu (@pierrelapalu)
+  License: CC0 1.0 Universal
+  NOCA uses the circular Brazilian national and UF flag SVGs from
+  https://github.com/pierrelapalu/icones-bandeiras-br-uf.
+
 - The Competitive Programming Community: Special thanks to the creators
 of the original BOCA Online Contest Administrator, whose legacy
 inspired the development of NOCA.

@@ -259,5 +259,6 @@ async def test_no_derived_value_is_serialized_as_session_state(session: AsyncSes
         "step_log",
         "focused_team_id",
         "command_receipts",
+        "dataset_generation",
     }
     assert RevealSessionState.from_payload(payload).frozen_submission_ids == tuple(payload["frozen_submission_ids"])

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, cast
 
 import pycountry
@@ -160,6 +161,29 @@ async def update_user_affiliation(
     return affiliation
 
 
+def validate_coordinates(latitude: float, longitude: float) -> tuple[float, float]:
+    """Validate a WGS84 coordinate pair and return it unchanged.
+
+    Extracted so a caller can reject a bad coordinate *before* spending any rate-limit
+    budget or building a cache key from it.
+
+    Args:
+        latitude: Degrees north, -90 to 90 inclusive.
+        longitude: Degrees east, -180 to 180 inclusive.
+
+    Returns:
+        The validated ``(latitude, longitude)`` pair.
+
+    Raises:
+        ValueError: If either value is outside its range or is not finite.
+    """
+    if not isfinite(latitude) or not -90 <= latitude <= 90:
+        raise ValueError("Latitude must be between -90 and 90.")
+    if not isfinite(longitude) or not -180 <= longitude <= 180:
+        raise ValueError("Longitude must be between -180 and 180.")
+    return latitude, longitude
+
+
 def reverse_geocode_location(
     *,
     latitude: float,
@@ -168,11 +192,26 @@ def reverse_geocode_location(
     user_agent: str,
     network_service: NetworkService,
 ) -> ReverseGeocodeResult:
-    """Reverse-geocode coordinates and map the response to ISO codes."""
-    if not -90 <= latitude <= 90:
-        raise ValueError("Latitude must be between -90 and 90.")
-    if not -180 <= longitude <= 180:
-        raise ValueError("Longitude must be between -180 and 180.")
+    """Reverse-geocode coordinates and map the response to ISO codes.
+
+    Args:
+        latitude: Degrees north, validated before the call.
+        longitude: Degrees east, validated before the call.
+        endpoint_url: Nominatim-compatible reverse endpoint.
+        user_agent: User-Agent presented to the provider.
+        network_service: SSRF-guarded HTTP client.
+
+    Returns:
+        The mapped ISO country/subdivision values; an unmappable answer maps to a
+        result whose fields are all None rather than to an error.
+
+    Raises:
+        ValueError: For coordinates outside their range (naming only the offending
+            axis), or -- as one fixed message -- for any failure of the provider
+            call. The caller relays that message to the browser, so it must never
+            carry request or configuration detail; see the note below.
+    """
+    validate_coordinates(latitude, longitude)
     try:
         data = network_service.make_json_request(
             endpoint_url,
@@ -185,7 +224,16 @@ def reverse_geocode_location(
             },
             header={"User-Agent": user_agent},
         )
-    except NetworkServiceError as exc:
+    except (NetworkServiceError, ValueError) as exc:
+        # ValueError belongs here as much as NetworkServiceError does.
+        # ``make_json_request`` validates the URL, params and headers *outside* its
+        # own try block, and those validators raise plain ValueError naming what
+        # they rejected -- the configured endpoint's scheme, a malformed URL, the
+        # User-Agent. Those are deployment configuration, and the route relays this
+        # message verbatim to any logged-in caller, so they are replaced here rather
+        # than at the route, where a ValueError can no longer be told apart from a
+        # coordinate complaint. NetworkServiceError already hid the provider's host,
+        # HTTP status and the 200-char response snippet its own message carries.
         raise ValueError("Could not detect location from the geocoder provider.") from exc
     return map_reverse_geocode_response(data)
 
@@ -199,7 +247,14 @@ def map_reverse_geocode_response(data: dict[str, Any]) -> ReverseGeocodeResult:
     country_code_raw = address.get("country_code")
     if not isinstance(country_code_raw, str):
         return ReverseGeocodeResult(None, None, None, None)
-    country_code = validate_country_code(country_code_raw)
+    try:
+        country_code = validate_country_code(country_code_raw)
+    except ValueError:
+        # A country code this build's ISO tables do not know is an answer we cannot
+        # map, not a caller error: the caller sent coordinates, never a country. It
+        # joins every other unmappable answer as the empty result, which the profile
+        # page already renders as "Location could not be detected."
+        return ReverseGeocodeResult(None, None, None, None)
     if country_code is None:
         return ReverseGeocodeResult(None, None, None, None)
 

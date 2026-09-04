@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% block title_suffix %}&mdash; Scoreboard{% endblock %}
+{% block title_suffix %}— Scoreboard{% endblock %}
 {% block main_class %}animator-root animator-scoreboard-root{% endblock %}
 {% block content %}
     <div id="animator-app"
@@ -18,7 +18,6 @@
          data-scope-name="{{ scope_name or '' }}"
          data-photo-base="{{ photo_base }}"
          data-balloon-base="{{ balloon_base }}"
-         data-star-base="{{ star_base }}"
          data-medal-base="{{ medal_base }}"
          data-poll-fallback="{{ poll_fallback_seconds }}">
         <header class="animator-header">
@@ -46,7 +45,7 @@
                     <span id="animator-connection-label"
                           class="animator-connection-label"
                           role="status"
-                          aria-live="polite">Connecting&hellip;</span>
+                          aria-live="polite">Connecting…</span>
                     <span id="animator-connection-elapsed"
                           class="animator-connection-elapsed"
                           role="timer"
@@ -59,7 +58,7 @@
         <div id="animator-loading"
              class="animator-loading"
              role="status"
-             aria-live="polite">Loading scoreboard&hellip;</div>
+             aria-live="polite">Loading scoreboard…</div>
         <div id="animator-error" class="animator-error" role="alert" hidden>
             <span class="animator-error-text">The scoreboard could not be loaded.</span>
             <button type="button"
@@ -101,8 +100,8 @@
         <div class="animator-board-scroll" hidden>
             <table id="animator-scoreboard" class="animator-scoreboard">
                 <caption class="visually-hidden">
-                    Live contest scoreboard, ranked by problems solved and penalty time. Select a team name to see its
-                    photo.
+                    Live contest scoreboard, ranked by problems solved, then penalty time, then earliest
+                    last accepted solution. Select a team name to see its photo.
                 </caption>
                 <thead>
                     <tr id="animator-problem-header">

@@ -25,11 +25,3 @@
 [data-bs-theme="dark"] .arena-backup-warning .material-symbols-outlined {
     color: var(--noca-warning);
 }
-
-/* Sample test-case pre blocks hardcode Bootstrap's `bg-light`, which stays a
-   light literal in dark mode and leaves the light body text unreadable. Remap
-   both surface and text to the theme tokens. */
-[data-bs-theme="dark"] .arena-sample-pre {
-    background-color: var(--bs-secondary-bg) !important;
-    color: var(--bs-body-color);
-}

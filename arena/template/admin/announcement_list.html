@@ -1,0 +1,24 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Announcement Management{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_announcements %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            {% with new_url=request.url_for("arena_admin_announcement_new"),
+                delete_url_name="arena_admin_announcement_delete",
+                detail_url_name="arena_announcement_detail",
+                heading_class="arena-card-title",
+                table_class="arena-table" %}
+                {% include "_partials/announcement_admin_list.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

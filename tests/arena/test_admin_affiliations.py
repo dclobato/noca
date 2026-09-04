@@ -124,6 +124,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _dash_ai_usage() -> Response:
         return Response("stub")
 
+    @app.get("/admin/dashboard/terms", name="arena_admin_dashboard_terms")
+    async def _dash_terms() -> Response:
+        return Response("stub")
+
     @app.get("/help", name="arena_help_index")
     async def _help_index() -> Response:
         return Response("help")
@@ -685,6 +689,34 @@ async def test_public_logo_route_returns_image(session: AsyncSession, admin: Are
         resp = await client.get(f"/affiliations/{aff.id}/logo")
     assert resp.status_code == 200
     assert "image" in resp.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_public_logo_route_answers_304_to_a_matching_etag(session: AsyncSession, admin: ArenaUser) -> None:
+    """Affiliations have nothing to version by, so the content ETag is their only validator.
+
+    The affiliation ranking renders one logo per row; without this every view
+    that outlived the cache lifetime re-downloaded and re-decoded every logo.
+    """
+    import uuid
+
+    app = _build_admin_app(session)
+    aff = ArenaAffiliation(id=str(uuid.uuid4()), name="Etag Org")
+    aff.apply_logo(
+        logo_base64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        logo_mime="image/png",
+    )
+    session.add(aff)
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        first = await client.get(f"/affiliations/{aff.id}/logo")
+        again = await client.get(f"/affiliations/{aff.id}/logo", headers={"If-None-Match": first.headers["etag"]})
+
+    assert first.status_code == 200
+    assert again.status_code == 304
+    assert again.content == b""
+    assert again.headers["etag"] == first.headers["etag"]
 
 
 @pytest.mark.asyncio

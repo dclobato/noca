@@ -40,6 +40,7 @@ from arena.services.user_timezone_service import (
 )
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS
 from shared.services.arena_rating import format_next_rating_update
+from shared.services.form_draft import draft_owner_token, pop_confirmed_form_drafts
 from shared.services.problem_image import (
     MAX_PROBLEM_IMAGE_BYTES,
     MAX_PROBLEM_IMAGE_HEIGHT,
@@ -113,6 +114,35 @@ def heartbeat_config(request: Request) -> dict[str, object]:
     }
 
 
+def form_draft_owner(request: Request) -> str | None:
+    """Return the opaque draft-owner token for ``_base.html``, or ``None``.
+
+    Args:
+        request: The request being rendered, carrying the token the auth
+            middleware validated once for it.
+
+    Returns:
+        The token for ``data-noca-draft-owner``, or ``None`` with no live session.
+    """
+    validation = getattr(request.state, "validated_token", None)
+    if validation is None or not validation.valid:
+        return None
+    # Arena tokens carry no audience; the subject alone names the account.
+    return draft_owner_token("arena", validation.sub)
+
+
+def form_draft_confirmed(request: Request) -> str:
+    """Return the confirmed draft keys for ``data-noca-draft-confirmed``.
+
+    Args:
+        request: The request being rendered.
+
+    Returns:
+        Space-separated keys, or ``""`` when no save was just confirmed.
+    """
+    return pop_confirmed_form_drafts(request)
+
+
 def token_expiry_text(request: Request) -> str | None:
     """Return a human-readable description of how long the current session is still valid.
 
@@ -175,6 +205,24 @@ def fmt_shell_cmd(cmd: list[str] | None) -> str:
     return " && \\\n".join(" ".join(cmd).split(" && "))
 
 
+def pending_required_announcement_for(request: Request) -> object | None:
+    """Return the mandatory announcement the request's user must acknowledge, if any.
+
+    The value is computed once per page load by
+    ``arena.dependencies.required_announcements.load_pending_required_announcement``
+    and left on ``request.state``; a page rendered without that dependency (a
+    single-router test application) simply has none, so ``_base.html`` shows no
+    pop-up rather than failing.
+
+    Args:
+        request: The request being rendered.
+
+    Returns:
+        The ``PendingRequiredAnnouncement`` for this user, or ``None``.
+    """
+    return getattr(request.state, "pending_required_announcement", None)
+
+
 def register_arena_template_globals(templates: Jinja2Templates, *, app_version: str) -> None:
     """Install every global and filter Arena templates are allowed to read.
 
@@ -187,6 +235,7 @@ def register_arena_template_globals(templates: Jinja2Templates, *, app_version: 
     globals_["app_version"] = app_version
     globals_["brand_name"] = settings.BRAND_NAME
     globals_["healthmon_url"] = settings.HEALTHMON_URL
+    globals_["google_oauth_enabled"] = settings.GOOGLE_OAUTH_ENABLED
     globals_["arena_datetime_local_value"] = datetime_local_value
     globals_["arena_format_datetime"] = format_user_datetime
     globals_["arena_format_relative_datetime"] = format_relative_datetime
@@ -196,6 +245,7 @@ def register_arena_template_globals(templates: Jinja2Templates, *, app_version: 
     globals_["arena_role_labels"] = ARENA_ROLE_DISPLAY
     globals_["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
     globals_["verdict_labels"] = VERDICT_LABELS
+    globals_["username_change_cooldown_days"] = settings.USERNAME_CHANGE_COOLDOWN_DAYS
     globals_["image_max_file_size_mib"] = settings.IMAGE_MAX_FILE_SIZE / (1024 * 1024)
     globals_["image_max_width"] = settings.IMAGE_MAX_WIDTH
     globals_["image_max_height"] = settings.IMAGE_MAX_HEIGHT
@@ -204,9 +254,12 @@ def register_arena_template_globals(templates: Jinja2Templates, *, app_version: 
     globals_["problem_image_max_width"] = MAX_PROBLEM_IMAGE_WIDTH
     globals_["problem_image_max_height"] = MAX_PROBLEM_IMAGE_HEIGHT
     globals_["heartbeat_config"] = heartbeat_config
+    globals_["form_draft_owner"] = form_draft_owner
+    globals_["form_draft_confirmed"] = form_draft_confirmed
     globals_["arena_online_user_count"] = arena_online_user_count
     globals_["next_rating_update_text"] = next_rating_update_text
     globals_["token_expiry_text"] = token_expiry_text
+    globals_["pending_required_announcement_for"] = pending_required_announcement_for
     templates.env.filters["fmt_shell_cmd"] = fmt_shell_cmd
     setup_flash(templates)
 
@@ -214,6 +267,8 @@ def register_arena_template_globals(templates: Jinja2Templates, *, app_version: 
 __all__ = [
     "arena_online_user_count",
     "fmt_shell_cmd",
+    "form_draft_confirmed",
+    "form_draft_owner",
     "heartbeat_config",
     "next_rating_update_text",
     "register_arena_template_globals",

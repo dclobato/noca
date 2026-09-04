@@ -25,8 +25,11 @@ from web.services.clarification_service import (
     mark_clarification_answers_read,
     normalize_clarification_sort,
 )
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
-router = APIRouter(prefix="/c/{slug}/clarifications", tags=["contest_clarifications"])
+router = APIRouter(
+    prefix="/c/{slug}/clarifications", tags=["contest_clarifications"], dependencies=[Depends(web_user_read_rate_limit)]
+)
 
 
 @router.post("/answers/read", status_code=204, name="contest_clarification_answers_read")

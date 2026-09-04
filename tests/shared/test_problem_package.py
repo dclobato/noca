@@ -243,6 +243,28 @@ def test_invalid_release_policy_is_refused(tmp_path: Path, declared: object) -> 
         read(write_zip(tmp_path / "invalid-policy.zip", members, metadata=metadata))
 
 
+@pytest.mark.parametrize(("declared", "expected"), [(42, 42), (1, 1), (100, 100), (None, None), ("absent", None)])
+def test_expected_difficulty_is_parsed(tmp_path: Path, declared: object, expected: int | None) -> None:
+    """An integer in [1, 100] is kept; null and absence both mean no estimate."""
+    metadata = minimal_metadata()
+    if declared != "absent":
+        metadata["expected_difficulty"] = declared
+
+    package = read(write_zip(tmp_path / f"expected-{declared}.zip", minimal_members(), metadata=metadata))
+
+    assert package.metadata.expected_difficulty == expected
+
+
+@pytest.mark.parametrize("declared", [0, 101, -5, True, "70", 7.0, [70]])
+def test_invalid_expected_difficulty_is_refused(tmp_path: Path, declared: object) -> None:
+    """Booleans, non-integers and out-of-range values are hard errors."""
+    metadata = minimal_metadata()
+    metadata["expected_difficulty"] = declared
+
+    with pytest.raises(PackageError, match="expected_difficulty"):
+        read(write_zip(tmp_path / "invalid-expected.zip", minimal_members(), metadata=metadata))
+
+
 def test_release_policy_without_an_editorial_declaration_is_ignored(tmp_path: Path) -> None:
     """The policy lives inside the editorial object; with no object there is none."""
     package = read(write_zip(tmp_path / "no-editorial.zip", minimal_members(), metadata=minimal_metadata()))
@@ -749,6 +771,7 @@ def test_full_export_writes_every_version_two_key(tmp_path: Path) -> None:
         "color",
         "hide_author_show_source",
         "statement_language",
+        "expected_difficulty",
         "validator_type",
         "editorial",
         "time_limit_ms",

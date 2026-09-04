@@ -42,12 +42,20 @@
     text-transform: uppercase;
 }
 
+/* The indicator is grey by default and red only while the contest clock says
+   activity can still arrive live. Grey is the default rather than the exception
+   so a page whose timer has not resolved yet never claims to be live. */
 .animator-events-heading::before {
     content: "";
     width: 0.45rem;
     height: 0.45rem;
     margin-right: 0.4rem;
     border-radius: 50%;
+    background: var(--noca-on-surface-variant);
+    box-shadow: none;
+}
+
+.animator-events[data-live="true"] .animator-events-heading::before {
     background: var(--bs-danger);
     box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--bs-danger) 16%, transparent);
 }
@@ -76,6 +84,14 @@
     will-change: transform;
 }
 
+/* The empty rail is a standing label, not a one-item marquee: it parks at the
+   left edge with no animation so "No activity yet" stays readable. */
+.animator-events-list[data-pace="idle"] {
+    left: 0;
+    animation: none;
+    will-change: auto;
+}
+
 .animator-events-list[data-pace="short"] {
     animation-duration: 16s;
 }
@@ -101,6 +117,15 @@
     content: "\2022";
     margin-left: 0.9rem;
     color: var(--noca-on-surface-variant);
+}
+
+.animator-events-item--empty {
+    color: var(--noca-on-surface-variant);
+    font-style: italic;
+}
+
+.animator-events-item--empty::after {
+    content: none;
 }
 
 .animator-events-time {

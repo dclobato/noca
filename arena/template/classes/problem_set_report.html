@@ -10,7 +10,7 @@
 {% macro student_report_link(row) %}
     <a href="{{ request.url_for('arena_class_problem_set_report_student', class_id=class_id, set_id=report.set_id, user_id=row.user_id) }}"
        class="arena-report-student-link">
-        {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+        {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) ~ '?v=' ~ row.avatar_revision, img_class="rounded-circle object-fit-cover flex-shrink-0") }}
         <span>{{ row.user_name }}</span>
     </a>
 {% endmacro %}

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,17 +27,71 @@ from sqlalchemy import (
 from sqlalchemy import Enum as SAEnum
 
 from shared.enumerations import ArenaRole
+from shared.services.random_username_service import generate_username
 
 from .._base import _created_at_column, _id_column, _updated_at_column, _utcnow, metadata
 from ..custom_types import EncryptedString
 
 _login_history_id_type = BigInteger().with_variant(Integer, "sqlite")
 
+
+def _default_username() -> str:
+    """Draw a pseudonymous handle for a row that did not supply one.
+
+    This is a *convenience* default, not the uniqueness mechanism: it performs
+    no database round trip and therefore cannot check availability. Signup
+    overrides it with a value from
+    ``arena.services.username_service.generate_unique_username``, and the
+    ``UNIQUE`` constraint is the real guarantee. It exists so that constructing
+    an ``ArenaUser`` without naming a username -- which the test suite does in
+    dozens of places -- stays legal.
+
+    Returns:
+        str: A generated ``animal-adjetivo-NNN`` handle.
+    """
+    return generate_username()
+
+
 arena_users = Table(
     "arena_users",
     metadata,
     _id_column(),
     Column("nome", String(120), nullable=False, comment="Full display name of the arena user"),
+    Column(
+        "username",
+        String(64),
+        unique=True,
+        nullable=False,
+        default=_default_username,
+        comment="Globally unique lowercase Arena handle; the public display name "
+        "for every user and the deterministic-avatar seed.",
+    ),
+    Column(
+        "full_name_public",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment="Adult opt-in to show the full name instead of the username on "
+        "public surfaces; ignored while the account is age-shielded.",
+    ),
+    Column(
+        "dta_troca_username",
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="Timestamp of the last username change; enforces the cooldown.",
+    ),
+    Column(
+        "consent_generation",
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Monotonic counter bumped on every parental-consent state "
+        "transition (grant, revoke, guardian-email change); binds a "
+        "revocation token to one consent epoch.",
+    ),
     Column("dta_nascimento", Date, nullable=True, comment="Date of birth"),
     Column(
         "email_normalizado",
@@ -91,6 +145,18 @@ arena_users = Table(
         comment="Timestamp (UTC) when the user accepted the Terms of Service and Privacy Policy",
     ),
     Column("password_hash", String(256), nullable=False, comment="Werkzeug password hash"),
+    Column(
+        "password_is_placeholder",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment=(
+            "True when password_hash is an unusable random placeholder written by a "
+            "Google-first signup, so password login can never match it. The ArenaUser.password "
+            "setter clears this flag, so setting a real password self-corrects it."
+        ),
+    ),
     Column(
         "role",
         SAEnum(ArenaRole, values_callable=lambda e: [m.value for m in e]),
@@ -201,6 +267,14 @@ arena_users = Table(
         nullable=True,
         default=None,
         comment="Timestamp of the last photo upload",
+    ),
+    Column(
+        "avatar_revision",
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Monotonic cache-busting revision for the effective Arena avatar.",
     ),
     Column(
         "usa_2fa",
@@ -340,6 +414,17 @@ arena_users = Table(
         "prefered_language IN ('en-US', 'pt-BR')",
         name="ck_arena_users_prefered_language",
     ),
+    # `public_profile`'s own comment has always claimed it requires
+    # `ranking_visible`, but nothing enforced it: the rule lived in three
+    # application call sites that could each be bypassed. The database now owns
+    # it. No equivalent constraint is possible for the *minor* half of the
+    # shield, because age is time-varying and a CHECK is evaluated at write
+    # time -- which is exactly why that half needs both a write-path guard and
+    # a read-path mask.
+    CheckConstraint(
+        "NOT (public_profile AND NOT ranking_visible)",
+        name="ck_arena_users_public_profile_requires_ranking",
+    ),
     _created_at_column(),
     _updated_at_column(),
 )
@@ -367,6 +452,14 @@ arena_affiliations = Table(
         default=0,
         server_default=text("0"),
         comment="Affiliation combined rating computed from member scores using geometric weighting",
+    ),
+    Column(
+        "solved_problems",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Total counted solves by ranking-visible affiliation members",
     ),
     Column(
         "dta_rating_update",
@@ -467,7 +560,7 @@ arena_login_history = Table(
         "mode",
         String(32),
         nullable=True,
-        comment="Authentication method used: password, 2fa, backup_code",
+        comment=("Authentication method used: password, 2fa, backup_code, google, google_2fa, google_backup_code"),
     ),
     Index(
         "ix_arena_login_history_user_login",

@@ -483,59 +483,59 @@ async def test_problem_list_uses_page_scoped_enrichment_queries(
     assert " in (" in test_case_sql
 
     item = pagination.items[0]
-    assert item.rating is None
+    assert item.difficulty.value is None
     assert item.public_tc_count == 1
     assert item.private_tc_count == 2
 
 
-@pytest.mark.asyncio
-async def test_category_and_filter(session: AsyncSession) -> None:
+async def _make_or_filter_fixture(session: AsyncSession) -> tuple[ArenaUser, ArenaCategory, ArenaCategory]:
+    """Create problems that exercise every OR-filter matching state."""
     author = await _make_user(session)
     cat_a = ArenaCategory(name="Graphs", slug="graphs", color="#ff0000")
     cat_b = ArenaCategory(name="DP", slug="dp", color="#00ff00")
     session.add_all([cat_a, cat_b])
     await session.flush()
 
-    # p1 has both categories; p2 has only cat_a
-    await admin_problem_service.create_problem(
-        session,
-        caller_id=author.id,
-        title="Both",
-        source=None,
-        hide_author_show_source=False,
-        time_limit_ms=1000,
-        memory_limit_kb=262144,
-        pids_limit=64,
-        output_limit_in_bytes=65536,
-        problem_statement="Hello world",
-        image_b64=None,
-        image_mime=None,
-        image_caption=None,
-        notes=None,
-        category_ids=[cat_a.id, cat_b.id],
-        validator_type=ProblemValidatorType.STANDARD,
-    )
-    await admin_problem_service.create_problem(
-        session,
-        caller_id=author.id,
-        title="One",
-        source=None,
-        hide_author_show_source=False,
-        time_limit_ms=1000,
-        memory_limit_kb=262144,
-        pids_limit=64,
-        output_limit_in_bytes=65536,
-        problem_statement="Hello world",
-        image_b64=None,
-        image_mime=None,
-        image_caption=None,
-        notes=None,
-        category_ids=[cat_a.id],
-        validator_type=ProblemValidatorType.STANDARD,
-    )
+    for title, category_ids in (
+        ("Both", [cat_a.id, cat_b.id]),
+        ("One", [cat_a.id]),
+        ("Two", [cat_b.id]),
+        ("Uncategorized", []),
+    ):
+        await admin_problem_service.create_problem(
+            session,
+            caller_id=author.id,
+            title=title,
+            source=None,
+            hide_author_show_source=False,
+            time_limit_ms=1000,
+            memory_limit_kb=262144,
+            pids_limit=64,
+            output_limit_in_bytes=65536,
+            problem_statement="Hello world",
+            image_b64=None,
+            image_mime=None,
+            image_caption=None,
+            notes=None,
+            category_ids=category_ids,
+            validator_type=ProblemValidatorType.STANDARD,
+        )
     await session.flush()
+    return author, cat_a, cat_b
 
-    # Filter by both categories → only p1
+
+def _assert_or_filter_results(pagination: object) -> None:
+    """Assert the shared OR-filter fixture returns one row per matching problem."""
+    assert pagination.total == 3
+    assert [item.title for item in pagination.items] == ["Both", "One", "Two"]
+    assert len({item.id for item in pagination.items}) == 3
+
+
+@pytest.mark.asyncio
+async def test_category_id_filter_uses_or_semantics(session: AsyncSession) -> None:
+    """Selecting multiple category IDs returns problems linked to any of them."""
+    author, cat_a, cat_b = await _make_or_filter_fixture(session)
+
     pagination = await admin_problem_service.list_problems_paginated(
         session,
         page=1,
@@ -544,8 +544,25 @@ async def test_category_and_filter(session: AsyncSession) -> None:
         caller_id=author.id,
         is_admin=False,
     )
-    assert pagination.total == 1
-    assert pagination.items[0].title == "Both"
+
+    _assert_or_filter_results(pagination)
+
+
+@pytest.mark.asyncio
+async def test_category_slug_filter_uses_or_semantics(session: AsyncSession) -> None:
+    """Selecting multiple category slugs returns problems linked to any of them."""
+    author, cat_a, cat_b = await _make_or_filter_fixture(session)
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        category_slugs=[cat_a.slug, cat_b.slug],
+        caller_id=author.id,
+        is_admin=False,
+    )
+
+    _assert_or_filter_results(pagination)
 
 
 @pytest.mark.asyncio

@@ -43,3 +43,24 @@ def test_validate_md_content_rejects_oversized_markdown() -> None:
     """Markdown statements remain capped at 512 KB."""
     errors = validate_md_content("a" * ((512 * 1024) + 1))
     assert errors == ["Markdown statement cannot be larger than 512 KB."]
+
+
+def test_allow_links_accepts_inline_links_and_bare_urls() -> None:
+    """The announcement board opts in to links; the sanitizer's other rules stay."""
+    markdown = "Read [the docs](https://example.com/docs) or https://example.com directly."
+
+    assert validate_md_content(markdown, allow_links=True) == []
+    assert validate_md_content(markdown) == ["Markdown statement contains disallowed content: link."]
+
+
+def test_allow_links_still_refuses_html_and_images() -> None:
+    """Allowing links must not loosen anything else."""
+    errors = validate_md_content("<b>bold</b> ![img](https://example.com/a.png)", allow_links=True)
+
+    assert errors == ["Markdown statement contains disallowed content: html, image."]
+
+
+def test_allow_links_keeps_the_size_cap() -> None:
+    errors = validate_md_content("a" * ((512 * 1024) + 1), allow_links=True)
+
+    assert errors == ["Markdown statement cannot be larger than 512 KB."]

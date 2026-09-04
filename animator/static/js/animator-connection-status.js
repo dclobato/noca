@@ -27,6 +27,11 @@
     live: "Live",
     polling: "Polling",
     reconnecting: "Reconnecting…",
+    // An ended contest whose board is still frozen. It is not "Live": nothing is
+    // streaming, because nothing is published for it to stream. The board is
+    // re-reading the feeds on a timer waiting for the scoreboard to be released,
+    // and the label says that rather than telling a room the contest is running.
+    waiting: "Waiting for results",
   };
 
   function formatElapsed(elapsedMs) {

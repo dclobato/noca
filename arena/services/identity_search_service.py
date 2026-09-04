@@ -30,13 +30,39 @@ The candidate set deliberately omits every eligibility predicate (``ativo`` /
 it needs, so the join discards any ineligible ID the search matched;
 re-applying them here would only turn a clean single-index bitmap scan into a
 heap recheck on low-selectivity booleans.
+
+User search comes in **two** flavours, and the split is the point:
+
+``prepare_user_search`` matches real names and is for *teacher-scoped* contexts
+-- the class member and student autocompletes in
+``arena_class_detail_service`` -- where a teacher legitimately looks a student up
+by the name on their roll. ``prepare_public_user_search`` is for the anonymous
+and public ranking surfaces: it suppresses name matching for age-shielded users,
+because a page that renders a pseudonym while still answering "is this real name
+in the ranking?" is a confirmation oracle that reconstructs the shield's own
+secret. It is a separate function rather than a flag on the shared one so the
+teacher path cannot be broken by a change made for the public path.
+
+``user_relevance_ordering`` is deliberately **not** shielded. It is an
+``ORDER BY`` builder with no public caller -- the ranking pages are forbidden
+from using it (see above) and its only callers are the two teacher autocompletes
+-- so gating it would degrade exactly the legitimate context while protecting
+nothing. ``tests/arena/test_public_templates_no_full_name.py`` asserts that
+caller set with an AST scan, so the day a public surface adopts it the test
+fails and forces a shielded sibling.
+
+The username branches are served by ``ix_arena_users_username_trgm`` (migration
+202608310002). The unique B-tree that ``username`` also carries serves neither
+``ILIKE '%q%'`` nor the ``%`` similarity operator. Username **full-text** search
+is deliberately absent: it would need a second expression index alongside
+``_USER_NAME_VECTOR_SQL``, which is out of scope here.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Select, case, cast, func, literal, literal_column, or_, select, union
+from sqlalchemy import Select, and_, case, cast, func, literal, literal_column, or_, select, union
 from sqlalchemy.dialects.postgresql import REGCONFIG, TSVECTOR
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -49,6 +75,7 @@ from arena.services.text_search_primitives import (
     escaped_substring_pattern,
     uses_websearch_syntax,
 )
+from arena.services.user_visibility_service import shielded_users_clause
 from shared.db_schema.arena import arena_affiliations, arena_users
 
 type CandidateIds = Select[Any] | CompoundSelect[Any]
@@ -138,6 +165,49 @@ def _postgres_user_candidates(query: str) -> CandidateIds:
     return _combined(candidates)
 
 
+def _public_postgres_user_candidates(query: str) -> CandidateIds:
+    """Return age-shielded Arena user candidate-ID branches for public surfaces.
+
+    Every ``nome`` branch is conjoined with ``~shielded_users_clause(users)`` so
+    a shielded user is unfindable by their legal name, and ``username`` branches
+    are added unconditionally so they stay findable by their handle. The shield
+    predicate is bound to the **alias**, not to ``arena_users``: binding it to
+    the base table would add a second, unjoined FROM element and turn each
+    branch into a cross join with an uncorrelated age test.
+
+    Args:
+        query: Normalized (stripped) search text.
+
+    Returns:
+        Candidate-ID selectable over the public-safe branches.
+    """
+    users = arena_users.alias(_USER_ALIAS)
+    visible = ~shielded_users_clause(users)
+    candidates: list[Select[Any]] = [
+        select(users.c.id).where(
+            _user_name_vector(_USER_ALIAS).bool_op("@@")(_text_query(query)),
+            visible,
+        ),
+    ]
+    if uses_websearch_syntax(query):
+        return _combined(candidates)
+
+    pattern = escaped_substring_pattern(query)
+    candidates.extend(
+        [
+            select(users.c.id).where(users.c.nome.ilike(pattern, escape=LIKE_ESCAPE), visible),
+            select(users.c.id).where(users.c.username.ilike(pattern, escape=LIKE_ESCAPE)),
+            select(users.c.id).where(users.c.email_normalizado.ilike(pattern, escape=LIKE_ESCAPE)),
+        ]
+    )
+    if len(query) >= MIN_FUZZY_QUERY_LENGTH:
+        # Names tolerate typos; an email address is an exact identifier, so a
+        # fuzzy email match would be noise rather than a find.
+        candidates.append(select(users.c.id).where(users.c.nome.bool_op("%")(query), visible))
+        candidates.append(select(users.c.id).where(users.c.username.bool_op("%")(query)))
+    return _combined(candidates)
+
+
 def _postgres_affiliation_candidates(query: str) -> CandidateIds:
     """Return independently indexable Arena affiliation candidate-ID branches.
 
@@ -174,6 +244,31 @@ def _portable_user_candidates(query: str) -> CandidateIds:
     )
 
 
+def _public_portable_user_candidates(query: str) -> CandidateIds:
+    """Return the SQLite-compatible **public** Arena user candidate IDs.
+
+    The portable branch is not a test-only convenience here: the whole test
+    suite runs on SQLite, so an unshielded portable path would let the shield's
+    own search tests pass against code that never applies it.
+
+    Args:
+        query: Normalized (stripped) search text.
+
+    Returns:
+        Candidate-ID selectable with name matching restricted to unshielded
+        users and username matching open to all.
+    """
+    users = arena_users.alias(_USER_ALIAS)
+    pattern = escaped_substring_pattern(query)
+    return select(users.c.id).where(
+        or_(
+            and_(users.c.nome.ilike(pattern, escape=LIKE_ESCAPE), ~shielded_users_clause(users)),
+            users.c.username.ilike(pattern, escape=LIKE_ESCAPE),
+            users.c.email_normalizado.ilike(pattern, escape=LIKE_ESCAPE),
+        )
+    )
+
+
 def _portable_affiliation_candidates(query: str) -> CandidateIds:
     """Return the SQLite-compatible affiliation candidate IDs used by unit tests."""
     affiliations = arena_affiliations.alias(_AFFILIATION_ALIAS)
@@ -199,6 +294,29 @@ async def prepare_user_search(session: AsyncSession, query: str) -> CandidateIds
     if len(normalized_query) >= MIN_FUZZY_QUERY_LENGTH and not uses_websearch_syntax(normalized_query):
         await apply_trigram_threshold(session)
     return _postgres_user_candidates(normalized_query)
+
+
+async def prepare_public_user_search(session: AsyncSession, query: str) -> CandidateIds:
+    """Build the **public** Arena user candidate-ID selectable for one query.
+
+    Use this on every anonymous or public surface. It differs from
+    :func:`prepare_user_search` in exactly one way: an age-shielded user cannot
+    be matched by their legal name, only by their username or email.
+
+    Args:
+        session: Active async database session.
+        query: Raw user-supplied search text.
+
+    Returns:
+        A selectable of matching ``arena_users.id`` values, for use as
+        ``<outer query>.c.id.in_(...)``.
+    """
+    normalized_query = query.strip()
+    if session.get_bind().dialect.name != "postgresql":
+        return _public_portable_user_candidates(normalized_query)
+    if len(normalized_query) >= MIN_FUZZY_QUERY_LENGTH and not uses_websearch_syntax(normalized_query):
+        await apply_trigram_threshold(session)
+    return _public_postgres_user_candidates(normalized_query)
 
 
 async def prepare_affiliation_search(session: AsyncSession, query: str) -> CandidateIds:
@@ -230,6 +348,15 @@ def user_relevance_ordering(session: AsyncSession, query: str) -> list[ColumnEle
     literally, then descending name similarity, then name for determinism.
 
     The ranking pages must **not** use this — they order by ``global_rank``.
+
+    This helper is deliberately **not** age-shielded. Its only callers are the
+    teacher-scoped class autocompletes in ``arena_class_detail_service``, which
+    legitimately look a student up by the name on the roll; suppressing the
+    literal-hit and similarity terms for shielded users would sort a minor to
+    the bottom of a list that then truncates, so a teacher typing the exact name
+    could fail to see them. Public surfaces get shielding from
+    ``prepare_public_user_search`` instead, and an AST test pins the caller set
+    so a future public caller fails loudly rather than silently unshielded.
 
     Args:
         session: Active async database session.

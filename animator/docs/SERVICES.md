@@ -19,11 +19,15 @@ Conventions:
 
 Purpose:
 
-- process bootstrap: database pool, Valkey runtime, event stream, templates,
-  static mounts — and the Valkey worker-presence heartbeat
+- process bootstrap: database pool, feed cache, Valkey runtime, event stream,
+  templates, static mounts — and the Valkey worker-presence heartbeat
 
 Provides:
 
+- an `AnimatorFeedCache` on `app.state.feed_cache`, created **before** the
+  Valkey branch so the feeds keep working without Valkey (the cache then relies
+  on its TTLs alone), and handed to the event stream as its
+  `on_contest_changed` hook
 - a `worker_presence_loop` task started under `WorkerClass.ANIMATOR`, using
   `NOCA_ANIMATOR_WORKER_ID` (defaulting to `<fqdn>:<pid>`),
   `NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS`, and
@@ -54,14 +58,19 @@ Provides:
   released contest exposes the same final standings as Web. Satisfies
   `ContestScoringInput`
 - `TeamRecord` / `ProblemRecord` / `SubmissionRecord` / `JudgmentRecord` —
-  satisfy `TeamInput` / `ProblemInput` / `SubmissionInput` / `JudgmentInput`
+  satisfy `TeamInput` / `ProblemInput` / `SubmissionInput` / `JudgmentInput`.
+  `JudgmentRecord` additionally carries its `id`, which the scoring protocol does
+  not need: it is what lets the recent-activity seed key an entry
+  `verdict:<judgment_id>`, the identity the live SSE stream uses, so a seeded and
+  a streamed copy of the same result de-duplicate
 - `SiteRecord` — site medal cutoffs plus associated team count for meta
-- `TeamMediaRecord` — team identity plus the raw `users_media` payload exactly as
-  stored: photo (`com_foto`, both base64 blobs, `dta_foto`) and the optional clip
-  (`audio_base64`, `audio_mime`, `dta_audio`). Nothing in it is trusted; decoding
-  and verification belong to `services/team_media_service.py` (photo) and
-  `services/team_audio_service.py` (audio). `com_foto` governs the image blobs
-  only — audio has no such flag
+- `TeamMediaMetadata` — a team's stored-media **metadata only**: `com_foto`,
+  the revisions `dta_foto` / `dta_audio`, and the presence booleans `has_photo`
+  / `has_avatar` / `has_audio`. Carries no payload, so the media routes can
+  answer a conditional request from it alone; decoding and verification of the
+  blobs, loaded one column at a time on a miss, belong to
+  `services/team_media_service.py` (photo) and `services/team_audio_service.py`
+  (audio). `com_foto` governs the image blobs only — audio has no such flag
 - `ensure_utc(value)` — normalize naive/aware datetimes to UTC
 
 ---
@@ -75,7 +84,12 @@ Purpose:
 Provides:
 
 - `ContestMetaResponse`, `ProblemMeta`, `SiteMeta`
-- `ScoreboardSnapshotResponse`, `TeamStandingResponse`, `ProblemCellResponse`
+- `ScoreboardSnapshotResponse`, `TeamStandingResponse`, `ProblemCellResponse`,
+  `PendingSubmissionResponse`
+- `RecentEventResponse` / `RecentEventKind` — one past contest event for seeding
+  a freshly loaded activity rail. It carries the *parts* of the sentence
+  (`kind`, `team_name`, `problem_label`, `verdict`) and never the sentence, so
+  the seeded backlog and the live stream cannot drift into two vocabularies
 - live SSE payloads for the `/events` stream: `VerdictPayload`,
   `RedactedVerdictPayload`, `SubmissionPayload`, `ScoreboardRefreshPayload`,
   `TimerTickPayload`
@@ -314,7 +328,10 @@ Behavior notes:
 - **One scoring path.** Standings always come from `compute_icpc` over the
   visible set, called with `viewer_sees_frozen=False` because the freeze
   filtering has already happened when the input set was assembled. There is no
-  second ranking implementation.
+  second ranking implementation, so the ceremony inherits the shared ranking
+  rules — solved count, then total time, then the earliest last accepted
+  submission, with teams equal on all three sharing a rank (documented under
+  **Ranking rules** in `docs/SHARED_SERVICES.md`).
 - **Pending state is literal and solve-independent.**
   `pending_frozen_count` counts submissions in `frozen_submission_ids` that are
   not in `reveal_log`, even if the cell already shows as solved.
@@ -388,9 +405,10 @@ Behavior notes:
   (see `reveal_loader`) but are never consumed, and the ceremony ends with them
   outstanding.
 - **The cursor sweeps every row, bottom-up.** `focus_at_cursor` indexes
-  `standings` from the end rather than comparing rank numbers, because tied teams
-  share a rank. The order is deterministic: teams load in `(username, id)` order
-  and `compute_icpc` sorts stably on score alone. A row with nothing to reveal is
+  `standings` from the end rather than comparing rank numbers, because teams tied
+  on all of `(solved, total_time, last_accepted_minutes)` share a rank. The order
+  is deterministic: teams load in `(username, id)` order and `compute_icpc` sorts
+  stably on score alone. A row with nothing to reveal is
   still visited — the operator walks the whole table with the same key — and the
   ceremony ends only once the cursor passes the top row.
 - **The cursor is a position, not a team.** When a revealed solve lifts the
@@ -454,6 +472,12 @@ Provides:
 - `acquire_controller_mutation_lock(client, *, contest_id, scope, controller_id,
   lock_token, lock_ttl_seconds)` — the atomic "verify ownership **and** take the
   command lock" gate used by `RevealSessionStore.mutate`
+- `ControllerLeaseService.verify_ownership(contest_id, scope, controller_id)` —
+  the ownership half alone, taking **no lock and extending nothing**, for an
+  action that authorizes against the lease but persists nothing (the team-media
+  cue). Keeping it lock-free is deliberate: a cue must never contend with a
+  command in flight, and never renewing means the heartbeat stays the only thing
+  that keeps a lease alive.
 - typed errors: `ControllerLeaseError` → `ControllerLeaseUnavailableError`
   (Valkey unreachable → fail closed), `ControllerLeaseConflictError` (another
   owner), `ControllerLeaseLostError` (not the owner / expired),
@@ -609,10 +633,10 @@ Purpose:
 Provides:
 
 - `execute_command(session, store, contest, *, site_id, command, team_id=None,
-  restart=False, idempotency_key=None)` — apply one command durably, returning a
-  `CommandResult` (the `RevealTransition` plus a `replayed` flag)
-- `load_projection(session, store, contest, *, site_id)` — read-only projection;
-  takes no lock, saves nothing, publishes nothing
+  restart=False, idempotency_key=None, cache=None)` — apply one command durably,
+  returning a `CommandResult` (the `RevealTransition` plus a `replayed` flag)
+- `load_projection(session, store, contest, *, site_id, cache=None)` — read-only
+  projection; takes no lock, saves nothing, publishes nothing
 - `ControlError` → `MissingSessionError`, `ActiveSessionError`,
   `SupersededCommandError`, `ReusedKeyError`
 
@@ -627,6 +651,16 @@ Behavior notes:
 - **The whole mutation happens inside one lock.** The stored state is loaded
   *within* `store.mutate`, never before it, so a session cannot be read, decided
   upon, and written across a window another operator could write in.
+- **The dataset is resolved after the state, through the feed cache.** A
+  missing session and an active session hit by `start` without `restart` are
+  refused before a single dataset query runs. Every other command — and every
+  idempotent replay and `load_projection` read — reuses the `RevealDataset`
+  cached under the state's `dataset_generation` (`services/feed_cache.py`), so
+  a miss costs the four loads once per generation per process rather than on
+  every command. Only a fresh `start` or an explicit `restart` loads PostgreSQL
+  unconditionally, because that is the moment the frozen universe is rebuilt;
+  the new state's generation then seeds the cache. A state persisted before the
+  field existed carries `None` and bypasses the cache until it is rebuilt.
 - **Exactly one save and one publish per successful command**, including
   no-op commands (`back` on an empty log, `step` on a `done` ceremony).
   Persisting the unchanged state keeps "applied, nothing changed"
@@ -664,6 +698,63 @@ Behavior notes:
 
 ---
 
+## `services/media_cue_service.py`
+
+Purpose:
+
+- broadcast one transient team-media cue to every projector watching a ceremony
+  scope
+
+Provides:
+
+- `cue_team_media(store, lease, contest, *, controller_id, site_id, action)` —
+  verifies ownership, resolves the team, publishes; returns nothing
+- `MediaCueError` and its three subclasses: `NoMediaSessionError`,
+  `NoFocusedTeamError`, `MediaCueUnavailableError`
+
+Behavior notes:
+
+- **Why it is not in `control_service`.** Every function there mutates the
+  ceremony: scope lock, load inside it, fenced save, receipt, nudge. A cue does
+  none of that. It writes nothing, locks nothing, and its published frame carries
+  no state — which is exactly what makes it safe to repeat, safe to lose, and
+  safe to run *concurrently* with a real command, and why it needs no
+  `state_version` bump, no receipt ring, and no `Idempotency-Key`.
+- **The operator never names a team.** `show` reads `focused_team_id` from the
+  stored state, so a cue cannot address a team outside the ceremony or in another
+  venue's scope. `hide` reads no state at all: a projector showing an overlay is
+  reason enough to take it down, and a `hide` that refused after a `reset` would
+  strand a photograph on screen with no way to clear it.
+- **Ownership is enforced atomically, but nothing is held.** Both directions
+  require the controller lease — blanking a projector is as much a control action
+  as seizing one — and it is checked **twice, for two different reasons**.
+  `ControllerLeaseService.verify_ownership` runs first so the *operator* gets the
+  stated lease-lost refusal both clients key on, instead of a confusing "no
+  session" from a state read the request should never have reached. Then
+  `RevealSessionStore.publish_media_cue` fuses the same check with the `PUBLISH`
+  in one Lua step, because that is what the *projectors* need: every `await`
+  between an advisory check and the publication is a window in which the lease
+  expires or a takeover lands, and without the fence the first check would be
+  advisory only. Neither takes the mutation lock, so a `step` in flight and a cue
+  can safely happen at the same instant. Neither extends the lease either:
+  renewal is the heartbeat's job, and a cue that quietly kept a lease alive would
+  let an operator hold a ceremony they are no longer driving.
+- **One stated residual.** `show` reads `focused_team_id` before it publishes, so
+  a `step` racing that read could leave the previously focused team's photo up
+  until the next movement clears it. It needs two commands genuinely in flight on
+  one lease, which neither shipped client can produce (both are single-flight)
+  and which the fence rules out across two controllers. Bounded by the next
+  movement rather than prevented: closing it would mean taking the scope lock
+  this command exists without.
+- **Zero subscribers is success; an unreachable Valkey is not.** The animator
+  publishes and cannot learn whether a projector rendered the overlay, so the
+  operator is told *sent*, never *displayed*. But the publish **is** the whole
+  action — unlike a state-changed nudge, which follows a state that is already
+  durable — so a publish that never reached Valkey is reported
+  (`MediaCueUnavailableError` → `503`) rather than swallowed.
+
+---
+
 ## `services/control_audit.py`
 
 Purpose:
@@ -690,7 +781,9 @@ Behavior notes:
   would miss those *and* risk two records for one request, so decisions only
   note, and `ControlAuditRoute` emits exactly one line per request. An outcome no
   layer named is derived from the final status (`404` → `not_found`, `422` →
-  `invalid_request`, `2xx` → `success`).
+  `invalid_request`, `2xx` → `success`); the ones a layer *does* name are
+  `control_disabled`, `invalid_credential`, `throttled`, and the route-level
+  refusals.
 - **A service, not route-local**, so `animator.dependencies` can note outcomes
   without importing a route and creating a cycle.
 - **A `key=value` message, not `extra=` fields.** The production console
@@ -777,18 +870,27 @@ Behavior notes:
 
 Purpose:
 
-- load one team's stored media **within the ceremony's scope** and choose an
-  image that is always valid
+- load one team's media **metadata** within the ceremony's scope, and — only on
+  a cache miss — the one blob needed to choose an image that is always valid
 
 Provides:
 
-- `load_team_media(session, *, contest_id, team_id, site_id)` — one scoped Core
-  query returning `TeamMediaRecord | None`. It reads the photo columns **and** the
-  audio columns (`audio_base64`, `audio_mime`, `dta_audio`), so the photo route
-  and the audio route share a single lookup and their scope predicates cannot
-  drift apart
-- `select_team_image(media)` — the photo → avatar → placeholder decision, as a
-  `TeamImage` (`kind`, `data`, `mime`)
+- `scoped_team_query(*columns, contest_id, team_id, site_id)` — the one
+  `users` ⟕ `users_media` select every media read is built from (contest,
+  `RoleEnum.TEAM`, optional site), so the scope predicates cannot drift between
+  the metadata and payload reads or between the two routes
+- `load_team_media_metadata(session, *, contest_id, team_id, site_id)` — the
+  scoped query returning `TeamMediaMetadata | None`: `com_foto`, `dta_foto`,
+  `dta_audio`, and SQL presence booleans `has_photo` / `has_avatar` /
+  `has_audio` (`coalesce(length(col) > 0, false)`). **No blob column and no
+  `audio_mime`** — this row is the whole cost of a matching conditional request
+- `load_photo_payload(session, team_id)` / `load_avatar_payload(session, team_id)`
+  — single-column reads by `user_id`, for a team the metadata query already
+  proved in scope
+- `resolve_team_image(session, media)` — the photo → avatar → placeholder
+  decision, as a `TeamImage` (`kind`, `data`, `mime`). Loads the photo only if
+  `has_photo`, and the avatar only if the photo failed validation and
+  `has_avatar`; a team with nothing enabled queries no blob at all
 - `placeholder_image()` — the checked-in `animator/assets/team_placeholder.svg`,
   read once per process
 - `TeamImage`, `TeamMediaKind`, `PLACEHOLDER_MIME`
@@ -814,9 +916,10 @@ Behavior notes:
   truncated photo falls through to the avatar rather than being served as a
   corrupt `image/png`. Cost is bounded: payloads are upload-limited, the decode is
   capped at 8000×8000 pixels and dimensions (so a decompression bomb is refused,
-  not expanded), and the route's `ETag`/`304` keeps a projector from
-  re-validating the same photo. SVG is not accepted from a stored blob (it is
-  never a stored user photo and would be an active-content vector).
+  not expanded), and a matching conditional request never reaches the decode:
+  the route answers `304` from the metadata row alone. SVG is not accepted from
+  a stored blob (it is never a stored user photo and would be an active-content
+  vector).
 - **Never returns nothing.** The fallback chain ends at the placeholder, so the
   ceremony modal cannot render broken-image chrome.
 - Every rejected blob is logged at `warning`: the request still succeeds, but a
@@ -832,8 +935,13 @@ Purpose:
 
 Provides:
 
-- `select_team_audio(media)` — `TeamAudio | None` (`data`, canonical `mime`)
-- `TeamAudio`, `SUPPORTED_AUDIO_MIME_TYPES`
+- `load_audio_payload(session, team_id)` — a single-column read of
+  `audio_base64` by `user_id`, for a team the metadata query already scoped
+- `resolve_team_audio(session, media)` — `TeamAudio | None` (`data`, canonical
+  `mime`). Returns `None` **without a query** when the metadata says no clip is
+  stored (`has_audio=false`); otherwise loads only the clip column and validates
+  its signature
+- `TeamAudio`
 
 Behavior notes:
 
@@ -864,6 +972,62 @@ Behavior notes:
 
 ---
 
+## `services/sse_capacity.py`
+
+Purpose:
+
+- a process-wide, Valkey-independent ceiling on open SSE clients, shared by
+  `/events` and `/reveal/events`
+
+Provides:
+
+- `SseCapacity(max_clients)` — `slot(detail=…)` async context manager that
+  raises `503` + `Retry-After: 5` when `active >= max_clients` and releases
+  idempotently in `finally`; `active` and `max_clients` properties for tests and
+  diagnostics
+
+Behavior notes:
+
+- lives here rather than in `AnimatorEventStream.register()` because the
+  reveal stream has no registry of its own -- one gauge in the dependency guards
+  both streams with one implementation
+- created in the lifespan (`app.state.sse_capacity`) from
+  `NOCA_ANIMATOR_MAX_SSE_CLIENTS` (default 2000)
+
+---
+
+## `services/projector_presence.py`
+
+`ProjectorPresence` is the best-effort gauge behind `projector_count` in every
+controller-lease response: how many `/reveal/events` streams are open on one
+ceremony scope right now. The operator on stage cannot see the hall's
+projectors, and the only evidence the server has that a projector exists is
+its open stream, so the stream route wraps its whole lifetime in
+`presence.attend(contest_id, scope)`.
+
+- **Storage.** One sorted set per scope, `animator:reveal:projectors:{contest_id}:{scope}`
+  (`reveal_projectors_key`, built from validated components like every other
+  reveal key), keyed by a random per-connection id and scored by the entry's
+  expiry instant. The score is computed from Valkey's own `TIME` inside the Lua
+  script, so replicas with drifting clocks still agree, and `count()` sweeps
+  expired scores before `ZCARD`. The set also carries an `EXPIRE` equal to the
+  TTL, so a scope nobody renews disappears entirely.
+- **Lifecycle.** `attend()` registers before the body runs, renews at a third
+  of `NOCA_ANIMATOR_PROJECTOR_PRESENCE_TTL_SECONDS` from a task, and on exit
+  cancels the renewer and **detaches** the `ZREM` into a task of its own. The
+  block ends because the client disconnected, and that teardown runs inside
+  the response's cancel scope where every `await` is cancelled again -- an
+  awaited removal would never reach Valkey, and every clean disconnect would
+  linger for one TTL.
+- **Gauge, not gate.** Nothing here can refuse or end a stream: a failed
+  registration or renewal is a warning, and `count()` answers `None` when
+  Valkey cannot be read -- deliberately not `0`, because an empty hall and an
+  outage are different facts and the operator must be able to tell them apart.
+- **Where it is read.** Only the controller-lease routes, on `claim`,
+  `heartbeat`, and `takeover`, after the ownership decision; `release` reports
+  `None`. The count therefore reaches both shipped controllers at their
+  existing heartbeat cadence and costs one extra `EVAL` per heartbeat.
+
 ## `services/reveal_stream_service.py`
 
 Purpose:
@@ -874,9 +1038,10 @@ Purpose:
 Provides:
 
 - `iter_ready_then_events(runtime, contest_id, scope)` — yields `None` once the
-  subscription is live (the route renders it as `reveal_ready`), then one event
-  per nudge
-- `EVENT_REVEAL_READY` / `EVENT_REVEAL_STATE_CHANGED` — the SSE `event:` names
+  subscription is live (the route renders it as `reveal_ready`), then one frame
+  per publication: a `RevealStateChangedEvent` nudge or a `RevealMediaCueEvent`
+- `EVENT_REVEAL_READY` / `EVENT_REVEAL_STATE_CHANGED` / `EVENT_REVEAL_MEDIA_CUE`
+  — the SSE `event:` names
 - `RevealEventSource` — the Valkey surface it needs, as a Protocol
 
 Behavior notes:
@@ -897,9 +1062,17 @@ Behavior notes:
   its body — and so never subscribes — until something awaits its first item, so
   the subscription is advanced concurrently into a bounded queue. That is also
   what lets `reveal_ready` be emitted while the channel is silent.
-- **Bounded, oldest-dropping queue** (64). A nudge carries no state and every
-  nudge means the same thing ("refetch"), so under overflow the newest is kept
-  and the oldest discarded — never blocking the subscriber, never growing.
+- **Bounded, oldest-dropping queue** (64). Nothing on this channel carries
+  state, so under overflow the newest frames are kept and the oldest discarded —
+  never blocking the subscriber, never growing. A dropped nudge is recovered by
+  the next one or by the client's own reconciliation; a dropped cue costs one
+  press of the operator's button.
+- **Two frame shapes, one subscription.** The media cue rides the same channel
+  because it addresses exactly the same audience — every projector on this
+  contest and scope. The module stays free of SSE vocabulary: it yields the model
+  and the route decides which `event:` name each becomes. That separation is what
+  keeps the client-side distinction honest, since a nudge means "refetch" and a
+  cue must trigger no fetch at all.
 - **Bounded readiness.** A subscription that does not become ready within 10 s
   closes the stream instead of leaving a client that believes it is covered; the
   browser then reconnects. A generator that ends or fails before `SUBSCRIBE`
@@ -961,6 +1134,33 @@ Ordering and lifecycle behavior:
 
 ---
 
+## `services/contest_meta_service.py`
+
+Purpose:
+
+- the public contest metadata builder behind `/meta` and the launcher page,
+  split from `contest_feed_service.py` so that module keeps to the scoreboard
+  projection
+
+Provides:
+
+- `build_meta_response(session, contest, now=None, cache=None)` —
+  `ContestMetaResponse`
+- `build_meta_response_cached(...)` — the same, returning
+  `(response, seconds_left)` for the route's `Cache-Control: max-age`;
+  `seconds_left` is `0` without a cache
+
+Behavior notes:
+
+- **Pre-start gate.** Before `contest.start_time` the response carries an empty
+  `problems` list and `has_started=false`; sites stay visible in both states.
+- **Cached per process** under `(contest_id, has_started, is_frozen)` for
+  `NOCA_ANIMATOR_META_CACHE_SECONDS` (`services/feed_cache.py`); the launcher
+  and `/meta` share the entry. Two queries per miss (problems when started,
+  sites with team counts), one (the contest gate) per hit.
+
+---
+
 ## `services/contest_feed_service.py`
 
 Purpose:
@@ -973,13 +1173,15 @@ Provides:
 
 - `load_enabled_contest` — re-exported from `contest_queries` as the single
   public contest-resolution entry point
-- `build_meta_response(session, contest, now=None)` — `ContestMetaResponse`
-- `build_snapshot_response(session, contest, now=None, site_id=None)` —
-  `ScoreboardSnapshotResponse`
+- `build_snapshot_response(session, contest, now=None, site_id=None,
+  cutoffs=None, cache=None)` — `ScoreboardSnapshotResponse`
+- `build_snapshot_response_cached(...)` — the same, returning
+  `(response, seconds_left)` so the route can emit a matching
+  `Cache-Control: max-age`; `seconds_left` is `0` without a cache
 - `build_snapshot(session, contest, now=None, site_id=None)` — the underlying
   shared `ScoreboardSnapshot`
 - `snapshot_to_response(snapshot, pending_submissions=None, *, teams,
-  wa_penalty, cutoffs=None, has_started=True)` — the Animator response mapper,
+  wa_penalty, cutoffs=None, has_started, recent_events=None)` — the Animator response mapper,
   including team site names and accumulated per-cell attempt penalties
 - `build_pending_submissions(standings, submission_records, judgments, teams,
   problem_records, freeze_at_seconds)` — the authoritative, freeze-safe pending list
@@ -988,7 +1190,8 @@ Behavior notes:
 
 - **Pre-start gate.** Before `contest.start_time` neither feed publishes a
   problem set: `/meta` returns an empty `problems` list and `/snapshot` returns
-  empty `problems`, `balloon_colors`, `standings`, and `pending_submissions`.
+  empty `problems`, `balloon_colors`, `standings`, `pending_submissions`, and
+  `recent_events`.
   Both carry `has_started=false` so a client can render a "not started yet"
   banner rather than mistaking the gate for a contest with no teams. Web already
   withholds its scoreboard, clarifications, and runs before the start precisely
@@ -1006,8 +1209,13 @@ Behavior notes:
   `is_frozen_at(now)` becomes false, every final result is scored, and the
   response reports `is_frozen=false`, matching Web's released scoreboard.
 - **Single projection.** `build_snapshot_response` loads the contest rows once
-  via a private `_project` helper and derives both the snapshot and the
-  `pending_submissions` list from the same visible data.
+  via a private `_project` helper and derives the snapshot, the
+  `pending_submissions` list, and the `recent_events` backlog from the same
+  visible data — so neither derived list costs a query of its own.
+- **Activity seed.** `recent_events` comes from
+  `animator.services.recent_events_service.build_recent_events`, called with the
+  same rows and the snapshot's own `is_frozen`, so the ticker's history can never
+  narrate a run the board is withholding.
 - **Presentation fields.** The team query joins the site's display name without
   adding a query. `TeamStandingResponse` therefore carries `team_fullname` and
   `site_name`. `ProblemCellResponse.penalty` is `attempts × wa_penalty` for both
@@ -1022,6 +1230,111 @@ Behavior notes:
 - **Bounded query count** (independent of team/problem/submission/site counts):
   - `/meta`: contest (dependency) + problems + site team-counts + sites = 4
   - `/snapshot`: contest (dependency) + teams + problems + submissions/judgments = 4
+- **Cached per process.** With an `AnimatorFeedCache` (the routes always pass
+  one), only the contest gate's query runs per request; the loads and
+  `compute_icpc` run once per TTL per `(contest, scope, phase, cutoffs)` and are
+  shared by concurrent misses. Without a cache (unit tests, ad-hoc callers) the
+  builders behave exactly as before. The reference instant is fixed *before* the
+  cache lookup, so a cached snapshot's `generated_at`/`version` is the instant
+  it was built and stays constant until it is rebuilt.
+
+---
+
+## `services/recent_events_service.py`
+
+Purpose:
+
+- Build the freeze-safe recent-activity backlog that seeds a freshly loaded
+  scoreboard's ticker, from rows the snapshot has already loaded
+
+Provides:
+
+- `RECENT_EVENT_LIMIT` — how many past events a page is seeded with (10)
+- `build_recent_events(submission_records, judgments, teams, problem_records, *,
+  freeze_at_seconds, viewer_sees_frozen, accept_pe, limit=RECENT_EVENT_LIMIT)` —
+  up to `limit` `RecentEventResponse` entries, oldest first
+
+Behavior notes:
+
+- **No extra query.** It consumes the projection's submissions, judgments, teams
+  and problems, so it runs inside the snapshot build and inside the per-process
+  feed cache.
+- **One entry per submission, never two.** An unresolved submission reports that
+  it was submitted; a resolved one reports its result only. Emitting both halves
+  would spend a ten-item backlog on five events.
+- **Same freeze boundary as the board.** A submission past `freeze_at_seconds` is
+  dropped while `viewer_sees_frozen`, exactly as `compute_icpc` drops it.
+- **Same event keys as the live stream.** `submission:<submission_id>` and
+  `verdict:<judgment_id>` — which is why `JudgmentRecord` carries its `id`. A page
+  that seeds and then receives the same event over SSE renders it once.
+- **Solve wording mirrors `compute_icpc`.** The cell's *solving* submission is the
+  first accepted one for that team and problem (the same "stop at the first
+  accepted" rule), and it is the *first solver* when it is also the earliest
+  accepted submission for that problem across the scope's teams — the definition
+  behind `is_first_balloon`. A later accepted submission on an already-solved cell
+  is neither and reports its bare verdict.
+- **Wording is not built here.** The payload carries a `kind` and the sentence
+  parts; the client composes the text, so the seeded backlog and the live stream
+  cannot drift into two vocabularies.
+- **Unnameable rows are dropped.** A submission whose team or problem is outside
+  the requested scope is skipped rather than rendered with a raw identifier.
+
+## `services/feed_cache.py`
+
+Purpose:
+
+- the process-local caches behind the three read paths that reload and re-score
+  a whole contest per request: the anonymous `/snapshot` and `/meta` feeds, and
+  the reveal ceremony's dataset behind `/reveal/state` and every control command.
+  Owns every key and TTL decision, so the services and routes only say *what*
+  they are building.
+
+Provides:
+
+- `AnimatorFeedCache` — three `shared.services.single_flight_cache.SingleFlightCache`
+  instances behind one object stored on `app.state.feed_cache`:
+  - `snapshot(contest, *, site_id, cutoffs, now, build)` → `(response, seconds_left)`;
+    key `(contest_id, scope, has_started, is_frozen, cutoffs)`; TTL
+    `NOCA_ANIMATOR_SNAPSHOT_CACHE_SECONDS` while the contest runs,
+    `NOCA_ANIMATOR_SNAPSHOT_CACHE_ENDED_SECONDS` once it has ended
+  - `meta(contest, *, now, build)` → `(response, seconds_left)`; key
+    `(contest_id, has_started, is_frozen)`; TTL `NOCA_ANIMATOR_META_CACHE_SECONDS`
+  - `reveal_dataset(contest, *, site_id, generation, build)` → `RevealDataset`;
+    key `(contest_id, scope, dataset_generation)`; TTL
+    `NOCA_ANIMATOR_REVEAL_DATASET_CACHE_SECONDS`
+  - `invalidate_contest(contest_id)` — drops every snapshot and reveal entry of
+    one contest in every scope (meta is left alone: nothing in a judging event
+    changes it); `clear()` drops everything
+  - `snapshot_ttl(contest, now)` — the running/ended TTL rule, exposed for tests
+
+Behavior notes:
+
+- **Phase is part of the key, not a reason to invalidate.** `has_started` and
+  `is_frozen` are derived from the contest record and the clock without a
+  query, so the pre-start empty feed can never be served after the start and
+  the running → frozen switch is visible on the very next request rather than
+  one TTL later.
+- **Events invalidate, TTL bounds.** `main.py` wires `invalidate_contest` to the
+  event stream's `on_contest_changed`, so a verdict or submission drops the
+  contest's snapshots and reveal datasets at once, on every replica, whether or
+  not a spectator is connected. The TTL remains as protection against a missed
+  event and against edits that publish none (site and problem changes, which is
+  why meta relies on TTL alone).
+- **No permanent final entry.** Web's contest, team and problem edit paths
+  cannot reach animator entries, so an ended contest is bounded by
+  `SNAPSHOT_CACHE_ENDED_SECONDS` rather than cached forever.
+- **The reveal dataset is keyed on identity, not on scope alone.** A
+  `(contest, scope)` key would be unsafe with several replicas: a `restart` on
+  replica A rebuilds the frozen universe from newer judgments while replica B
+  would keep projecting the new state over its old rows. `dataset_generation`
+  is minted by `initialize_reveal_session` — that is, by a fresh `start-reveal`
+  or an explicit `restart` — carried unchanged through every transition, and is
+  what every replica keys on; a restart elsewhere is therefore a miss here, never
+  a stale projection. Keying on `frozen_submission_ids` would not do: the same
+  ids can carry newer judgments.
+- **Process-local by design.** A multi-replica deployment builds once per
+  replica, which is bounded and needs no shared state; a `RevealDataset` holds
+  dataclasses rather than JSON, and the hot path gains no extra Valkey hop.
 
 ---
 
@@ -1037,7 +1350,12 @@ Provides:
 
 - `AnimatorEventStream` — process-wide service with `start()` / `stop()`
   lifecycle, `register(contest)` / `unregister(channel)` for SSE clients,
-  `client_count`, and `next_event_id()` (monotonic process-scoped ids)
+  `client_count`, and `next_event_id()` (monotonic process-scoped ids). Its
+  optional `on_contest_changed(contest_id)` hook is called for every verdict
+  and submission event **before** any fan-out and whether or not a client is
+  connected; `main.py` wires it to `AnimatorFeedCache.invalidate_contest`, which
+  is what keeps a cached snapshot from outliving the verdict that changed it. A
+  raising hook is logged and never stalls fan-out.
 - `EVENT_VERDICT` / `EVENT_SUBMISSION` / `EVENT_SCOREBOARD_REFRESH` /
   `EVENT_TIMER_TICK` — SSE `event:` names
 - the typed SSE `data:` payloads (`VerdictPayload`, `RedactedVerdictPayload`,
@@ -1091,6 +1409,30 @@ Purpose:
 Provides:
 
 - `DbSession`, `Valkey` — session and Valkey runtime aliases
+- `get_feed_cache(request)` / `FeedCache` — the process-wide `AnimatorFeedCache`
+  from `app.state.feed_cache`
+- `enforce_public_rate_limit(request)` — the `animator:public` per-IP window
+  (`NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_*`, detail `PUBLIC_RATE_LIMIT_DETAIL`) over
+  the shared `shared.services.request_rate_limit`; installed as a route-level
+  dependency on `/meta`, `/snapshot`, `/reveal/state`, and the two team-media
+  routes (`/teams/{team_id}/photo`, `/audio`), so it runs *before*
+  the contest gate. That is deliberate: the answer depends on the client IP
+  alone, so a `429` cannot probe the non-enumerating `404`, and a flood must be
+  stopped ahead of the gate's own query. The policy is rebuilt from `settings`
+  on every call and the fallback limiter (`PUBLIC_RATE_LIMITER`) is
+  module-level, so tests can monkeypatch the knobs and reset the state.
+- `enforce_sse_connection_caps(request)` — yield dependency installed
+  route-level on `/events` and `/reveal/events`, so it too runs *before* the
+  contest gate. It first takes a slot on the process-wide `SseCapacity` gauge
+  (`get_sse_capacity`, `NOCA_ANIMATOR_MAX_SSE_CLIENTS`, `503` + `Retry-After`
+  when this replica is full, no Valkey involved), then a per-IP slot in the
+  shared `shared.services.sse_connection_limit` lease (bucket `animator:sse`,
+  `NOCA_ANIMATOR_SSE_*`, `429` + `Retry-After`). Both are released when the
+  streamed response ends, i.e. on disconnect. The lease fails open on a Valkey
+  outage, which is exactly why the process ceiling exists.
+- `get_sse_capacity(request)` — the `SseCapacity` from `app.state.sse_capacity`,
+  created lazily from `settings.MAX_SSE_CLIENTS` when an app was assembled
+  without the lifespan (tests, tooling)
 - `get_enabled_contest(slug, db)` / `EnabledContest` — non-enumerating enabled
   contest gate raising the non-specific default `404`; shared by all current and
   later contest-scoped routes so the `404` behavior stays uniform
@@ -1106,12 +1448,16 @@ Provides:
   detached variant closes its session before an SSE stream begins
 - `get_reveal_store(valkey)` / `RevealStore` — a `RevealSessionStore` built on
   the existing `Valkey` dependency and `NOCA_ANIMATOR_REVEAL_TTL_MARGIN_SECONDS`
-- `get_control_contest(contest)` / `ControlContest` — the enabled-contest gate
+- `get_control_contest(request, contest)` / `ControlContest` — the enabled-contest gate
   **followed by** the reveal-control kill switch; both refuse with the same bare
   `404`, so a switched-off deployment never advertises that the routes exist
 - `resolve_operator_scope(request, contest, db, credentials)` / `OperatorScope` —
-  resolves the `Authorization: Bearer` operator token to its `ResolvedScope`
-- `FORBIDDEN_DETAIL` — the one detail string every authorization refusal uses
+  consults the per-IP lockout, then resolves the `Authorization: Bearer`
+  operator token to its `ResolvedScope`; a failure is counted, a success resets
+- `CONTROL_LOCKOUT_LIMITER` — the in-memory fallback of the lockout
+  (`NOCA_ANIMATOR_CONTROL_LOCKOUT_*`; `tests/animator/conftest.py` resets it)
+- `FORBIDDEN_DETAIL` — the one detail string every authorization refusal uses,
+  the lockout included
 
 Behavior notes on the spectator scope dependencies:
 
@@ -1129,17 +1475,27 @@ Behavior notes on the control dependencies:
   that it exists. With it off, the header is merely parsed and the resolver
   decides after the gate.
 - **Gate order.** `EnabledContest` → kill switch (both inside `ControlContest`)
-  → token lookup. The switch is checked *inside* a parameter dependency rather
-  than as a router-level one precisely because FastAPI resolves router
-  `dependencies=[...]` before parameter dependencies, which would put the switch
-  ahead of contest resolution. A token is never resolved for a contest the
-  caller may not know exists.
+  → per-IP lockout → token lookup. The switch is checked *inside* a parameter
+  dependency rather than as a router-level one precisely because FastAPI
+  resolves router `dependencies=[...]` before parameter dependencies, which
+  would put the switch ahead of contest resolution. A token is never resolved
+  for a contest the caller may not know exists, and the lockout — checked in
+  the resolver body, after `ControlContest` — can never be used to probe the
+  two `404` gates.
+- **Lockout, same `403`.** After `NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES`
+  credential failures from one address inside `NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS`
+  (also the lockout duration) the address is refused before the header is read,
+  with the identical generic `403` and **no** `Retry-After`, and audited as
+  `outcome=throttled`. Built on `shared.services.auth_rate_limit` with an
+  IP-only identity (no account component, so no HMAC secret is needed). A valid
+  token resets the counter; scope and ownership refusals are not counted.
 - **One generic `403`.** Absent header, wrong scheme, blank token, unknown token,
   and another contest's token all produce the identical detail, so a caller
   cannot probe for the existence of contests, sites, or secrets.
 - **Refusals are audited.** Each one logs a `control_audit` record with
-  `scope=unknown` and `outcome=invalid_credential` before raising, so rejected
-  attempts appear in the same audit stream as accepted ones.
+  `scope=unknown` and `outcome=invalid_credential` (or `throttled`) before
+  raising, so rejected attempts appear in the same audit stream as accepted
+  ones.
 
 ---
 
@@ -1156,9 +1512,22 @@ the reveal projector so an audience and a live viewer can never see different
 attempt counts.
 
 - `formatCellText(cell)` / `cellState(cell)` / `describeCell(cell)` — the attempt
-  line (`+N` / `? −N` / `−N` / empty), the state, and the screen-reader wording.
-- `penaltyOf(cell)` normalizes the accumulated attempt penalty used on the
-  second visual line.
+  glyph (`+N` / `? −N` / `−N` / empty), the state, and the screen-reader wording.
+- `formatAttemptLine(cell, {stacked})` — the attempt count **and the penalty it
+  caused, as one complete line**, which is what both renderers draw. Attempts and
+  their penalty describe the same failures, so they are never split across two
+  lines: a solved cell showed `+2 (40')` on one line while a pending cell put
+  `−5` and `(100')` on two, so the same information changed shape the moment it
+  was revealed, and the projector's pending cell became the tallest on any
+  surface. `stacked` is the projector's pending cell, where the `?` marks already
+  occupy the line above and must not be repeated. Returns `""` — never a stray
+  `()` — when the cell has no such line. It is returned finished rather than as
+  punctuation pieces a renderer recombines, because the pieces are exactly what
+  drifted: both renderers used to build `"+" + attempts + " (" + penalty + "')"`
+  inline, and Web's Jinja builds the same sentence a third time in another
+  language. `tests/fixtures/scoreboard_cell_cases.json` pins all three to the
+  same cases.
+- `penaltyOf(cell)` normalizes the accumulated attempt penalty.
 - `isPending(cell)` / `isFirst(cell)` normalize the two feeds' field names
   (`is_pending`/`pending_frozen`, `is_first_balloon`/`is_first_solver`), so a
   naming difference cannot become a behavior difference.
@@ -1300,6 +1669,55 @@ bases to the live scoreboard's shared problem-metadata extractor, so
 first-solver cells render the star in both presentations. It replaced Phase 13's
 `ceremony-boot.js`, which was a placeholder.
 
+It supplies `CeremonyMediaCue` with its DOM and owns one piece of copy of its
+own: the overlay's blocked-audio message is a *function*, returning the
+projector-appropriate line only while the current open came from a cue. A local
+click keeps the module default ("press play"), since the person who clicked is
+the one who can act on it. A blocked remote open reveals a quiet operator note in
+the header asking for the one click that grants this page audio, and any
+`pointerdown` retires it.
+
+### `ceremony-media-cue.js` (`window.CeremonyMediaCue`)
+
+The projector's half of the operator's team-media cue. Pure: no network, no
+ceremony state, and no decision about *which* team — the server already resolved
+that from the ceremony's own cursor.
+
+- `createMediaCueController({findTrigger, isOpen, close, currentTeamId})` →
+  `{apply, applyState, onHidden, openedRemotely}`
+- `ceremonySignature(projection)` — `phase | revealed_count | focused_team_id`.
+  **Also imported by `control.js`, and ported into the Android
+  `core/Controls.kt`**: the projector closes its overlay when this value changes
+  and both operator panels reset their Show/Hide label on it, so a second
+  definition of "the ceremony moved" would drift into a button describing the
+  opposite of what is on the projector. That is why the control page loads this
+  module for the function alone.
+
+Behavior notes:
+
+- **A show clicks the team's real row button, never `modal.show()`.** In
+  Bootstrap 5.3 focus *restoration* lives in the data-API click handler, so a
+  programmatic open traps focus correctly and then returns it nowhere. Clicking
+  the trigger is also what supplies `relatedTarget`, which is how
+  `team-media-modal.js` learns the team.
+- **Switching teams closes first and reopens on `hidden`.** Bootstrap ignores a
+  show on an open dialog, and the teardown that frees the previous team's media
+  runs on hide, so the incoming team waits for that close rather than racing it.
+  A switch still pending when the ceremony moves is abandoned — reopening a team
+  the board has moved past would put a stale face on the projector.
+- **A ceremony that moves takes the overlay down** (`applyState` returns whether
+  it did). An operator who cues a photo and then presses Step is not asking to
+  reveal a result from behind a photograph, and nothing on the server can enforce
+  it: the cue persists no state for a later command to clear. Keying on the
+  *signature* rather than on the state request is what keeps a reconnect
+  reconciliation — which refetches identical state — from closing an overlay the
+  operator just raised. It is also what lets both operator panels keep a purely
+  local Show/Hide label, since projector and panels reset on one signal.
+- **Absent or malformed input is ignored, never thrown over.** A cue for a team
+  that is not on the board (a cue that raced a re-render, or a row this scope
+  filtered out) does nothing: there is no photo this projector could correctly
+  show.
+
 ### `control-lease.js` (`window.AnimatorControlLease`)
 
 The ephemeral controller-identity transport; `createLeaseClient(deps)` with
@@ -1319,6 +1737,9 @@ handler, so the whole lifecycle runs under Node with fake timers.
   non-stated is unavailable → fail closed.
 - Heartbeats reschedule from the server's returned cadence
   (`heartbeat_interval_seconds`), not a client constant.
+- The `active` state is emitted **with the lease payload** as its detail, which
+  is how `projector_count` reaches the ownership controller on every claim,
+  heartbeat, and takeover without a request of its own.
 - **A blip does not cost command authority.** A heartbeat that fails without a
   stated ownership answer (network error, `503`) is retried ~`ttl/3` later,
   twice, inside the remaining TTL — the panel stays fail-closed while retrying
@@ -1347,6 +1768,16 @@ panel states plus pending/released into the status badge and detail line.
   only from the modal's confirm button. There is no automatic takeover.
 - Retry exists only in the unavailable state and re-runs a claim — which can
   never steal the scope from another owner.
+- **Projector readout.** `projectorCopy(count)` words the `projector_count`
+  the lease payload carries — `N projectors connected`, `1 projector
+  connected`, `No projectors connected` (warning tone), and `Projector count
+  unavailable` for `null`, which is deliberately never rendered as zero — into
+  `#control-projectors` beside the ownership badge, so the glance that answers
+  "am I in control?" also answers "is anyone listening?". It renders only in the
+  active state with a reported count: a heartbeat error detail keeps the last
+  reading, and losing control clears it rather than leaving a stale number under
+  a badge that no longer means control. The Android remote ports the wording
+  name-for-name (`projectorLabel` in `core/Controls.kt`).
 
 ### `control.js` (`window.AnimatorControl`)
 
@@ -1377,6 +1808,22 @@ panel states plus pending/released into the status badge and detail line.
 - `stepMany(10)` and `backMany(10)` issue the existing scope-free command ten
   times in strict sequence. They stop on the first response that is not a
   confirmed success; no bulk endpoint or command-bus message exists.
+- **`mediaCue(action)` is the one command outside `run()`**, and its three
+  differences are the reason a cue is safe where a reveal command is not: it
+  sends **no `Idempotency-Key`** (nothing is persisted, so there is no receipt
+  ring to match one against, and re-cueing is inherently a no-op); a failure
+  **never sets `blocked`** (a cue cannot reveal anything, so locking the pad over
+  one would be pure cost); and `hide` is dispatched **even while the pad is
+  blocked** — an ambiguous `5xx` with a photograph over the board is exactly when
+  the operator needs the board back, and hiding can never double-apply. `show`
+  stays suppressed there, since raising an overlay while the ceremony's true
+  position is unknown risks showing the wrong team. It expects `204`, so there is
+  no projection to apply; only a confirmed cue flips the button's label, and the
+  label resets on every applied projection in step with the projector's own
+  auto-hide. `controlsForState` gains `mediaVisible`, true whenever the
+  projection names a `focused_team_id` — gated on the cursor rather than the
+  phase, and deliberately surviving into `done`. The Android `ControlVisibility`,
+  `CommandClient`, `RemoteViewModel`, and `CommandPad` mirror all of it.
 - **Every mutating attempt carries the controller id** from the wired
   `AnimatorControlOwnership` alongside its fresh `Idempotency-Key`, and `run`
   refuses to fire at all unless the ownership controller reports active — so a

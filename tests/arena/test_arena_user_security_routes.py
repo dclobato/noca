@@ -89,7 +89,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         action_enum=ArenaTokenAction,
     )
     app.state.qrcode_service = QRCodeService.create_default()
-    app.state.email_service = MagicMock(send_email=MagicMock(return_value=MagicMock(success=True)))
+    app.state.email_service = MagicMock(send_email=AsyncMock(return_value=MagicMock(success=True)))
 
     # ---- Named stubs required for redirects / templates ----
 

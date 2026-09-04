@@ -105,6 +105,9 @@ class ProblemDefinitionView:
             the browser cannot restore and the author must choose again.
         notices: Page-level notices for the shared notice slot -- why this
             problem is read-only, what a contest's state forbids.
+        draft_key: The stable browser-draft key the Save form binds with
+            ``data-noca-draft`` (``shared.services.form_draft``), so the
+            template and the confirming save route name the same draft.
     """
 
     validator_type: ProblemValidatorType
@@ -123,6 +126,7 @@ class ProblemDefinitionView:
     validator_status_template: str | None = None
     reselect_uploads: tuple[str, ...] = ()
     notices: tuple[EditorNotice, ...] = ()
+    draft_key: str = ""
 
     def tab_url(self, tab: str) -> str:
         """Return the editor URL that opens ``tab`` directly.

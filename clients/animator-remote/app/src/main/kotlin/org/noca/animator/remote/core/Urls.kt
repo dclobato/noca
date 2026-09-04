@@ -36,6 +36,8 @@ data class ControlEndpoints(
     val reset: String,
     val jump: String,
     val jumpPending: String,
+    val showTeamMedia: String,
+    val hideTeamMedia: String,
     val leaseClaim: String,
     val leaseHeartbeat: String,
     val leaseRelease: String,
@@ -86,10 +88,12 @@ fun revealEventsUrl(baseUrl: String, slug: String, scope: String): String =
     "${contestBaseUrl(baseUrl, slug)}/reveal/events?scope=${requireValidScope(scope)}"
 
 /**
- * Builds the seven operator control endpoints.
+ * Builds the operator control endpoints.
  *
  * None of them takes a query parameter: every command derives its scope from the
- * credential and the stored session, so no request may redirect a ceremony.
+ * credential and the stored session, so no request may redirect a ceremony. That
+ * covers the two media cues as well -- neither names a team, because the server
+ * reads the ceremony's own focused team instead.
  */
 fun controlEndpoints(baseUrl: String, slug: String): ControlEndpoints {
     val base = "${contestBaseUrl(baseUrl, slug)}/control"
@@ -102,6 +106,8 @@ fun controlEndpoints(baseUrl: String, slug: String): ControlEndpoints {
         reset = "$base/reset",
         jump = "$base/jump-team",
         jumpPending = "$base/jump-pending",
+        showTeamMedia = "$base/show-team-media",
+        hideTeamMedia = "$base/hide-team-media",
         leaseClaim = "$leaseBase/claim",
         leaseHeartbeat = "$leaseBase/heartbeat",
         leaseRelease = "$leaseBase/release",

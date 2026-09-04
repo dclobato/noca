@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_country_flag, render_icon, render_state_flag with context %}
 {% block title_suffix %}&mdash; #{{ problem.arena_number }} {{ problem.title }}{% endblock %}
 {% block nav_problems %}active{% endblock %}
 {% block extra_head %}
@@ -32,87 +32,95 @@
                         {% include "_partials/problem_rating_chart.html" %}
                     {% endwith %}
                 </div>
-                {# Attempted users #}
+                {# Difficulty — evidence-gated headline value #}
                 <div class="arena-problem-header-stat ms-auto">
-                    {{ render_icon(icon="people") }}<span class="small">
-                    {% if problem.rating %}
-                        {{ problem.rating.attempted_users }} user{{ 's' if problem.rating.attempted_users != 1 else '' }} attempted
-                    {% else %}
-                        0 users attempted
-                    {% endif %}
+                    {{ render_icon(icon="speed") }}<span class="small">
+                    {% with difficulty=difficulty %}
+                        {% include "_partials/difficulty_value.html" %}
+                    {% endwith %}
                 </span>
             </div>
-            {# Acceptance rate #}
+            {# Attempted users #}
             <div class="arena-problem-header-stat">
-                {{ render_icon(icon="check_circle") }}<span class="small">
-                {% if problem.rating and problem.rating.attempted_users > 0 %}
-                    {{ "%.0f" | format(problem.rating.solve_rate * 100) }}% solved
+                {{ render_icon(icon="people") }}<span class="small">
+                {% if problem.rating %}
+                    {{ problem.rating.attempted_users }} user{{ 's' if problem.rating.attempted_users != 1 else '' }} attempted
                 {% else %}
-                    &mdash;
+                    0 users attempted
                 {% endif %}
             </span>
         </div>
-        {# Statistics #}
+        {# Acceptance rate #}
         <div class="arena-problem-header-stat">
-            <a href="{{ request.url_for('arena_problem_statistics', arena_number=problem.arena_number) }}"
-               class="arena-icon-link small"
-               aria-label="Problem statistics"
-               title="Statistics">{{ render_icon(icon="bar_chart") }}</a>
+            {{ render_icon(icon="check_circle") }}<span class="small">
+            {% if problem.rating and problem.rating.attempted_users > 0 %}
+                {{ "%.0f" | format(problem.rating.solve_rate * 100) }}% solved
+            {% else %}
+                &mdash;
+            {% endif %}
+        </span>
+    </div>
+    {# Statistics #}
+    <div class="arena-problem-header-stat">
+        <a href="{{ request.url_for('arena_problem_statistics', arena_number=problem.arena_number) }}"
+           class="arena-icon-link small"
+           aria-label="Problem statistics"
+           title="Statistics">{{ render_icon(icon="bar_chart") }}</a>
+    </div>
+    {# User status — follows the right-aligned stats group #}
+    {% if current_user %}
+        <div class="arena-problem-header-stat">
+            {% if solved_at %}
+                {{ render_icon(icon="done_all", title="Solved " ~ relative_solved, label="Solved " ~ relative_solved) }}
+            {% elif tried_at %}
+                {{ render_icon(icon="pending", title="Unsolved", label="Unsolved") }}
+            {% else %}
+                {{ render_icon(icon="radio_button_unchecked", title="Not attempted", label="Not attempted") }}
+            {% endif %}
         </div>
-        {# User status — follows the right-aligned stats group #}
-        {% if current_user %}
-            <div class="arena-problem-header-stat">
-                {% if solved_at %}
-                    {{ render_icon(icon="done_all", title="Solved " ~ relative_solved, label="Solved " ~ relative_solved) }}
-                {% elif tried_at %}
-                    {{ render_icon(icon="pending", title="Unsolved", label="Unsolved") }}
+        <div class="arena-problem-header-stat">
+            <button id="favorite-toggle-btn"
+                    class="arena-favorite-btn"
+                    type="button"
+                    aria-label="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
+                    title="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
+                    data-toggle-url="{{ request.url_for('arena_problem_toggle_favorite', arena_number=problem.arena_number) }}"
+                    data-login-url="{{ request.url_for("arena_login") }}?next={{ request.url.path }}">
+                {% if is_favorite %}
+                    {{ render_icon(icon="favorite", filled=True, classes="arena-favorite-icon arena-favorite-icon--active") }}
                 {% else %}
-                    {{ render_icon(icon="radio_button_unchecked", title="Not attempted", label="Not attempted") }}
+                    {{ render_icon(icon="favorite", classes="arena-favorite-icon") }}
                 {% endif %}
-            </div>
+            </button>
+        </div>
+        {% if current_user.role == 'ARENA_ADMIN' or (current_user.can_edit and current_user.id == problem.owner_id) %}
             <div class="arena-problem-header-stat">
-                <button id="favorite-toggle-btn"
-                        class="arena-favorite-btn"
-                        type="button"
-                        aria-label="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
-                        title="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
-                        data-toggle-url="{{ request.url_for('arena_problem_toggle_favorite', arena_number=problem.arena_number) }}"
-                        data-login-url="{{ request.url_for("arena_login") }}?next={{ request.url.path }}">
-                    {% if is_favorite %}
-                        {{ render_icon(icon="favorite", filled=True, classes="arena-favorite-icon arena-favorite-icon--active") }}
-                    {% else %}
-                        {{ render_icon(icon="favorite", classes="arena-favorite-icon") }}
-                    {% endif %}
+                <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=problem.id) ~ '?next=' ~ request.url.path }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   aria-label="Edit problem"
+                   title="Edit problem">{{ render_icon(icon="edit") }}</a>
+            </div>
+        {% elif current_user.id == problem.owner_id %}
+            <div class="arena-problem-header-stat">
+                <button type="button"
+                        class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
+                        data-bs-toggle="modal"
+                        data-bs-target="#problem-removal-modal"
+                        title="Request problem removal">
+                    {{ render_icon(icon="delete") }}
+                    Request removal
                 </button>
             </div>
-            {% if current_user.role == 'ARENA_ADMIN' or (current_user.can_edit and current_user.id == problem.owner_id) %}
-                <div class="arena-problem-header-stat">
-                    <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=problem.id) ~ '?next=' ~ request.url.path }}"
-                       class="btn btn-outline-secondary btn-sm"
-                       aria-label="Edit problem"
-                       title="Edit problem">{{ render_icon(icon="edit") }}</a>
-                </div>
-            {% elif current_user.id == problem.owner_id %}
-                <div class="arena-problem-header-stat">
-                    <button type="button"
-                            class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
-                            data-bs-toggle="modal"
-                            data-bs-target="#problem-removal-modal"
-                            title="Request problem removal">
-                        {{ render_icon(icon="delete") }}
-                        Request removal
-                    </button>
-                </div>
-            {% endif %}
-            <div class="arena-problem-header-stat">
-                <a href="{{ request.url_for('arena_problem_print', arena_number=problem.arena_number) }}"
-                   class="btn btn-outline-secondary btn-sm"
-                   target="_blank"
-                   aria-label="Open a printable view of this problem"
-                   title="Open a printable view of this problem">{{ render_icon(icon="print") }}</a>
-            </div>
         {% endif %}
-    </div>
+        <div class="arena-problem-header-stat">
+            <a href="{{ request.url_for('arena_problem_print', arena_number=problem.arena_number) }}"
+               class="btn btn-outline-secondary btn-sm"
+               target="_blank"
+               aria-label="Open a printable view of this problem"
+               title="Open a printable view of this problem">{{ render_icon(icon="print") }}</a>
+        </div>
+    {% endif %}
+</div>
 </div>
 {% if accepting_set %}
     {# ── Problem set banner ────────────────────────────────────────────── #}
@@ -261,6 +269,11 @@
                         {{ render_icon(icon="menu_book") }}
                         Editorial
                     </a>
+                {% elif editorial_pending_ac %}
+                    <span class="text-muted small d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="lock") }}
+                        Editorial available after AC
+                    </span>
                 {% endif %}
                 {% if next_problem_url %}
                     <a href="{{ next_problem_url }}"
@@ -292,9 +305,10 @@
                         {{ render_icon(icon="school") }}
                         From {{ author_info.affiliation_name }}
                         {% if author_info.affiliation_country_code %}
-                            <img src="{{ request.url_for('static_vendor', path='img/flags/' + author_info.affiliation_country_code.lower() + '.svg') }}"
-                                 class="arena-country-flag"
-                                 alt="">
+                            {% set author_country = author_info.affiliation_country_code %}
+                            {% set author_subdivision = author_info.affiliation_subdivision_code %}
+                            {{ render_country_flag(request, author_country) }}
+                            {{ render_state_flag(request, author_country, author_subdivision) }}
                         {% endif %}
                     </p>
                 {% endif %}
@@ -314,6 +328,10 @@
                     {% endif %}
                 </p>
             {% endif %}
+            <p class="text-muted small mb-2">
+                {{ render_icon(icon="update") }}
+                Last updated at: {{ arena_format_datetime(problem.updated_at, current_user) }}
+            </p>
             {# Category pills #}
             {% if problem.categories %}
                 <div class="mb-4">
@@ -367,11 +385,11 @@
                         <div class="card-body">
                             <div class="mb-3">
                                 <p class="text-muted small fw-semibold mb-1">Input</p>
-                                <pre class="bg-light p-2 rounded small mb-0 overflow-auto arena-sample-pre">{{ (tc.input_content or '') | e }}</pre>
+                                <pre class="p-2 rounded small mb-0 overflow-auto arena-sample-pre">{{ (tc.input_content or '') | e }}</pre>
                             </div>
                             <div>
                                 <p class="text-muted small fw-semibold mb-1">Output</p>
-                                <pre class="bg-light p-2 rounded small mb-0 overflow-auto arena-sample-pre">{{ (tc.output_content or '') | e }}</pre>
+                                <pre class="p-2 rounded small mb-0 overflow-auto arena-sample-pre">{{ (tc.output_content or '') | e }}</pre>
                             </div>
                             {% if tc.explanation %}
                                 <div class="text-muted small mt-2">
@@ -426,6 +444,11 @@
                         {{ render_icon(icon="menu_book") }}
                         Editorial
                     </a>
+                {% elif editorial_pending_ac %}
+                    <span class="text-muted small d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="lock") }}
+                        Editorial available after AC
+                    </span>
                 {% endif %}
                 {% if next_problem_url %}
                     <a href="{{ next_problem_url }}"

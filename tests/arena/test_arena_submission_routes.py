@@ -50,7 +50,9 @@ from shared.db_schema.arena import (
     arena_submission_ai_reviews,
     arena_submission_interactive_attempts,
     arena_submission_judgments,
+    arena_submission_test_results,
     arena_submissions,
+    arena_test_cases,
 )
 from shared.enumerations import ArenaRole, ProblemValidatorType, Verdict
 from shared.queue_schema import AIBatchTurnaroundStats
@@ -104,9 +106,13 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     )
     if valkey_runtime is None:
         valkey_runtime = MagicMock()
-        valkey_runtime.get = AsyncMock(return_value=None)
-    elif isinstance(valkey_runtime, MagicMock) and not isinstance(valkey_runtime.get, AsyncMock):
-        valkey_runtime.get = AsyncMock(return_value=None)
+    if isinstance(valkey_runtime, MagicMock):
+        if not isinstance(valkey_runtime.get, AsyncMock):
+            valkey_runtime.get = AsyncMock(return_value=None)
+        if not isinstance(valkey_runtime.eval, AsyncMock):
+            # The per-user request limiter runs a script; ``None`` means "use the
+            # in-memory fallback", which the arena conftest resets per test.
+            valkey_runtime.eval = AsyncMock(return_value=None)
     app.state.valkey_runtime = valkey_runtime
 
     # Named-route stubs required by templates / redirects
@@ -276,8 +282,10 @@ async def _make_arena_user(
     return user
 
 
-async def _make_problem_with_tc(session: AsyncSession, author: ArenaUser) -> ArenaProblem:
-    """Create an enabled ArenaProblem with one test case."""
+async def _make_problem_with_tc(
+    session: AsyncSession, author: ArenaUser, *, output_content: str = "1\n"
+) -> ArenaProblem:
+    """Create an enabled ArenaProblem with one secret test case."""
     problem = ArenaProblem(
         arena_number=int(uuid.uuid4().int % 100_000) + 1,
         title="Submit Me",
@@ -288,7 +296,7 @@ async def _make_problem_with_tc(session: AsyncSession, author: ArenaUser) -> Are
     )
     session.add(problem)
     await session.flush()
-    tc = make_arena_test_case(problem.id, 1)
+    tc = make_arena_test_case(problem.id, 1, output_content=output_content)
     session.add(tc)
     await session.commit()
     await session.refresh(problem)
@@ -387,6 +395,52 @@ async def test_interactive_diagnostics_are_visible_only_to_authorized_viewers(
     assert "private-protocol-excerpt" in owner_response.text
     assert unrelated_response.status_code == 404
     assert "private-protocol-excerpt" not in unrelated_response.text
+
+
+@pytest.mark.asyncio
+async def test_wrong_answer_on_a_secret_case_shows_a_bounded_diff_not_the_answer(
+    session: AsyncSession,
+) -> None:
+    """The detail page teaches with the first differing lines, never the whole secret output."""
+    app = _build_app(session)
+    author = await _make_arena_user(session, email_prefix="diff_author")
+    expected = "".join(f"answer-line-{i}\n" for i in range(1, 41))
+    problem = await _make_problem_with_tc(session, author, output_content=expected)
+    language = await _make_language(session)
+    owner = await _make_arena_user(session, email_prefix="diff_owner")
+    submission_id, judgment_id = await _make_submission_with_judgment(
+        session, owner, problem, language, verdict=Verdict.WA.value
+    )
+    test_case_id = await session.scalar(
+        select(arena_test_cases.c.id).where(arena_test_cases.c.problem_id == problem.id)
+    )
+    await session.execute(
+        insert(arena_submission_test_results).values(
+            id=str(uuid.uuid4()),
+            judgment_id=judgment_id,
+            test_case_id=test_case_id,
+            verdict=Verdict.WA.value,
+            stdout_excerpt="answer-line-1\nwrong-line-2\nanswer-line-3\n",
+            stderr_excerpt=None,
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, owner)
+        resp = await client.get(f"/submissions/{submission_id}")
+
+    assert resp.status_code == 200
+    assert "Expected output" in resp.text
+    assert 'title="Secret test case"' in resp.text
+    # The changed pair and the first missing lines are shown ...
+    assert "wrong-line-2" in resp.text
+    assert "answer-line-2" in resp.text
+    assert "answer-line-4" in resp.text
+    # ... but the secret answer is not handed over: differing lines are 1 changed + 37 missing.
+    assert "answer-line-9" not in resp.text
+    assert "answer-line-40" not in resp.text
+    assert "32 more not shown" in resp.text
 
 
 async def _make_ai_review(
@@ -1210,7 +1264,7 @@ async def test_request_ai_review_owner_enqueues(session: AsyncSession) -> None:
     owner = await _make_arena_user(session, email_prefix="owner11", ai_backend_credits=1)
     sub_id, _ = await _make_submission_with_judgment(session, owner, problem, lang, verdict=Verdict.WA.value)
 
-    import arena.routes.submissions as submissions_module
+    import arena.services.ai_review_request_service as submissions_module
 
     original_enqueue = submissions_module.enqueue_arena_ai_review_job
     submissions_module.enqueue_arena_ai_review_job = enqueue_mock
@@ -1256,7 +1310,7 @@ async def test_request_ai_review_admin_forbidden(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_request_ai_review_idempotent(session: AsyncSession) -> None:
-    """Second POST when submit_to_ai=True re-enqueues to self-heal a lost job."""
+    """A POST when submit_to_ai=True answers the pending state and never re-enqueues."""
     enqueue_mock = AsyncMock()
     mock_valkey = MagicMock()
     app = _build_app(session, valkey_runtime=mock_valkey)
@@ -1269,7 +1323,7 @@ async def test_request_ai_review_idempotent(session: AsyncSession) -> None:
         session, owner, problem, lang, verdict=Verdict.WA.value, submit_to_ai=True
     )
 
-    import arena.routes.submissions as submissions_module
+    import arena.services.ai_review_request_service as submissions_module
 
     original_enqueue = submissions_module.enqueue_arena_ai_review_job
     submissions_module.enqueue_arena_ai_review_job = enqueue_mock
@@ -1283,9 +1337,10 @@ async def test_request_ai_review_idempotent(session: AsyncSession) -> None:
 
     assert resp.status_code == 303
     assert f"/submissions/{sub_id}" in resp.headers["location"]
-    # The pending flag is already set, but the job may have been lost after the
-    # original commit. Re-enqueue to self-heal rather than dead-ending the user.
-    enqueue_mock.assert_awaited_once()
+    # The pending flag is already set: the worker (or the reconciler, for a job
+    # lost after commit) owns it. Re-enqueueing here would push a duplicate job
+    # for free, so the route answers the pending state and pushes nothing.
+    enqueue_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1301,7 +1356,7 @@ async def test_request_ai_review_no_credits_no_key_blocked(session: AsyncSession
     owner = await _make_arena_user(session, email_prefix="owner14", ai_backend_credits=0)
     sub_id, _ = await _make_submission_with_judgment(session, owner, problem, lang, verdict=Verdict.WA.value)
 
-    import arena.routes.submissions as submissions_module
+    import arena.services.ai_review_request_service as submissions_module
 
     original_enqueue = submissions_module.enqueue_arena_ai_review_job
     submissions_module.enqueue_arena_ai_review_job = enqueue_mock
@@ -1339,7 +1394,7 @@ async def test_request_ai_review_with_credits_consumes_one(session: AsyncSession
     owner = await _make_arena_user(session, email_prefix="owner15", ai_backend_credits=3)
     sub_id, _ = await _make_submission_with_judgment(session, owner, problem, lang, verdict=Verdict.WA.value)
 
-    import arena.routes.submissions as submissions_module
+    import arena.services.ai_review_request_service as submissions_module
 
     original_enqueue = submissions_module.enqueue_arena_ai_review_job
     submissions_module.enqueue_arena_ai_review_job = enqueue_mock
@@ -1377,7 +1432,7 @@ async def test_request_ai_review_with_credits_consumes_one(session: AsyncSession
 
 @pytest.mark.asyncio
 async def test_request_ai_review_idempotent_does_not_charge_credit(session: AsyncSession) -> None:
-    """Second POST when submit_to_ai=True self-heals without consuming an additional credit."""
+    """A POST when submit_to_ai=True consumes no additional credit and enqueues nothing."""
     enqueue_mock = AsyncMock()
     mock_valkey = MagicMock()
     app = _build_app(session, valkey_runtime=mock_valkey)
@@ -1390,7 +1445,7 @@ async def test_request_ai_review_idempotent_does_not_charge_credit(session: Asyn
         session, owner, problem, lang, verdict=Verdict.WA.value, submit_to_ai=True
     )
 
-    import arena.routes.submissions as submissions_module
+    import arena.services.ai_review_request_service as submissions_module
 
     original_enqueue = submissions_module.enqueue_arena_ai_review_job
     submissions_module.enqueue_arena_ai_review_job = enqueue_mock
@@ -1403,9 +1458,9 @@ async def test_request_ai_review_idempotent_does_not_charge_credit(session: Asyn
         submissions_module.enqueue_arena_ai_review_job = original_enqueue
 
     assert resp.status_code == 303
-    # Re-enqueued to self-heal, but no new credit is consumed: the charge (if any)
-    # was already taken on the original request that set submit_to_ai=True.
-    enqueue_mock.assert_awaited_once()
+    # Nothing is enqueued and no new credit is consumed: the charge (if any) was
+    # already taken on the original request that set submit_to_ai=True.
+    enqueue_mock.assert_not_awaited()
 
     # Credits must be untouched — the re-enqueue path never reaches the credit gate
     await session.refresh(owner)

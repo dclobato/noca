@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services.user_timezone_service import format_user_datetime
 from shared.enumerations import ARENA_NOTIFICATION_ICONS, ArenaNotificationKind
@@ -28,7 +29,9 @@ from shared.services.arena_notification_service import (
     mark_arena_notification_read,
 )
 
-router = APIRouter(prefix="/arena/notifications", tags=["arena-notifications"])
+router = APIRouter(
+    prefix="/arena/notifications", tags=["arena-notifications"], dependencies=[Depends(arena_user_read_rate_limit)]
+)
 
 CurrentArenaUser = Annotated[ArenaUser | None, Depends(get_current_arena_user)]
 DatabaseSession = Annotated[AsyncSession, Depends(get_db)]

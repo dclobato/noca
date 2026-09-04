@@ -1,11 +1,15 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 "use strict";
 
+// Fetches the precomputed statistics payload once and renders the judged
+// distributions (doughnuts, per-language tables, wall-time histogram). The
+// solver surfaces -- first/last solver, attempts histogram, submission heatmap
+// -- live in ArenaProblemSolverStats and receive the same payload.
 var ArenaProblemStatistics = (function () {
     var VERDICT_LABELS = {
         AC: "Accepted",
@@ -54,6 +58,7 @@ var ArenaProblemStatistics = (function () {
             return item;
         });
         return {
+            aria: { enabled: true },
             tooltip: {
                 trigger: "item",
                 formatter: "{b}: {c} ({d}%)",
@@ -91,6 +96,7 @@ var ArenaProblemStatistics = (function () {
             };
         });
         return {
+            aria: { enabled: true },
             tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
             legend: { type: "plain", bottom: 0 },
             grid: { left: 50, right: 20, top: 20, bottom: 90 },
@@ -145,7 +151,7 @@ var ArenaProblemStatistics = (function () {
         return td;
     }
 
-    function _render(payload, verdictChart, languageChart, histogramChart) {
+    function _render(payload, verdictChart, languageChart, histogramChart, solverStats) {
         var hasData = payload && payload.total_submissions > 0;
 
         var computedEl = document.querySelector("[data-stats-computed-at]");
@@ -157,6 +163,9 @@ var ArenaProblemStatistics = (function () {
         if (verdictChart) verdictChart.hideLoading();
         if (languageChart) languageChart.hideLoading();
         if (histogramChart) histogramChart.hideLoading();
+        // Solver surfaces judge their own emptiness: a pending-only problem has
+        // no judged distribution but still has a heatmap.
+        if (solverStats) solverStats.render(payload || {});
 
         if (!hasData) {
             if (verdictChart) verdictChart.render(function (chart) { chart.setOption(_emptyOption("No submissions yet."), true); });
@@ -199,8 +208,9 @@ var ArenaProblemStatistics = (function () {
         _fillTable("[data-stats-memory-table]", payload.memory_stats, "avg_kb", "stddev_kb");
     }
 
-    function _renderError(verdictChart, languageChart, histogramChart) {
+    function _renderError(verdictChart, languageChart, histogramChart, solverStats) {
         var message = "Failed to load statistics.";
+        if (solverStats) solverStats.renderError(message);
         [verdictChart, languageChart, histogramChart].forEach(function (mgr) {
             if (!mgr) return;
             mgr.hideLoading();
@@ -222,6 +232,7 @@ var ArenaProblemStatistics = (function () {
         var verdictChart = _initChart("problem-stats-verdicts");
         var languageChart = _initChart("problem-stats-languages");
         var histogramChart = _initChart("problem-stats-histogram");
+        var solverStats = typeof ArenaProblemSolverStats !== "undefined" ? ArenaProblemSolverStats.init() : null;
         [verdictChart, languageChart, histogramChart].forEach(function (mgr) {
             if (mgr) mgr.showLoading();
         });
@@ -234,11 +245,11 @@ var ArenaProblemStatistics = (function () {
                 return response.json();
             })
             .then(function (payload) {
-                _render(payload || {}, verdictChart, languageChart, histogramChart);
+                _render(payload || {}, verdictChart, languageChart, histogramChart, solverStats);
             })
             .catch(function (err) {
                 console.error("ArenaProblemStatistics: failed to load data.", err);
-                _renderError(verdictChart, languageChart, histogramChart);
+                _renderError(verdictChart, languageChart, histogramChart, solverStats);
             });
     }
 
@@ -248,5 +259,5 @@ var ArenaProblemStatistics = (function () {
         init();
     }
 
-    return { init: init };
+    return { init: init, emptyOption: _emptyOption };
 }());

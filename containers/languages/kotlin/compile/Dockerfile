@@ -15,14 +15,14 @@ LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 # The distro ships an outdated kotlin package, so it is not used.
 # curl and unzip are installed for the download/extract step and then removed.
 ARG KOTLIN_VERSION=2.3.0
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl unzip \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends curl unzip \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fSL "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" \
        -o /tmp/kotlinc.zip \
     && unzip -q /tmp/kotlinc.zip -d /opt \
     && rm /tmp/kotlinc.zip \
-    && apt-get purge -y --auto-remove curl unzip
+    && apt-get -o Acquire::Retries=3 purge -y --auto-remove curl unzip
 
 ENV PATH="/opt/kotlinc/bin:${PATH}"
 

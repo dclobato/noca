@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -7,15 +7,19 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
 from shared.queue_schema import JudgeJob
+from shared.services.admin_audit import record_admin_action
+from shared.services.rejudge_cooldown import acquire_rejudge_cooldown, release_rejudge_cooldown
 from shared.services.scoreboard_cache import invalidate_scoreboard_cache
+from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_problem_helpers import _html, _is_edit_allowed, _is_limits_edit_allowed, _redirect
 from web.routes.contest_admin_problem_limits_helpers import _build_profiling_limits_context, _limit_batch_groups
 from web.services.judging_service import queue_limit_change_batch_rejudges
+from web.services.password_confirm_throttle import confirm_password, render_lockout
 from web.services.problem_service import (
     apply_fallback_limits,
     changed_effective_limits,
@@ -226,8 +230,20 @@ async def _queue_limit_batch_rejudges(
     flash: FlashDep,
     ctx: ContestAdminContext,
     *,
+    password: str,
     language_id: str | None = None,
-) -> RedirectResponse:
+) -> Response:
+    """Queue the still-pending rows of one limit-change batch, guarded three ways.
+
+    The order is the design: the lookups run first so an unknown id is a plain
+    flash that spends no password budget; the password is confirmed through the
+    shared throttled budget *before* anything is staged, because that helper
+    commits its own security events; the cooldown -- batch-wide action only,
+    since the per-language buttons are idempotent and rejudging language A then
+    B is a normal workflow -- is taken before the selection query so a repeat
+    never re-runs it; and the audit row joins the transaction that creates the
+    ``QUEUED`` judgments so the two cannot disagree.
+    """
     problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
     if problem is None:
         flash("Problem not found.", FlashCategory.DANGER)
@@ -238,18 +254,76 @@ async def _queue_limit_batch_rejudges(
         flash("Limit change batch not found.", FlashCategory.DANGER)
         return _redirect(str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem_id)))
 
-    new_judgments = await queue_limit_change_batch_rejudges(
-        ctx.session,
-        batch,
-        ctx.contest,
-        ctx.actor,
-        request.app.state.valkey_runtime,
-        language_id=language_id,
+    review_url = str(
+        request.url_for(
+            "problem_limit_change_batch_review",
+            slug=ctx.contest.login_slug,
+            problem_id=problem_id,
+            batch_id=batch_id,
+        )
     )
-    await ctx.session.commit()
+    action = "limit_batch_rejudge_language" if language_id is not None else "limit_batch_rejudge_all"
+    confirmation = await confirm_password(request, ctx.session, actor=ctx.actor, password=password, action=action)
+    if confirmation.locked:
+        return render_lockout(
+            request,
+            retry_after_seconds=confirmation.retry_after_seconds,
+            back_url=review_url,
+            back_label="Back to the batch",
+        )
+    if not confirmation.ok:
+        flash("Password confirmation is incorrect.", FlashCategory.DANGER)
+        return _redirect(review_url)
+
+    runtime = request.app.state.valkey_runtime
+    cooldown_held = False
+    if language_id is None:
+        retry_after = await acquire_rejudge_cooldown(
+            runtime,
+            module="web",
+            problem_id=problem.id,
+            ttl_seconds=settings.REJUDGE_COOLDOWN_SECONDS,
+        )
+        if retry_after:
+            flash(
+                f"A batch-wide rejudge of this problem was started less than "
+                f"{settings.REJUDGE_COOLDOWN_SECONDS} s ago. Try again in {retry_after} s.",
+                FlashCategory.DANGER,
+            )
+            return _redirect(review_url)
+        cooldown_held = True
+
+    try:
+        new_judgments = await queue_limit_change_batch_rejudges(
+            ctx.session,
+            batch,
+            ctx.contest,
+            ctx.actor,
+            runtime,
+            language_id=language_id,
+        )
+        if new_judgments:
+            await record_admin_action(
+                ctx.session,
+                request,
+                module="web",
+                actor_user_id=ctx.actor.id,
+                actor_label=ctx.actor.username,
+                action=action,
+                target_type="problem",
+                target_id=problem.id,
+                detail=f"batch={batch.id} language={language_id or 'all'} queued={len(new_judgments)}",
+                severity="warning",
+            )
+        await ctx.session.commit()
+    except BaseException:
+        if cooldown_held:
+            await release_rejudge_cooldown(runtime, module="web", problem_id=problem.id)
+        raise
+
     for judgment in new_judgments:
         await enqueue_job(
-            request.app.state.valkey_runtime,
+            runtime,
             JudgeJob(
                 judgment_id=judgment.id,
                 contest_id=str(ctx.contest.id),
@@ -260,24 +334,18 @@ async def _queue_limit_batch_rejudges(
             priority=True,
         )
     if new_judgments:
-        await invalidate_scoreboard_cache(request.app.state.valkey_runtime, str(ctx.contest.id))
+        await invalidate_scoreboard_cache(runtime, str(ctx.contest.id))
         flash(f"Queued {len(new_judgments)} submissions for rejudging.", FlashCategory.SUCCESS)
     else:
+        if cooldown_held:
+            await release_rejudge_cooldown(runtime, module="web", problem_id=problem.id)
         flash("No pending submissions were eligible for rejudging.", FlashCategory.WARNING)
-    return _redirect(
-        str(
-            request.url_for(
-                "problem_limit_change_batch_review",
-                slug=ctx.contest.login_slug,
-                problem_id=problem_id,
-                batch_id=batch_id,
-            )
-        )
-    )
+    return _redirect(review_url)
 
 
 @router.post(
     "/{problem_id}/limit-change-batches/{batch_id}/rejudge-all",
+    response_model=None,
     name="problem_limit_change_batch_rejudge_all",
 )
 async def problem_limit_change_batch_rejudge_all(
@@ -286,12 +354,14 @@ async def problem_limit_change_batch_rejudge_all(
     batch_id: str,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
-) -> RedirectResponse:
-    return await _queue_limit_batch_rejudges(request, problem_id, batch_id, flash, ctx)
+    password: str = Form(""),
+) -> Response:
+    return await _queue_limit_batch_rejudges(request, problem_id, batch_id, flash, ctx, password=password)
 
 
 @router.post(
     "/{problem_id}/limit-change-batches/{batch_id}/languages/{language_id}/rejudge",
+    response_model=None,
     name="problem_limit_change_batch_rejudge_language",
 )
 async def problem_limit_change_batch_rejudge_language(
@@ -301,5 +371,8 @@ async def problem_limit_change_batch_rejudge_language(
     language_id: str,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
-) -> RedirectResponse:
-    return await _queue_limit_batch_rejudges(request, problem_id, batch_id, flash, ctx, language_id=language_id)
+    password: str = Form(""),
+) -> Response:
+    return await _queue_limit_batch_rejudges(
+        request, problem_id, batch_id, flash, ctx, password=password, language_id=language_id
+    )

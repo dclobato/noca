@@ -131,13 +131,20 @@ async def _make_user(
     return user
 
 
-async def _make_affiliation(session: AsyncSession, *, name: str, rating: int) -> ArenaAffiliation:
+async def _make_affiliation(
+    session: AsyncSession,
+    *,
+    name: str,
+    rating: int,
+    solved_problems: int = 0,
+) -> ArenaAffiliation:
     """Create a rated affiliation that participates in the ranking."""
     affiliation = ArenaAffiliation(
         name=name,
         country_code="BR",
         exclude_from_ranking=False,
         rating=rating,
+        solved_problems=solved_problems,
     )
     session.add(affiliation)
     await session.commit()
@@ -170,7 +177,11 @@ async def test_user_ranking_renders_default_medal_bands(session: AsyncSession, m
     viewer = await _make_user(session, email="first@test.example", name="First", user_rating=900)
     await _make_user(session, email="second@test.example", name="Second", user_rating=800)
     await _make_user(session, email="third@test.example", name="Third", user_rating=700)
-    await _make_user(session, email="fourth@test.example", name="Fourth", user_rating=600)
+    fourth = await _make_user(session, email="fourth@test.example", name="Fourth", user_rating=600)
+    # A bumped revision must surface in the rendered avatar URL, or the page
+    # falls back to the unversioned, must-revalidate, no-ETag path (#199).
+    fourth.avatar_revision = 3
+    await session.commit()
     app = _build_app(session)
     token = _login_token(app, viewer)
 
@@ -182,7 +193,12 @@ async def test_user_ranking_renders_default_medal_bands(session: AsyncSession, m
     assert response.text.count("/assets/medal/gold") == 1
     assert response.text.count("/assets/medal/silver") == 1
     assert response.text.count("/assets/medal/bronze") == 1
-    assert "Fourth" in response.text
+    # The fourth row renders without a medal. It is identified by its handle:
+    # the ranking is pseudonymous unless an adult opted in to their legal name.
+    assert fourth.username in response.text
+    assert "Fourth" not in response.text
+    assert f"/user/avatar/{fourth.id}?v=3" in response.text
+    assert f'/user/avatar/{fourth.id}"' not in response.text
 
 
 @pytest.mark.asyncio
@@ -225,6 +241,39 @@ async def test_affiliation_ranking_renders_medal_bands(session: AsyncSession, mo
     assert response.text.count("/assets/medal/gold") == 1
     assert response.text.count("/assets/medal/silver") == 1
     assert response.text.count("/assets/medal/bronze") == 1
+
+
+@pytest.mark.asyncio
+async def test_affiliation_ranking_renders_precomputed_solved_count(
+    session: AsyncSession,
+) -> None:
+    """The affiliation ranking renders its precomputed total after rating."""
+    affiliation = await _make_affiliation(
+        session,
+        name="Solved University",
+        rating=500,
+        solved_problems=123,
+    )
+    viewer = await _make_user(
+        session,
+        email="solved-viewer@test.example",
+        name="Solved Viewer",
+        user_rating=100,
+        affiliation_id=affiliation.id,
+    )
+    app = _build_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/ranking/affiliations")
+
+    assert response.status_code == 200
+    assert ">Solved<" in response.text
+    assert ">123<" in response.text
 
 
 @pytest.mark.asyncio

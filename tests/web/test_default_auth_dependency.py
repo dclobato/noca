@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,9 +39,21 @@ def _build_app() -> FastAPI:
     async def _contest_private() -> dict[str, str]:
         return {"page": "contest-private"}
 
+    @app.post("/c/demo/private")
+    async def _contest_private_save() -> dict[str, str]:
+        return {"page": "contest-private-save"}
+
     @app.get("/problem-set/demo.zip")
     async def _problem_set() -> dict[str, str]:
         return {"page": "problem-set"}
+
+    @app.get("/announcements")
+    async def _announcements() -> dict[str, str]:
+        return {"page": "announcements"}
+
+    @app.get("/announcements/some-id")
+    async def _announcement_detail() -> dict[str, str]:
+        return {"page": "announcement-detail"}
 
     return app
 
@@ -55,10 +67,14 @@ async def test_public_web_allowlist_does_not_require_auth() -> None:
         response = await client.get("/login")
         contest_response = await client.get("/c/demo/login")
         problem_set_response = await client.get("/problem-set/demo.zip")
+        announcements_response = await client.get("/announcements")
+        announcement_detail_response = await client.get("/announcements/some-id")
 
     assert response.status_code == 200
     assert contest_response.status_code == 200
     assert problem_set_response.status_code == 200
+    assert announcements_response.status_code == 200
+    assert announcement_detail_response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -73,7 +89,7 @@ async def test_default_web_auth_redirects_private_routes() -> None:
     assert response.status_code == 302
     assert response.headers["Location"] == "/login"
     assert contest_response.status_code == 302
-    assert contest_response.headers["Location"] == "/c/demo/login"
+    assert contest_response.headers["Location"] == "/c/demo/login?next=/c/demo/private"
 
 
 @pytest.mark.asyncio
@@ -91,3 +107,24 @@ async def test_default_web_auth_allows_valid_cached_token(monkeypatch: pytest.Mo
 
     assert response.status_code == 200
     assert response.json() == {"page": "private"}
+
+
+@pytest.mark.asyncio
+async def test_contest_auth_redirect_carries_the_page_to_return_to() -> None:
+    """A bounced GET names itself; a bounced POST names the page it came from."""
+    app = _build_app()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        get_response = await client.get("/c/demo/private?tab=statement")
+        post_response = await client.post(
+            "/c/demo/private",
+            headers={"Referer": "http://test/c/demo/admin/problems/p1/edit?tab=statement"},
+        )
+        foreign_referer = await client.post("/c/demo/private", headers={"Referer": "http://evil.example/c/demo/admin"})
+        other_contest_referer = await client.post("/c/demo/private", headers={"Referer": "http://test/c/other/x"})
+
+    assert get_response.status_code == 302
+    assert get_response.headers["location"] == "/c/demo/login?next=/c/demo/private?tab=statement"
+    assert post_response.headers["location"] == "/c/demo/login?next=/c/demo/admin/problems/p1/edit?tab=statement"
+    assert foreign_referer.headers["location"] == "/c/demo/login"
+    assert other_contest_referer.headers["location"] == "/c/demo/login"

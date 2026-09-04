@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -22,8 +22,9 @@ from shared.db_schema.arena import (
     arena_problem_tried,
     arena_problems,
 )
+from shared.services.arena_difficulty_display import DifficultyDisplay, difficulty_display
 
-ProgressRowSelect = Select[tuple[str, int, str, float, datetime]]
+ProgressRowSelect = Select[tuple[str, int, str, int | None, int | None, int | None, datetime]]
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class ProgressProblemRow:
     arena_number: int
     title: str
     categories: list[ProgressCategory]
-    rating: float
+    difficulty: DifficultyDisplay
     activity_at: datetime
 
 
@@ -106,10 +107,10 @@ async def _paginate_progress_rows(
             arena_number=arena_number,
             title=title,
             categories=categories_by_problem_id.get(problem_id, []),
-            rating=rating,
+            difficulty=difficulty_display(rating, attempted_users, expected_difficulty),
             activity_at=activity_at,
         )
-        for problem_id, arena_number, title, rating, activity_at in rows
+        for problem_id, arena_number, title, rating, attempted_users, expected_difficulty, activity_at in rows
     ]
     return Pagination(items=items, page=page, per_page=params.per_page, total=total)
 
@@ -158,7 +159,8 @@ async def _load_categories_for_problems(
 def _solved_statement(user_id: str) -> ProgressRowSelect:
     """Build the solved-problems progress query.
 
-    Rating values are returned as display-scale floats (internal / 10.0).
+    Rating columns are returned raw (internal rating and attempter count) so
+    the evidence gate can decide what to display.
 
     Args:
         user_id: Arena user id.
@@ -171,7 +173,9 @@ def _solved_statement(user_id: str) -> ProgressRowSelect:
             arena_problems.c.id,
             arena_problems.c.arena_number,
             arena_problems.c.title,
-            func.coalesce(arena_problem_ratings.c.rating, 0) / 10.0,
+            arena_problem_ratings.c.rating,
+            arena_problem_ratings.c.attempted_users,
+            arena_problems.c.expected_difficulty,
             arena_problem_solvers.c.solved_at,
         )
         .select_from(
@@ -191,7 +195,8 @@ def _solved_statement(user_id: str) -> ProgressRowSelect:
 def _attempted_statement(user_id: str) -> ProgressRowSelect:
     """Build the attempted-but-unsolved progress query.
 
-    Rating values are returned as display-scale floats (internal / 10.0).
+    Rating columns are returned raw (internal rating and attempter count) so
+    the evidence gate can decide what to display.
 
     Args:
         user_id: Arena user id.
@@ -204,7 +209,9 @@ def _attempted_statement(user_id: str) -> ProgressRowSelect:
             arena_problems.c.id,
             arena_problems.c.arena_number,
             arena_problems.c.title,
-            func.coalesce(arena_problem_ratings.c.rating, 0) / 10.0,
+            arena_problem_ratings.c.rating,
+            arena_problem_ratings.c.attempted_users,
+            arena_problems.c.expected_difficulty,
             arena_problem_tried.c.last_tried_at,
         )
         .select_from(

@@ -25,7 +25,7 @@
                     <label for="profile_photo" class="arena-avatar-change-trigger">
                         <span class="avatar-wrapper avatar-wrapper--lg"
                               data-user-id="{{ current_user.id }}">
-                            <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
+                            <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ current_user.avatar_revision }}"
                                  alt="{{ current_user.nome }}"
                                  class="arena-avatar arena-profile-avatar">
                         </span>
@@ -61,7 +61,7 @@
                                 <div class="row g-3">
                                     <div class="col-md-8">
                                         <img id="cropImage"
-                                             src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}"
+                                             src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ current_user.avatar_revision }}"
                                              alt="Crop preview"
                                              class="arena-crop-img">
                                     </div>
@@ -135,6 +135,20 @@
                               aria-hidden="true"></span>
                     </button>
                 </li>
+                {% if google_oauth_enabled %}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link {% if active_tab == 'linked-accounts' %}active{% endif %}"
+                                id="linked-accounts-tab"
+                                data-profile-tab="linked-accounts"
+                                type="button"
+                                role="tab"
+                                aria-controls="linked-accounts-tab-pane"
+                                aria-selected="{{ 'true' if active_tab == 'linked-accounts' else 'false' }}">
+                            {{ render_icon(icon="link") }}
+                            <span>Linked Accounts</span>
+                        </button>
+                    </li>
+                {% endif %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link {% if active_tab == 'badges' %}active{% endif %}"
                             id="badges-tab"
@@ -301,38 +315,7 @@
                                             {% endwith %}
                                         </div>
                                     </dd>
-                                    <dt>Ranking visibility</dt>
-                                    <dd>
-                                        <div class="form-check">
-                                            <input type="checkbox"
-                                                   class="form-check-input"
-                                                   id="profile-ranking-visible-input"
-                                                   name="ranking_visible"
-                                                   {% if current_user.ranking_visible %}checked{% endif %}>
-                                            <label class="form-check-label" for="profile-ranking-visible-input">
-                                                Show my name and rating in the public ranking
-                                            </label>
-                                        </div>
-                                        <div class="form-check mt-2">
-                                            <input type="checkbox"
-                                                   class="form-check-input"
-                                                   id="profile-public-profile-input"
-                                                   name="public_profile"
-                                                   {% if current_user.public_profile %}checked{% endif %}
-                                                   {% if not current_user.ranking_visible %}disabled{% endif %}>
-                                            <label class="form-check-label" for="profile-public-profile-input">Make my profile page publicly accessible</label>
-                                            <div class="form-text text-arena-muted">Requires "Show my name and rating in the public ranking" to be enabled.</div>
-                                        </div>
-                                        {% if current_user.public_profile and current_user.ranking_visible %}
-                                            <a href="{{ request.url_for('arena_user_profile_public', user_id=current_user.id) }}"
-                                               target="_blank"
-                                               rel="noopener"
-                                               class="btn btn-outline-secondary arena-icon-button btn-sm mt-2">
-                                                {{ render_icon(icon="open_in_new") }}
-                                                <span>View public profile</span>
-                                            </a>
-                                        {% endif %}
-                                    </dd>
+                                    {% include "users/_visibility_settings.html" %}
                                     <dt class="visually-hidden">Language preferences</dt>
                                     <dd>
                                         <div class="row g-2">
@@ -539,6 +522,148 @@
                     </div>
                 {% endif %}
             </div>
+            {% if google_oauth_enabled %}
+                <div class="tab-pane fade {% if active_tab == 'linked-accounts' %}show active{% endif %}"
+                     id="linked-accounts-tab-pane"
+                     role="tabpanel"
+                     aria-labelledby="linked-accounts-tab"
+                     tabindex="0">
+                    {% if active_tab == 'linked-accounts' %}
+                        <div class="row g-4 arena-profile-pane-grid arena-profile-settings-grid">
+                            <section class="col-12 col-lg-5 arena-profile-settings-column"
+                                     aria-labelledby="profile-linked-accounts-heading">
+                                <div class="arena-profile-settings-heading">
+                                    {{ render_icon(icon="link") }}
+                                    <div>
+                                        <h2 id="profile-linked-accounts-heading">Linked accounts</h2>
+                                        <p>Manage external accounts you can use to sign in to Arena.</p>
+                                    </div>
+                                </div>
+                                <dl class="arena-profile-details arena-profile-settings-list arena-profile-settings-list--summary">
+                                    <dt>Google</dt>
+                                    <dd>
+                                        {% if google_identity %}
+                                            <span class="text-arena-primary fw-semibold">Linked</span>
+                                            {% if google_identity.google_email %}
+                                                <div class="text-arena-muted small">{{ google_identity.google_email }}</div>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-arena-muted">Not linked</span>
+                                        {% endif %}
+                                    </dd>
+                                </dl>
+                                <div class="arena-security-actions arena-profile-security-actions">
+                                    {% if google_identity %}
+                                        {% if current_user.has_usable_password %}
+                                            <button class="btn btn-outline-danger arena-icon-button btn-sm"
+                                                    type="button"
+                                                    data-bs-toggle="collapse"
+                                                    data-bs-target="#unlink-google-form"
+                                                    aria-expanded="false"
+                                                    aria-controls="unlink-google-form">
+                                                {{ render_icon(icon="link_off") }}
+                                                <span>Unlink Google account</span>
+                                            </button>
+                                            <div class="collapse" id="unlink-google-form">
+                                                <form method="post" action="{{ request.url_for("arena_google_unlink") }}">
+                                                    <p class="small text-muted mb-2">You will still be able to sign in with your email and password.</p>
+                                                    <button type="submit" class="btn btn-danger arena-icon-button btn-sm w-100">
+                                                        {{ render_icon(icon="link_off") }}
+                                                        <span>Confirm unlink</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% else %}
+                                            <p class="arena-form-text arena-2fa-help mb-0">
+                                                Google is currently the only way to sign in to this account. Set a
+                                                password with
+                                                <a href="{{ request.url_for("arena_password_reset") }}"
+                                                   class="arena-auth-link">Forgot password?</a>
+                                                before unlinking it.
+                                            </p>
+                                        {% endif %}
+                                    {% else %}
+                                        <form method="post" action="{{ request.url_for("arena_google_link") }}">
+                                            <button type="submit" class="btn arena-btn-primary arena-icon-button btn-sm">
+                                                {{ render_icon(icon="link") }}
+                                                <span>Link a Google account</span>
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            </section>
+                            <section class="col-12 col-lg-7 arena-profile-settings-column arena-profile-settings-column--security"
+                                     aria-labelledby="profile-picture-source-heading">
+                                <div class="arena-profile-settings-heading">
+                                    {{ render_icon(icon="account_circle") }}
+                                    <div>
+                                        <h2 id="profile-picture-source-heading">Profile picture</h2>
+                                        <p id="avatar-source-help">
+                                            Choose what Arena displays. Your uploaded Arena photo stays saved when Google is selected.
+                                        </p>
+                                    </div>
+                                </div>
+                                {% if google_identity %}
+                                    <form method="post"
+                                          action="{{ request.url_for("arena_google_avatar_source") }}"
+                                          class="arena-avatar-source-form">
+                                        <fieldset aria-describedby="avatar-source-help">
+                                            <legend class="visually-hidden">Choose profile picture source</legend>
+                                            <div class="arena-avatar-source-choices">
+                                                <label class="arena-avatar-source-choice">
+                                                    <input type="radio"
+                                                           class="form-check-input"
+                                                           name="source"
+                                                           value="arena"
+                                                           {% if not google_identity.use_google_avatar %}checked{% endif %}>
+                                                    <span class="arena-avatar-source-icon">{{ render_icon(icon="account_circle") }}</span>
+                                                    <span>
+                                                        <span class="arena-avatar-source-name">Arena</span>
+                                                        <span class="arena-avatar-source-description">Uploaded photo or generated avatar</span>
+                                                    </span>
+                                                </label>
+                                                <label class="arena-avatar-source-choice{% if not google_identity.google_picture_url and not google_identity.use_google_avatar %} is-disabled{% endif %}">
+                                                    <input type="radio"
+                                                           class="form-check-input"
+                                                           name="source"
+                                                           value="google"
+                                                           {% if google_identity.use_google_avatar %}checked{% endif %}
+                                                           {% if not google_identity.google_picture_url and not google_identity.use_google_avatar %}disabled{% endif %}>
+                                                    <span class="arena-avatar-source-icon">
+                                                        <img src="{{ request.url_for("arena_static_img", path="google.svg") }}"
+                                                             alt=""
+                                                             width="18"
+                                                             height="18">
+                                                    </span>
+                                                    <span>
+                                                        <span class="arena-avatar-source-name">Google</span>
+                                                        <span class="arena-avatar-source-description">
+                                                            {% if google_identity.google_picture_url or google_identity.use_google_avatar %}
+                                                                Refreshed when you sign in with Google
+                                                            {% else %}
+                                                                No profile picture was provided
+                                                            {% endif %}
+                                                        </span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <button type="submit"
+                                                    class="btn btn-outline-secondary arena-icon-button btn-sm">
+                                                {{ render_icon(icon="save") }}
+                                                <span>Save picture source</span>
+                                            </button>
+                                        </fieldset>
+                                    </form>
+                                {% else %}
+                                    <p class="arena-form-text mb-0">
+                                        Link a Google account to use its profile picture. Arena will keep using your uploaded photo or generated avatar until then.
+                                    </p>
+                                {% endif %}
+                            </section>
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
             <div class="tab-pane fade {% if active_tab == 'badges' %}show active{% endif %}"
                  id="badges-tab-pane"
                  role="tabpanel"
@@ -778,6 +903,9 @@
     <script src="{{ request.url_for('arena_static_js', path='arena-image-cropper.js') }}"
             defer></script>
     <script src="{{ request.url_for('arena_static_js', path='profile-personal-security.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-username-availability.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='profile-username.js') }}"
             defer></script>
     <script src="{{ request.url_for('arena_static_js', path='profile-api-key.js') }}"
             defer></script>

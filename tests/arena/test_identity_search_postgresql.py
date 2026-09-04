@@ -39,6 +39,10 @@ _ADA_ID = "00000000-0000-4000-8000-000000000a11"
 _GRACE_ID = "00000000-0000-4000-8000-000000000a12"
 _HIDDEN_ID = "00000000-0000-4000-8000-000000000a13"
 
+# Old enough that check_age() reports ALLOWED for the life of this test, so the
+# seeded rows are never age-shielded.
+_ADULT_BIRTH_DATE = date(1990, 1, 1)
+
 
 @pytest_asyncio.fixture
 async def postgres_ranking_session() -> AsyncIterator[AsyncSession]:
@@ -79,6 +83,14 @@ async def _seed(session: AsyncSession) -> None:
     thousand rows PostgreSQL prefers a full scan even with ``enable_seqscan``
     off, and the plan assertions would fail while the indexes are perfectly
     usable. These counts keep the cost difference decisive.
+
+    Every seeded row is an adult who opted into showing their legal name. This
+    test is about search behaviour and index usage, not about the age shield: a
+    row with no date of birth fails closed, so the ranking would render its
+    username and match nothing by name, and every assertion here would be
+    testing the shield by accident. The shield has its own coverage in
+    ``test_identity_search_service.py``, which runs everywhere rather than only
+    where PostgreSQL is reachable.
     """
     await session.execute(
         insert(arena_affiliations).values(
@@ -93,6 +105,8 @@ async def _seed(session: AsyncSession) -> None:
         [
             {
                 "id": _ADA_ID,
+                "dta_nascimento": _ADULT_BIRTH_DATE,
+                "full_name_public": True,
                 "nome": "Ada Lovelace",
                 "email_normalizado": "ada.lovelace@ranking-search.invalid",
                 "password_hash": "unused",
@@ -105,6 +119,8 @@ async def _seed(session: AsyncSession) -> None:
             },
             {
                 "id": _GRACE_ID,
+                "dta_nascimento": _ADULT_BIRTH_DATE,
+                "full_name_public": True,
                 "nome": "Grace Hopper",
                 "email_normalizado": "grace.hopper@ranking-search.invalid",
                 "password_hash": "unused",
@@ -120,6 +136,8 @@ async def _seed(session: AsyncSession) -> None:
                 # so this row is matched by the search and must be discarded by
                 # the ranked CTE instead.
                 "id": _HIDDEN_ID,
+                "dta_nascimento": _ADULT_BIRTH_DATE,
+                "full_name_public": True,
                 "nome": "Ada Lovelace Hidden",
                 "email_normalizado": "hidden.lovelace@ranking-search.invalid",
                 "password_hash": "unused",
@@ -136,12 +154,16 @@ async def _seed(session: AsyncSession) -> None:
         text(
             """
             INSERT INTO arena_users (
-                id, nome, email_normalizado, password_hash, ativo,
+                id, nome, username, dta_nascimento, full_name_public,
+                email_normalizado, password_hash, ativo,
                 email_confirmado, ranking_visible, user_rating, solved_problems
             )
             SELECT
                 md5('rank-user-' || series::text),
                 'Filler Name ' || series,
+                'filler-' || series,
+                DATE '1990-01-01',
+                true,
                 'filler-' || series || '@ranking-seed.invalid',
                 'unused',
                 true, true, true, series % 500, 1

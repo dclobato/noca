@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,13 +8,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import re
 from base64 import b64decode, b64encode
 
-from fastapi import Response, UploadFile
+from fastapi import Request, Response, UploadFile
 from PIL import Image
+from starlette.staticfiles import NotModifiedResponse, StaticFiles
 
 from .helpers import build_placeholder, crop_to_aspect_ratio, generate_avatar
 from .models import (
@@ -26,6 +28,11 @@ from .models import (
 from .validation import convert_to as convert_image_to
 from .validation import detect_image_type
 from .validation import image_validation as validate_image_bytes
+
+#: Borrowed purely for its conditional-request check; it is never mounted, and
+#: ``is_not_modified`` does not touch instance state. The same idiom serves the
+#: Web statement download.
+_CONDITIONAL = StaticFiles()
 
 
 class ImageProcessingService:
@@ -220,14 +227,48 @@ class ImageProcessingService:
         mime_type: str = "image/png",
         *,
         cache_directive: str = "public",
+        request: Request | None = None,
     ) -> Response:
-        """Build a FastAPI response for serving image bytes."""
+        """Build a response for serving image bytes, answering ``304`` when it can.
+
+        Every response carries a strong ``ETag`` derived from the bytes, so a
+        client that revalidates -- which is what ``must-revalidate`` and a
+        stale ``max-age`` both ask it to do -- can be told the image is unchanged
+        without being sent it again. Before this, "revalidate" meant "download
+        again": the helper set only ``Cache-Control``, and a list page emitting
+        unversioned avatar URLs re-downloaded every one of them per view (#199).
+
+        The tag is content-derived rather than caller-supplied on purpose. A
+        revision counter would be cheaper to compute, but only the avatar route
+        has one; affiliation logos have nothing to version by, and a tag that
+        depends on the bytes alone is correct for every caller, including the
+        deterministic fallbacks, and cannot go stale when a source switches.
+        Hashing bytes that are already in memory costs far less than the
+        database read that produced them.
+
+        Args:
+            image_data: Raw image bytes.
+            mime_type: The image MIME type.
+            cache_directive: ``public`` or ``private``, per the caller's policy.
+            request: When given, ``If-None-Match`` is honoured and a matching
+                request receives a bodyless ``304`` carrying the same
+                ``Cache-Control`` and ``ETag``. Without it the ``200`` still
+                carries the tag, so a caller cannot lose the validator by
+                forgetting the request -- only the short-circuit.
+
+        Returns:
+            Response: The image, or a ``304`` when the client already has it.
+        """
         max_age = self._config.response_cache_max_age
-        return Response(
+        etag = f'"{hashlib.sha256(image_data).hexdigest()}"'
+        response = Response(
             content=image_data,
             media_type=mime_type,
-            headers={"Cache-Control": f"{cache_directive}, max-age={max_age}"},
+            headers={"Cache-Control": f"{cache_directive}, max-age={max_age}", "ETag": etag},
         )
+        if request is not None and _CONDITIONAL.is_not_modified(response.headers, request.headers):
+            return NotModifiedResponse(response.headers)
+        return response
 
     def image_validation(
         self,

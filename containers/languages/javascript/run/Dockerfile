@@ -9,17 +9,17 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned family: node:24-bookworm-slim (Debian bookworm slim)
+# Pinned family: node:24-trixie-slim (Debian trixie slim)
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin/isolate

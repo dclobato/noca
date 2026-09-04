@@ -1136,7 +1136,7 @@ async def test_list_problem_set_problems_returns_rows(session: AsyncSession) -> 
         set_id=set_id,
     )
     assert {r.problem_id for r in rows} == {problem_a.id, problem_b.id}
-    assert all(r.rating is not None for r in rows if r.rating is not None)
+    assert all(r.difficulty.state == "unknown" for r in rows)
     assert rows[0].categories == () or len(rows[0].categories) >= 0
 
 

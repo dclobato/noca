@@ -6,9 +6,9 @@
 # the worker ignores it — artifact_is_source=True means the source .py itself
 # is the artifact that gets injected into the run container.
 #
-# Pinned family: python:3.14-slim-bookworm (Debian bookworm slim)
+# Pinned family: python:3.14-slim-trixie (Debian trixie slim)
 
-FROM python:3.14-slim-bookworm
+FROM python:3.14-slim-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

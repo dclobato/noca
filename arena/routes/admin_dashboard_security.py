@@ -98,18 +98,20 @@ async def admin_dashboard_security_events(
 async def admin_dashboard_security_events_csv(
     request: Request,
     admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Download every Arena-side security event as CSV, ignoring the on-screen filters.
 
-    The export opens its own session rather than using the request-scoped one,
-    because FastAPI closes ``yield`` dependencies before a streaming body is
-    consumed.
+    The stream reads through the request-scoped session. That is safe because
+    FastAPI closes ``yield`` dependencies only after the whole response --
+    streaming body included -- has been sent; the belief that it closed them
+    first is what once made this route open a second session, and so hold two
+    pool connections for the length of every export (#198).
     """
 
     async def _stream() -> AsyncIterator[str]:
-        async with request.app.state.arena_db_session() as export_session:
-            async for chunk in stream_security_events_csv(export_session, modules=_SECURITY_EVENTS_MODULES):
-                yield chunk
+        async for chunk in stream_security_events_csv(session, modules=_SECURITY_EVENTS_MODULES):
+            yield chunk
 
     filename = csv_filename("arena-security-events")
     return StreamingResponse(

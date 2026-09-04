@@ -27,6 +27,7 @@ from web.routes.session import router as session_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_lockouts import router as uberadmin_lockouts_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.template_globals import register_template_globals
@@ -131,6 +132,7 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     app.include_router(uberadmin_contest_backup_router)
     app.include_router(uberadmin_contest_removal_router)
     app.include_router(uberadmin_security_router)
+    app.include_router(uberadmin_lockouts_router)
     app.include_router(contest_dashboard_router)
     return app, app.state.auth_service
 
@@ -239,7 +241,10 @@ async def test_remove_rejects_unauthenticated_blank_and_wrong_password_without_c
     assert wrong_password.status_code == 303
     assert wrong_password.headers["location"].endswith("/uberadmin/contests/inactive")
     assert await session.get(type(stopped_contest), stopped_contest.id) is not None
-    assert (await session.execute(select(security_events.c.id))).scalars().all() == []
+    # The two failed reconfirmations are the only trace: each is an audited
+    # ``auth_failure`` (issue #145), and nothing else was written.
+    recorded = (await session.execute(select(security_events.c.event_type))).scalars().all()
+    assert recorded == ["auth_failure", "auth_failure"]
 
 
 @pytest.mark.asyncio

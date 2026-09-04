@@ -88,13 +88,45 @@ Router prefix: `/c/{slug}`. Routes resolve the contest through the
 streaming `/events` route uses the session-releasing `get_enabled_contest_detached`
 variant with identical `404` behavior.
 
+### Rate limiting and caching
+
+`/meta`, `/snapshot`, the spectator `/reveal/state`, and the two team-media
+routes (`/teams/{team_id}/photo` and `/audio`) share **one** per-IP fixed
+window — bucket `animator:public`, knobs `NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_*` —
+through the shared limiter. Over the budget the answer is `429` with
+`Retry-After` (seconds left in the window) and the body
+`{"detail": "Animator public rate limit exceeded."}`. The limiter is a
+route-level dependency and therefore runs **before** the contest gate: its
+answer depends on the client IP alone, so an unknown slug and a disabled
+contest still answer the same bare `404` under the limit and the same `429`
+over it. The HTML shells and the authenticated control surface are not in the
+bucket; `/health` keeps the shared `NOCA_HEALTH_RATE_LIMIT_*` limiter.
+
+The two SSE streams, `/events` and `/reveal/events`, are bounded by open
+**connections** instead, through `enforce_sse_connection_caps` -- also a
+route-level dependency that runs before the contest gate. It first takes a slot
+on the process-wide `NOCA_ANIMATOR_MAX_SSE_CLIENTS` gauge (`503` +
+`Retry-After` when this replica is full, no Valkey involved), then a per-IP slot
+in the shared `sse_connection_limit` lease (bucket `animator:sse`,
+`NOCA_ANIMATOR_SSE_*`; `429` + `Retry-After` over `NOCA_ANIMATOR_SSE_MAX_PER_IP`).
+Both slots are released when the client disconnects; the lease fails open on a
+Valkey outage.
+
+`/meta` and `/snapshot` are served from the per-process feed cache
+(`services/feed_cache.py`) and carry `Cache-Control: public, max-age=<seconds
+left>`; see `SERVICES.md` for the keys, TTLs, and invalidation. The header is
+for third-party pollers: the first-party clients (`animator.js`, and the
+`/meta` re-polls in `ceremony.js` and `control.js`) fetch with
+`cache: "no-store"`, because they refetch on SSE nudges and a browser-cached
+snapshot would outlive the server-side invalidation by up to `max-age`.
+
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
 | `GET` | `/c/{slug}/` | `animator_contest_page` | Presentation launcher. Shows a prominent global section followed by every contest site, with scoped links to the animated scoreboard, reveal projector, and reveal controller. Renders `contest_index.html`; it loads no presentation JavaScript. |
-| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. Before the contest starts the feeds carry no problem set, so the page shows a **"The contest has not started yet."** banner in place of the board — sharing the ceremony projector's own banner style — while the countdown and the live connection badge keep running; it re-reads `/meta` on a capped timer (at most a minute) because no SSE event marks the start instant, and swaps in the roster and problem columns as soon as the gate opens. Team names open the shared media modal in photo-only mode: the page embeds the canonical `data-scope` and route-derived `data-photo-base`, but no audio URL or audio element. Other wiring includes the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and the balloon/star/medal asset bases. Renders `animator.html`. |
-| `GET` | `/c/{slug}/meta` | `animator_contest_meta` | Contest identity, problem labels and balloon colors, start/end/freeze timing, current public `is_frozen` state, and per-site medal-cutoff summary with team counts. An ended contest with `release_scoreboard_after_end=true` reports `is_frozen=false`. **Before the contest starts `problems` is empty and `has_started=false`**: the number of problems and their balloon colors are contest secrets until the start instant, exactly as Web's own scoreboard gate treats them. Sites remain visible in both states — the launcher is built from them and a venue is not part of that secret. Returns `ContestMetaResponse`. |
-| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh and a freeze-safe `pending_submissions` array. Each standing includes `team_fullname`, `site_name`, and `medal` — the band that row's rank falls into under the cutoffs in force for the requested scope (the site's own for a site scope, the contest's `global_*_cutoff` triple for `global`), or `null` when the row wins no medal or the scope has no cutoffs configured; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. **Before the contest starts the response is empty in every scope** — no `problems`, no `balloon_colors`, no `standings`, no `pending_submissions` — and carries `has_started=false`, which is what lets a client tell that gate apart from a contest with no teams. Returns `ScoreboardSnapshotResponse`. |
-| `GET` | `/c/{slug}/events` | `animator_contest_events` | Live Server-Sent Events stream (native `EventSourceResponse` / typed `ServerSentEvent`). Fans out `verdict` (finalized judgment, no logs; redacted to `{"redacted": true}` while the contest is frozen), `submission` (new-submission nudge `{submission_id, team_id, problem_id}`, suppressed entirely while frozen), `scoreboard_refresh` (bare signal to refetch `/snapshot`), and `timer_tick` (`{"server_time": "<ISO8601 UTC>"}`) events for this contest. FastAPI sends a native 15 s idle-only comment heartbeat. Resolves the contest through the **detached** short-lived resolver (`get_enabled_contest_detached`) so the long-lived stream holds no PostgreSQL connection, with the same `404` uniformity. PostgreSQL snapshots remain authoritative. |
+| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. Before the contest starts the feeds carry no problem set, so the page shows a **"The contest has not started yet."** banner in place of the board — sharing the ceremony projector's own banner style — while the countdown and the live connection badge keep running; it re-reads `/meta` on a capped timer (at most a minute) because no SSE event marks the start instant, and swaps in the roster and problem columns as soon as the gate opens. Team names open the shared media modal in photo-only mode: the page embeds the canonical `data-scope` and route-derived `data-photo-base`, but no audio URL or audio element. Other wiring includes the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and the balloon/medal asset bases (there is no star base: the first-solve mark is a glyph coloured from the per-column stylesheet, not a served asset). After the contest ends the page stops streaming: a released final board runs nothing, while an ended but still-frozen board closes SSE and re-reads `/snapshot` on the poll-fallback interval until the scoreboard is released — no event is published for a release, so a held-open stream would never carry it. Renders `animator.html`. |
+| `GET` | `/c/{slug}/meta` | `animator_contest_meta` | Contest identity, problem labels and balloon colors, start/end/freeze timing, current public `is_frozen` state, and per-site medal-cutoff summary with team counts. An ended contest with `release_scoreboard_after_end=true` reports `is_frozen=false`. Cached per process for `NOCA_ANIMATOR_META_CACHE_SECONDS` (keyed on the contest and its started/frozen phase, so both transitions show on the next request) and counted against the `animator:public` bucket. **Before the contest starts `problems` is empty and `has_started=false`**: the number of problems and their balloon colors are contest secrets until the start instant, exactly as Web's own scoreboard gate treats them. Sites remain visible in both states — the launcher is built from them and a venue is not part of that secret. Returns `ContestMetaResponse`. |
+| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh, a freeze-safe `pending_submissions` array, and a freeze-safe `recent_events` backlog (up to 10 past events, oldest first) that seeds a freshly loaded activity rail. The response is served from the per-process feed cache — one entry per `(contest, scope, started, frozen, cutoffs)`, kept for `NOCA_ANIMATOR_SNAPSHOT_CACHE_SECONDS` while the contest runs and `NOCA_ANIMATOR_SNAPSHOT_CACHE_ENDED_SECONDS` afterwards, and dropped early by every verdict or submission event for the contest — so `version` stays constant while the entry lives and changes only when the snapshot is actually rebuilt, which is what makes it a real "did anything change?" token. Counts against the `animator:public` bucket. Each standing includes `team_fullname`, `site_name`, and `medal` — the band that row's rank falls into under the cutoffs in force for the requested scope (the site's own for a site scope, the contest's `global_*_cutoff` triple for `global`), or `null` when the row wins no medal or the scope has no cutoffs configured; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. **Before the contest starts the response is empty in every scope** — no `problems`, no `balloon_colors`, no `standings`, no `pending_submissions`, no `recent_events` — and carries `has_started=false`, which is what lets a client tell that gate apart from a contest with no teams. Returns `ScoreboardSnapshotResponse`. |
+| `GET` | `/c/{slug}/events` | `animator_contest_events` | **Connection-capped** before the contest gate: `503` when the process holds `NOCA_ANIMATOR_MAX_SSE_CLIENTS` streams, `429` when this IP holds `NOCA_ANIMATOR_SSE_MAX_PER_IP` (`animator:sse`, shared with `/reveal/events`). Live Server-Sent Events stream (native `EventSourceResponse` / typed `ServerSentEvent`). Fans out `verdict` (finalized judgment, no logs; redacted to `{"redacted": true}` while the contest is frozen), `submission` (new-submission nudge `{submission_id, team_id, problem_id}`, suppressed entirely while frozen), `scoreboard_refresh` (bare signal to refetch `/snapshot`), and `timer_tick` (`{"server_time": "<ISO8601 UTC>"}`) events for this contest. FastAPI sends a native 15 s idle-only comment heartbeat. Resolves the contest through the **detached** short-lived resolver (`get_enabled_contest_detached`) so the long-lived stream holds no PostgreSQL connection, with the same `404` uniformity. PostgreSQL snapshots remain authoritative. |
 
 ### Streaming notes (`/events`)
 
@@ -140,6 +172,19 @@ The page script drives the live scoreboard on top of the `/events` stream:
 - **Session activity rail.** The page retains the last 30 submission and verdict
   events observed by its current EventSource and moves them right-to-left above
   the scoreboard. Each item uses the contest minute when this page received it.
+  The rail appears with the board -- on the first applied post-start snapshot,
+  before any event -- carrying a static **No activity yet** placeholder that the
+  first real event replaces, so a spectator can tell a quiet contest from a
+  broken ticker. A pre-start snapshot draws no board and leaves the rail hidden.
+  That first snapshot also **seeds** the rail from its `recent_events` backlog,
+  so a projector opened mid-contest starts with history rather than a blank
+  strip; seeded entries carry the same keys the live stream uses, so an event
+  that is both seeded and streamed renders once, and only the first snapshot
+  seeds (a later one would resurrect entries the 30-item window had dropped).
+  The heading's indicator dot glows red only while the contest clock is running
+  or frozen; a scheduled or finished contest shows a grey dot, since claiming
+  "live" would be a lie -- but the rail and its marquee stay, because a contest
+  with no freeze can still be judged after the clock stops.
   Verdicts wait for the paired snapshot: a newly solved cell becomes a balloon
   message, a new `is_first_balloon` cell becomes a first-solver message, and all
   other results keep the verdict code. The rail ignores redacted or unmappable
@@ -238,11 +283,34 @@ contest by `animator/services/public_scope_service.py`.
   teardown: it aborts the photo fetch, revokes the photo object URL, and resets
   audio with `pause()`, `currentTime = 0`, `removeAttribute("src")`, and
   `load()`.
+- **Operator media cues** (`ceremony-media-cue.js`). A `show` opens the team's
+  **own row button** with `.click()`, never `modal.show()` — going through the
+  data API is what preserves Bootstrap 5.3's focus restoration and supplies the
+  `relatedTarget` the modal reads the team from. Switching teams closes first and
+  reopens on `hidden.bs.modal`, because Bootstrap ignores a show on an open
+  dialog and the previous team's teardown runs on hide. Re-cueing the team
+  already on screen is a no-op, as is a repeated `hide`; a cue for a team not on
+  the board is ignored rather than throwing.
+- **A ceremony that moves takes the overlay down.** Any projection whose phase,
+  `revealed_count`, or `focused_team_id` differs from the last applied one closes
+  the modal, so a `step` never reveals a result from behind a photograph. It is
+  keyed on the projection actually *changing*, not on the state request, so a
+  reconnect reconciliation that refetches identical state leaves an overlay the
+  operator just raised alone. This is also what lets both operator clients keep a
+  purely local Show/Hide label: the projector and the panels reset on one signal.
+- **Blocked audio names its audience.** A remote open has no user activation
+  behind it, so a projector that has received no gesture since load refuses to
+  play. The overlay then states the condition ("Audio is muted on this display.")
+  rather than telling a room of spectators to press play, and a quiet
+  operator-facing note in the header — at the operational Label size, not the
+  presentation tier — asks for the one click that fixes it. A *local* click keeps
+  the default "press play" copy, since the person who clicked is the one who can
+  act on it, and any click on the page retires the note.
 - **Resilience.** The last good projection stays on screen when a refetch fails;
   `ceremony-transport.js` retries with backoff and reconciles on `reveal_ready`.
   The focused row is scrolled into view, honoring `prefers-reduced-motion`.
 | `GET` | `/c/{slug}/reveal/state?scope=…` | `animator_reveal_state` | The authoritative ceremony projection for one scope. Returns `RevealPublicStateResponse`. |
-| `GET` | `/c/{slug}/reveal/events?scope=…` | `animator_reveal_events` | One `reveal_ready` event once the Valkey subscription is live, then one `reveal_state_changed` nudge per durable mutation (native `EventSourceResponse` / typed `ServerSentEvent`), with FastAPI's native 15 s idle-only comment heartbeat. |
+| `GET` | `/c/{slug}/reveal/events?scope=…` | `animator_reveal_events` | **Connection-capped** before the contest gate exactly like `/events` (same process ceiling and `animator:sse` per-IP lease). One `reveal_ready` event once the Valkey subscription is live, then one `reveal_state_changed` nudge per durable mutation (native `EventSourceResponse` / typed `ServerSentEvent`), with FastAPI's native 15 s idle-only comment heartbeat. |
 
 ### `/reveal/state` response shape
 
@@ -283,6 +351,16 @@ contest by `animator/services/public_scope_service.py`.
   `phase`, `focused_team_id`, `revealed_count`, `frozen_count`, `published_at`) —
   metadata for logging and cheap filtering, never a substitute for the
   projection.
+- **`reveal_media_cue`.** The stream also carries the operator's transient
+  team-media cue (`RevealMediaCueEvent`: `action` of `show`/`hide`, `team_id`,
+  `published_at`). It is a **separate event name on purpose**, because the
+  client's reaction is the opposite one: a nudge means "refetch authoritative
+  state", while a cue changes no state and must trigger **no fetch at all** —
+  it carries its whole payload, and refetching would cost a round trip on every
+  press of the operator's button. It is best-effort and never replayed: a
+  projector that was disconnected at that instant simply never sees it, and the
+  operator presses again. An older animator or browser that does not know the
+  event drops it, which is why this needed no version bump anywhere.
 - **Client retry.** A transiently failed `/reveal/state` request — the initial
   one or a refetch after the last nudge of a ceremony — is retried with backoff
   (500 ms → 5 s, then steady), honoring a server `Retry-After` when it asks for
@@ -304,6 +382,7 @@ contest by `animator/services/public_scope_service.py`.
 | Condition | Status |
 |---|---|
 | Unknown slug, `animator_enabled=false`, unknown/foreign/garbage/empty scope | `404` (bare, identical bodies) |
+| Per-IP public budget spent (`animator:public`, shared with `/meta`, `/snapshot`, and the team-media routes) | `429` with `Retry-After` — retryable; checked before the contest gate, so it never confirms a slug |
 | No session stored for the scope | `200` with `has_session=false`, `projection=null` |
 | Reveal store briefly unavailable | `503` with `Retry-After: 1` |
 | Corrupt, foreign-versioned, or misfiled persisted state | `500`, **no** `Retry-After` (retrying cannot repair it); recovery is the operator's `start-reveal` + `restart=true` |
@@ -314,13 +393,21 @@ contest by `animator/services/public_scope_service.py`.
 
 Router prefix: `/c/{slug}`. Serves photos to live scoreboards and ceremonies,
 plus the optional audio clip used only by the ceremony. Both routes are public
-and credential-free, scoped by the same `?scope=` value, and resolved through
-one shared scoped lookup so their scope predicates cannot drift.
+and credential-free, scoped by the same `?scope=` value, resolved through one
+shared scoped lookup so their scope predicates cannot drift, and counted against
+the `animator:public` per-IP bucket (`429` with `Retry-After` over budget,
+checked before the contest gate — see *Rate limiting and caching* above).
+
+Both are **metadata-first**: the request starts with one narrow query that
+selects the flag, the two revisions (`dta_foto`, `dta_audio`), and one SQL
+presence boolean per blob — never a blob column, never `audio_mime`. The
+conditional check runs on that row alone, so a `304` never reads, decodes, or
+validates a payload. Only a miss loads the single column it needs.
 
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
-| `GET` | `/c/{slug}/teams/{team_id}/photo?scope=…` | `animator_team_photo` | The team's stored full photo, else its stored avatar, else a checked-in placeholder. Returns `X-NOCA-Team-Image-Kind: photo\|avatar\|placeholder`. Conditional: `ETag` + `If-None-Match` → `304`. |
-| `GET` | `/c/{slug}/teams/{team_id}/audio?scope=…` | `animator_team_audio` | The team's optional audio clip, served under the MIME type **sniffed from the bytes**. `404` when the team is out of scope or has no usable clip. Conditional: `ETag` + `If-None-Match` → `304`. |
+| `GET` | `/c/{slug}/teams/{team_id}/photo?scope=…` | `animator_team_photo` | The team's stored full photo, else its stored avatar, else a checked-in placeholder. Returns `X-NOCA-Team-Image-Kind: photo\|avatar\|placeholder`. Conditional: `ETag` + `If-None-Match` → `304` decided from metadata alone; a miss loads `foto_base64`, then `avatar_base64` only if the photo fails validation. Rate-limited (`animator:public`). |
+| `GET` | `/c/{slug}/teams/{team_id}/audio?scope=…` | `animator_team_audio` | The team's optional audio clip, served under the MIME type **sniffed from the bytes**. `404` when the team is out of scope or has no usable clip. Conditional: `ETag` + `If-None-Match` → `304` decided from metadata alone; a miss loads only `audio_base64`. Rate-limited (`animator:public`). |
 
 ### Audio policy
 
@@ -331,7 +418,7 @@ clip or to `404`. No stored-data defect may surface as a `500`.
 | Case | Result |
 |---|---|
 | Stored payload decodes and is a recognized MP3, OGG, or WAV | `200`, canonical `audio/mpeg` / `audio/ogg` / `audio/wav` |
-| No `users_media` row, or `audio_base64` empty | `404` |
+| No `users_media` row, or `audio_base64` empty | `404`, without any blob query |
 | Undecodable base64, empty decode, unidentifiable content, or a recognized but unsupported type (e.g. an image) | `404` |
 | Team out of scope, of another contest, or not `RoleEnum.TEAM` | `404`, identical to a nonexistent team |
 
@@ -350,7 +437,9 @@ clip or to `404`. No stored-data defect may surface as a `500`.
   play surfaces through the `<audio>` `error` event the modal already handles.
 - `ETag` is `"audio-<micros>"` from `dta_audio` (`"audio-0"` when null), using the
   same arithmetic as the Web module's `UserMedia.audio_cache_version`. There is no
-  fallback chain, so no kind component is needed beyond the constant.
+  fallback chain, so no kind component is needed beyond the constant. The tag is
+  computed from the metadata row, so a matching `If-None-Match` is a `304` before
+  the clip is read or its signature checked.
 - **`Accept-Ranges` is never sent.** Range requests are not implemented, and
   advertising them would break seeking rather than enable it.
 - Audio bytes are never returned in JSON.
@@ -382,19 +471,42 @@ as a team. Selection then follows a fixed order:
   be trusted: a truncated photo falls through to the avatar instead of being
   served as a corrupt `image/png`. The decode is capped by explicit pixel
   (8000×8000) and dimension limits, so a decompression bomb is refused rather
-  than expanded, and the `ETag`/`304` handling keeps a projector from
-  re-validating the same photo. SVG is not accepted from a stored blob.
+  than expanded, and a matching `If-None-Match` never reaches the decode at
+  all. SVG is not accepted from a stored blob.
 - Every rejected blob is logged at `warning`: the request still succeeds, but a
   corrupt row is a data problem an operator should see.
 
 ### Caching
 
-`ETag` combines the media **kind** with `dta_foto`
-(`"photo-<micros>"` / `"avatar-<micros>"` / `"placeholder"`), so it moves both
-when a new upload changes the bytes and when a corrupt photo makes the response
-fall through to the avatar. `Cache-Control: public, max-age=300` — short, because
-a photo can be replaced mid-event and revalidation is nearly free.
-`If-None-Match` is compared per RFC 9110: comma-separated lists, `*`, and **weak**
+`ETag` names the tier actually served together with the photo revision
+(`dta_foto`, in microseconds):
+
+| Served | `ETag` |
+|---|---|
+| the photo | `"photo-<micros>"` |
+| the avatar | `"avatar-<micros>"` |
+| the placeholder because stored candidates **failed validation** | `"placeholder-<micros>"` |
+| the placeholder because no stored media is enabled (`com_foto=false`, no blobs, no row) | `"placeholder"` (static) |
+
+So the tag moves when a new upload changes the bytes, when a fall-through changes
+the tier, and when media is enabled or removed. The placeholder is versioned only
+in the fell-through case so that a re-upload — which moves the revision — can
+never be answered from a stale `304`, while a row with nothing enabled keeps one
+stable tag.
+
+**The `304` is decided before any blob is read.** From the metadata row the route
+derives the set of tags *possible* at the current revision — `photo-v` if a photo
+is stored, `avatar-v` if an avatar is stored, `placeholder-v` — or just
+`"placeholder"` when nothing is enabled. An `If-None-Match` naming one of them is
+honored as a `304` (with `X-NOCA-Team-Image-Kind` taken from the tag); anything
+else is a miss, which loads and validates the payloads and then issues the tag of
+the tier served. The cache contract this relies on: `dta_foto` / `dta_audio` are
+the media revisions, and every supported write path moves or clears them. An
+out-of-band rewrite of a blob at the *same* instant is outside the contract.
+
+`Cache-Control: public, max-age=300` — short, because a photo can be replaced
+mid-event and revalidation is nearly free. `If-None-Match` is compared per RFC
+9110: comma-separated lists, `*` (matches the first possible tag), and **weak**
 comparison (a `W/`-prefixed validator still matches the strong tag issued, which
 is the correct rule for `If-None-Match`). A `304` carries the `ETag` and
 `Cache-Control` too, so it refreshes freshness rather than stranding an entry that
@@ -409,7 +521,7 @@ ceremony. It is a **static shell**, not a control operation.
 
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
-| `GET` | `/c/{slug}/control?scope=…` | `animator_control_page` | Renders `control.html`: the secret prompt, the scope selector preselected to the validated global or site scope, single-step and ten-step controls, jump-to-pending, the jump-team selector, and the current-state readout. Carries the initial scope, six command URLs, the `/control/state` URL, and the public `/meta` URL as `data-*` attributes. |
+| `GET` | `/c/{slug}/control?scope=…` | `animator_control_page` | Renders `control.html`: the secret prompt, the scope selector preselected to the validated global or site scope, single-step and ten-step controls, jump-to-pending, the jump-team selector, the Show/Hide team-media cue, and the current-state readout. Carries the initial scope, eight command URLs (including `show-team-media` and `hide-team-media`), the `/control/state` URL, and the public `/meta` URL as `data-*` attributes. |
 
 - **It accepts no credential parameter of any kind.** There is no `?secret=`, so a
   token cannot reach an access log, a `Referer`, or browser history through this
@@ -495,9 +607,33 @@ ceremony. It is a **static shell**, not a control operation.
 - **Every action is explained on screen.** The reference after the recovery
   warning distinguishes starting, rebuilding, resetting, and read-only
   authoritative reloading.
+- **The media label tracks the projector, not the request.** `mediaShown` resets
+  only when the ceremony *moved*, decided by the shared `ceremonySignature` the
+  projector closes its overlay on. Clearing it on every applied projection would
+  leave the button reading "Show media" after an unchanged **Reload state** while
+  the photograph is still up, and the operator's next press would re-show it
+  instead of taking it down. `control.js` imports that function from
+  `ceremony-media-cue.js` rather than restating it, and the Android
+  `ceremonySignature` is a pinned port of the same expression.
+- **The media cue is the one command outside the ambiguity lock.** `mediaCue()`
+  bypasses `run()` entirely: no `Idempotency-Key`, and a failure **never sets
+  `blocked`**, because a cue cannot reveal anything. **Hide stays permitted while
+  the pad is blocked** — an ambiguous `5xx` with a photograph over the board is
+  exactly when the operator needs the board back — while Show does not, since
+  raising an overlay when the ceremony's true position is unknown risks showing
+  the wrong team. Only a confirmed cue flips the button's label, so a refused one
+  leaves it describing what is actually on the projector and the next press
+  repeats the attempt rather than sending its opposite. The label resets on every
+  applied projection, in step with the projector's own auto-hide.
+- **`controlsForState` gains `mediaVisible`**, true whenever the projection names
+  a `focused_team_id` — gated on the cursor rather than on the phase, because the
+  cue names no team of its own. It deliberately survives into `done`: the
+  champion's photo is the moment the control exists for.
 - Keyboard: `→` step, `←` back — documented on screen and suppressed whenever a
   form control (or a contenteditable element) has focus. Each shortcut fires
-  only while its control is visible.
+  only while its control is visible. The media cue has **no** shortcut, on
+  purpose: it sits below a rule, apart from the progress controls, so a hand
+  moving fast in a dark hall cannot reach it by accident.
 
 ### Second client: the Android remote (`clients/animator-remote`)
 
@@ -515,7 +651,17 @@ driving the projector.
   recovery, and every command stays locked until one of them succeeds.
 - It additionally consumes the credential-free `/reveal/events` nudge feed to stay
   in sync, under the rule that a nudge may refresh the display but may **never**
-  release the ambiguous-outcome lock.
+  release the ambiguous-outcome lock. Its listener **ignores `reveal_media_cue`**
+  — the remote must not refetch state for its own presentation command — which it
+  gets for free from the rule that an unknown event type is dropped.
+- It carries the same **Show / Hide team media** control, with the same
+  visibility mapping and the same lock exemptions (`showMedia()`/`hideMedia()` in
+  `core/CommandClient.kt`, `MediaCueOutcome` in `core/CommandOutcome.kt`). The
+  cue is modelled as its own outcome type rather than a `CommandOutcome`
+  precisely because it has no *ambiguous* case: it either reached the projectors
+  or did not, and pressing again is correct either way. It also leaves
+  `lastAttempt` untouched, so **Retry same command** keeps naming the reveal
+  command whose outcome is genuinely unresolved.
 - Its Kotlin core imports no Android and no HTTP library — the transport is an
   injected function type, exactly as `control.js` injects `fetchImpl` — so
   `tests/animator/test_remote_core_kotlin.py` exercises it on a plain JVM and skips
@@ -544,16 +690,30 @@ the spectator feed also serves.
    same bare `404`, so deployment configuration is never disclosed. It is
    deliberately **not** a router-level dependency: FastAPI resolves those before
    parameter dependencies, which would invert this order.
-3. **Credential** — `Authorization: Bearer <operator-token>`, resolved through
-   the shared digest service (`shared.services.animator_access_service`).
-4. **Controller ownership** — every **mutating** command additionally requires
+3. **Lockout** — the client IP's recent credential failures are consulted
+   *before* the header is read. After `NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES`
+   (default 10) failures inside `NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS`
+   (default 300 s) the address is locked out for that long, and every attempt —
+   including one carrying the correct token — answers the **same generic
+   `403`** a bad credential gets, with no `Retry-After`, audited as
+   `outcome=throttled`. The shared `shared.services.auth_rate_limit` primitive
+   keeps the counters (IP-only identity; in-memory fallback when Valkey is
+   down). It sits after the kill switch on purpose, so it can never be used to
+   probe the two `404` gates.
+4. **Credential** — `Authorization: Bearer <operator-token>`, resolved through
+   the shared digest service (`shared.services.animator_access_service`). A
+   failure counts toward the lockout; a valid token resets the address's
+   counter.
+5. **Controller ownership** — every **mutating** command additionally requires
    an active controller lease under the caller's resolved scope and a matching
    `X-Animator-Controller-Id` header (see *Controller lease* below). `GET
    /control/state` is read-only and lease-independent.
 
 The order is load-bearing: a token is never resolved for a contest the caller may
-not know exists, and a switched-off deployment never answers in an
-authentication shape. Tokens travel **only** in the header — never in a path,
+not know exists, a switched-off deployment never answers in an authentication
+shape, and a locked-out address learns nothing it did not already know from its
+own failures. Scope mismatches and ownership refusals are *not* counted toward
+the lockout: their token authenticated. Tokens travel **only** in the header — never in a path,
 query string, or response — so they cannot reach an access log, a `Referer`, or
 browser history.
 
@@ -612,6 +772,69 @@ command applies normally.
 | `POST` | `/c/{slug}/control/reset` | `animator_control_reset` | Empty the reveal log and return the ceremony to `idle`. No body. |
 | `POST` | `/c/{slug}/control/jump-team` | `animator_control_jump_team` | Replay ordinary steps until `team_id` is focused. Body: `{"team_id": "<id>"}`. |
 | `GET` | `/c/{slug}/control/state` | `animator_control_state` | Current projection. Read-only: takes no lock, saves nothing, publishes nothing. |
+
+## Team-media cues (`animator/routes/control_media.py`)
+
+Same prefix, same five gates, same audit boundary — a **different kind of
+command**, which is why it has its own module and its own row here. During an
+award ceremony the operator is on stage, away from the machine driving the
+projector; these put the focused team's photo and clip on every projector
+watching the ceremony, and take them down again.
+
+| Method | URL | Name | Description |
+|--------|-----|------|-------------|
+| `POST` | `/c/{slug}/control/show-team-media` | `animator_control_show_team_media` | Show the ceremony's **focused team**'s media on every projector in scope. No body. `204`. |
+| `POST` | `/c/{slug}/control/hide-team-media` | `animator_control_hide_team_media` | Take the media overlay down. No body. `204`. |
+
+Everything worth knowing about them is a negative:
+
+- **They persist nothing.** No fenced save, no receipt ring, no scope mutation
+  lock. The whole action is one `PUBLISH` of a `RevealMediaCueEvent`.
+- **They accept no `Idempotency-Key`** — the only mutating commands that do not.
+  Re-cueing is inherently a no-op (showing the photo already up changes nothing),
+  and the receipt ring a key would be matched against lives inside saved state
+  these commands never write.
+- **They answer `204`.** There is nothing to return: no state moved, and the
+  server cannot learn whether a projector rendered the overlay. Delivery is
+  best-effort, broadcast to every projector in the scope, and **never replayed**
+  after a reconnect — so the operator is told *sent*, never *displayed*.
+  Reaching Valkey with **zero subscribers is a success**; only a publish that
+  never reached Valkey is a `503` with `Retry-After: 1`.
+- **The operator names no team.** `show` reads `focused_team_id` from the stored
+  session, so a cue can never address a team outside this ceremony or in another
+  venue's scope. `hide` reads no state at all — a projector showing an overlay is
+  reason enough to take it down, and refusing after a `reset` would strand a
+  photograph on screen.
+- **Ownership is enforced atomically, but nothing is held.** Both directions
+  require the controller lease — blanking a projector is as much a control action
+  as seizing one. The check runs twice, deliberately: once up front, so a caller
+  who no longer owns the scope gets the stated lease-lost `409` both clients key
+  on rather than a confusing "no session"; and again **fused with the `PUBLISH`
+  itself** in one Lua step, because every `await` between an advisory check and
+  the publication is a window in which the lease can expire or a takeover can
+  land. Neither check takes the mutation lock, so a cue never queues behind a
+  `step`.
+- **One stated residual.** A `show` reads the focused team before it publishes,
+  so a `step` racing that read could leave the previously focused team's photo
+  up until the next ceremony movement clears it. Reaching that state needs two
+  commands genuinely in flight on one lease at once, which neither shipped client
+  can produce — both are single-flight — and the ownership fence rules out the
+  two-controller version. It is bounded by the next movement rather than
+  prevented, and closing it would mean taking the lock this command exists
+  without.
+
+| Condition | Status |
+|---|---|
+| Contest gate or kill switch | `404` (bare, identical to an unknown slug) |
+| Lockout, or missing/invalid credential | `403` (single generic detail) |
+| Missing or malformed `X-Animator-Controller-Id` | `422` |
+| Lost or contended controller ownership | `409` |
+| `show` with no stored session, or with no focused team | `409` |
+| Publish never reached Valkey | `503` with `Retry-After: 1` |
+| Accepted | `204`, empty body |
+
+Audited as `show_team_media` / `hide_team_media` (the underscored vocabulary
+`jump_pending` uses), always with `idempotent=no`.
 
 ### Response shape
 
@@ -674,7 +897,8 @@ leave the server.
   the line when the request finishes. That is what covers the refusals no route
   function ever sees — the contest gate and kill-switch `404`s
   (`outcome=not_found` / `control_disabled`), credential `403`s
-  (`invalid_credential`, `scope=unknown`), and FastAPI's own body-validation
+  (`invalid_credential`, `scope=unknown`), lockout `403`s (`throttled`,
+  `scope=unknown`), and FastAPI's own body-validation
   `422`s (`invalid_request`) — while making a duplicate record structurally
   impossible. A request that never matches a control operation (a misspelled
   sub-path, or a wrong method, which Starlette answers with `405` from the
@@ -708,8 +932,10 @@ number of read-only projectors keep working untouched.
 
 ### Gates and identity
 
-The same contest gate, kill switch, and credential gate apply in the same order
-as the command API, plus the same `ControlAuditRoute` audit boundary. On top of
+The same contest gate, kill switch, per-IP lockout, and credential gate apply in
+the same order as the command API, plus the same `ControlAuditRoute` audit
+boundary — so a `heartbeat` poll with a bad token counts toward the same lockout
+as a command, and a locked address cannot claim, renew, release, or take over. On top of
 the bearer token every lease request carries an opaque `X-Animator-Controller-Id`
 header matching `^[A-Za-z0-9_-]{8,128}$` (`animator.models.controller_lease`).
 The id is **not a credential**: it identifies one loaded panel, is generated per
@@ -730,10 +956,20 @@ tokens, digests, or addresses.
 
 All four return `ControllerLeaseResponse`
 (`animator/models/controller_lease.py`): `status` (`claimed`, `renewed`,
-`released`, or `taken_over`), `lease_ttl_seconds`, and
-`heartbeat_interval_seconds` — timing only. No response ever names the current
-holder: a blocked panel learns *that* it does not own the scope, never *who*
-does.
+`released`, or `taken_over`), `lease_ttl_seconds`,
+`heartbeat_interval_seconds`, and `projector_count`. No response ever names the
+current holder: a blocked panel learns *that* it does not own the scope, never
+*who* does.
+
+`projector_count` is the number of `/reveal/events` streams currently open on
+this scope — the projectors the panel's commands reach — read from the
+per-scope presence gauge (`animator/services/projector_presence.py`) **after**
+the lease decision, so it can neither refuse nor extend ownership. It is
+additive and best-effort: `null` on `release` (the panel drives nothing any
+more) and `null` whenever Valkey could not answer, which the clients render as
+*unknown* rather than as an empty hall. Because both shipped controllers
+already heartbeat every `heartbeat_interval_seconds`, the count reaches them at
+that cadence with no extra request.
 
 ### Status codes
 

@@ -129,95 +129,72 @@ The historical replay format intentionally excludes these operational assets.
 - Auto-Limit profiling runs and profiling case results
 - Solution-test runs and their case results
 - Problem-limit change batches and their operational re-judging state
+- Per-team clarification read markers (`clarification_reads`)
+
+The read markers are excluded deliberately rather than by omission. They are
+per-team UI state, not contest content, and their absence means "unread" — the
+safe default for a restored contest, where every announcement it carries should
+show as new to the restored teams.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `4`, `FORMAT_VERSION` in
-`web/services/contest_backup_service/models.py`). This server restores versions
-**1, 2, 3, and 4**; anything else is refused. Bump it on any breaking layout change and
-update this document.
+The archive is versioned by `format_version` (currently `5`, `FORMAT_VERSION` in
+`web/services/contest_backup_service/models.py`). This server restores **version 5
+only**; anything else is refused with a message naming the supported version. Bump it
+on any breaking layout change and update this document.
 
-### Version 4: the stored announcement flag
+### Version 5: the public export counter, and the end of legacy restore
 
-Version 4 adds the `is_announcement` column to every row in `clarifications.json`.
-It is `NOT NULL` in the live table, and strict row validation compares archived rows
-with that table, so a v4 archive that omits the key is refused as malformed rather
-than quietly defaulted to `false` — which would demote every announcement it holds.
+Version 5 adds the `public_export_generation` column to every row in `problems.json`.
+Row validation compares an archived row against the **live** table, so the column is
+mandatory: a v5 archive that omits it is refused as malformed. Nothing infers it — the
+counter is per-deployment cache state with no meaning across installs, and a restored
+problem simply carries whatever the archive recorded, with its first export built on
+demand.
 
-Versions 1 to 3 predate the column and may omit it. Such an archive carries exactly
-one signal about the question: the role its own `users.json` recorded for the row's
-author, which is the rule the application applied until the column landed. So the
-rule here is the same **explicit wins, infer only on absence** the strategy uses, and
-for the same reason — it is written once, in
-`web/services/contest_backup_service/announcement.py`, because both the integrity
-checker and the restorer consult it, and an archive must not validate as one kind of
-row and restore as another. An archive labelled 1-3 that *does* state the flag
-(captured after the column landed, before this bump) keeps what it states.
+The same bump **retires versions 1 to 4**, and that is the larger change. Each retired
+version carried its own set of columns-it-predates plus an inference rule for what those
+columns would have held: the validation strategy guessed from custom-validator presence,
+the announcement flag guessed from the archived author's role. Every such rule had to be
+written once and consulted from *both* the integrity checker and the restorer, because
+the two disagreeing means an archive validates as one kind of row and restores as
+another. Version 5 states every column, so the entire inference layer is gone — along
+with `strategy.py`, `announcement.py`, the per-version optional-column tables, and the
+"version 1 covers two archive shapes" ambiguity that made those predicates necessary in
+the first place.
 
-The per-team read markers in `clarification_reads` are deliberately **not** archived.
-They are per-team UI state, not contest content, and their absence means "unread",
-which is the safe default for a restored contest: every announcement it carries shows
-as new to the restored teams.
+The cost is stated plainly: an archive captured by an earlier release cannot be restored
+by this one. Restore it with the release that wrote it, or re-export the contest from a
+server still running that release before upgrading.
 
-### Version 3: problem editorials
+### Retired versions
 
-Version 3 adds the nullable `editorial` column to every problem row in
-`problems.json`. Strict row validation compares archived rows with the live
-table, so version 3 requires the column even when its value is `null`.
+Versions 1 to 4 are no longer restorable. They are recorded here only so an operator
+holding such an archive can tell what it is:
 
-Versions 1 and 2 predate the column. Their problem rows may omit `editorial`, in
-which case restore stores `NULL`. Embedded problem packages remain package
-format version 2 and may carry the additive `editorial` object and
-`editorial.md`; the database row remains the restore source of record.
+| Version | Introduced |
+| --- | --- |
+| 1 | The original layout. Two shapes existed in the wild: captured before `problems.validator_type` existed, and captured after it landed but before the format bump, still labelled version 1. |
+| 2 | The stored validation strategy (`validator_type`) and `artifact_generation` as mandatory problem-row columns, plus embedded version 2 problem packages. |
+| 3 | The nullable problem `editorial` column, required even when `null`. |
+| 4 | The stored `clarifications.is_announcement` flag, required as a row key. |
 
-### Version 2: the stored validation strategy
+### Why an archive states every column
 
-Version 2 archives carry each problem's `validator_type` and `artifact_generation`
-in the `problems.json` payload rows, and embed **version 2 problem packages**. Both
-columns are mandatory on this branch: a v2 archive that omits one is refused as
-malformed rather than quietly filled in by inference.
+Writing a deliberately reduced archive — omitting a column to stay compatible with an
+older server — was considered and rejected. It is lossy in exactly the cases these
+columns exist to fix: a standard problem carrying a stale validator row would restore as
+interactive, and an interactive problem whose source was removed has nothing to infer
+from and would restore as standard. Silent corruption on a round trip is worse than the
+forward-compatibility cost, which is that an archive written by this version is rejected
+by an older server with a clear error rather than restored wrongly — the same bargain,
+in the same direction, that retiring the legacy branches makes.
 
-### Restoring version 1
-
-Row validation compares each row against the **live** table, so a column added to
-`problems` becomes one every archive is expected to carry. On the v1 branch,
-`validator_type`, `artifact_generation`, and `editorial` are therefore optional;
-the fence takes its server default of `0`. Version 2 requires the strategy and
-fence but treats only `editorial` as optional.
-
-There are **two v1 shapes in the wild**, and conflating them corrupts data:
-
-| Shape | Captured | Carries `validator_type` |
-| --- | --- | --- |
-| Pre-strategy | before the column existed | no |
-| Interim | after the column landed, before this format bump | **yes** |
-
-The rule is therefore **explicit wins, infer only on absence**
-(`web/services/contest_backup_service/strategy.py`):
-
-- a v1 row that *states* the strategy restores with that value verbatim;
-- a v1 row that omits it falls back to the legacy inference — a custom-validator
-  row in the same archive means `interactive`, otherwise `standard`, never
-  `checker`.
-
-Treating "version 1" as "always infer" would corrupt precisely the interim
-archives: a standard problem carrying a stale validator row would restore as
-interactive. That is the corruption this release exists to eliminate.
-
-The same predicate also decides whether a `problems/NNN/out/NNN.out` payload
-member is required — expected output is required by the *strategy*, not by whether
-a validator row happens to hold active source. One helper serves both callers so
-an archive cannot validate under one strategy and restore under another.
-
-### Why new archives carry the strategy
-
-Stripping it to keep an archive literally v1 was considered and rejected: it is
-lossy in exactly the cases this release exists to fix — a standard problem
-carrying a stale validator row would restore as interactive, and an interactive
-problem whose source was removed has nothing to infer from and would restore as
-standard. Silent strategy corruption on a round trip is worse than the
-forward-compatibility cost, which is that an archive written by this version is
-rejected by an older server with a clear error rather than restored wrongly.
+A consequence worth stating: the strategy also decides whether a
+`problems/NNN/out/NNN.out` payload member is required. Expected output is required by
+the *strategy*, not by whether a validator row happens to hold active source, and with
+the strategy always present that check reads one column instead of reproducing an
+inference.
 
 ### The embedded packages are not the restore source of record
 

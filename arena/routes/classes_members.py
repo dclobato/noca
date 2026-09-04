@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -174,12 +174,14 @@ async def class_members_add(
         for uid in unique_ids:
             added_user = await session.get(ArenaUser, uid)
             if added_user is not None:
-                arena_class_email_service.send_class_membership_added_email(
+                await arena_class_email_service.send_class_membership_added_email(
                     student_email=added_user.email_normalizado,
                     student_name=added_user.nome,
                     class_name=class_detail.name,
                     class_url=class_url,
                     email_service=request.app.state.email_service,
+                    actor_key=f"user:{user_or_redirect.id}",
+                    tier="admin",
                 )
         flash(f"{count} student{'s' if count != 1 else ''} added.", FlashCategory.SUCCESS)
     except (ArenaClassNotFoundError, ArenaClassPermissionError, ArenaClassValidationError) as exc:
@@ -225,12 +227,14 @@ async def class_request_approve(
         await session.commit()
         approved_user = await session.get(ArenaUser, decided.user_id)
         if approved_user is not None:
-            arena_class_email_service.send_class_registration_approved_email(
+            await arena_class_email_service.send_class_registration_approved_email(
                 student_email=approved_user.email_normalizado,
                 student_name=approved_user.nome,
                 class_name=class_detail.name,
                 class_url=class_url,
                 email_service=request.app.state.email_service,
+                actor_key=f"user:{user_or_redirect.id}",
+                tier="admin",
             )
         flash("Registration approved.", FlashCategory.SUCCESS)
     except (ArenaClassNotFoundError, ArenaClassPermissionError, ArenaClassValidationError) as exc:
@@ -278,12 +282,14 @@ async def class_request_deny(
         await session.commit()
         denied_user = await session.get(ArenaUser, decided.user_id)
         if denied_user is not None:
-            arena_class_email_service.send_class_registration_denied_email(
+            await arena_class_email_service.send_class_registration_denied_email(
                 student_email=denied_user.email_normalizado,
                 student_name=denied_user.nome,
                 class_name=class_detail.name,
                 denial_reason=decided.denial_reason,
                 email_service=request.app.state.email_service,
+                actor_key=f"user:{user_or_redirect.id}",
+                tier="admin",
             )
         flash("Registration denied.", FlashCategory.SUCCESS)
     except (ArenaClassNotFoundError, ArenaClassPermissionError, ArenaClassValidationError) as exc:
@@ -328,11 +334,13 @@ async def class_member_remove(
             await session.commit()
             removed_user = await session.get(ArenaUser, user_id)
             if removed_user is not None:
-                arena_class_email_service.send_class_membership_removed_email(
+                await arena_class_email_service.send_class_membership_removed_email(
                     student_email=removed_user.email_normalizado,
                     student_name=removed_user.nome,
                     class_name=class_detail.name,
                     email_service=request.app.state.email_service,
+                    actor_key=f"user:{user_or_redirect.id}",
+                    tier="admin",
                 )
         else:
             await session.commit()

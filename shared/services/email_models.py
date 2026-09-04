@@ -50,6 +50,11 @@ class EmailMessage:
     subject: str | None = None
     text_body: str | None = None
     html_body: str | None = None
+    # Queue provenance, set by MailJob.to_message() in the mailer worker: when the message was
+    # first queued (POSIX seconds) and which delivery attempt this is (1-based).
+    # Never sent to the recipient; recorded on the mbox audit copy.
+    queued_at: float | None = None
+    delivery_attempt: int | None = None
 
     def __post_init__(self) -> None:
         """Validate required message fields."""

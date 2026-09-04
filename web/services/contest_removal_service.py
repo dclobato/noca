@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from shared.db_schema import (
     users_media,
     verdict_overrides,
 )
+from shared.services.problem_export_cache import discard_cached_export
 from shared.services.security_events import record_security_event
 from shared.services.valkey_service import (
     ContestValkeyPurgeResult,
@@ -53,6 +55,8 @@ from shared.services.valkey_service import (
     ValkeyRuntime,
 )
 from web.services.contest_removal_files import quarantine_problem_files
+
+logger = logging.getLogger(__name__)
 
 
 class ContestRemovalError(RuntimeError):
@@ -243,6 +247,7 @@ async def remove_inactive_contest(
     valkey_runtime: ValkeyRuntime,
     statement_dir: Path,
     testcase_dir: Path,
+    export_cache_dir: Path | None = None,
 ) -> ContestRemovalResult:
     """Permanently remove one inactive contest across all NOCA-managed stores.
 
@@ -256,6 +261,11 @@ async def remove_inactive_contest(
         valkey_runtime: Runtime used for strict Valkey state cleanup.
         statement_dir: Root directory holding problem statement files.
         testcase_dir: Root directory holding problem test-case files.
+        export_cache_dir: Per-problem public export cache directory, when one
+            is configured. Its entries are derived data, so they are dropped
+            after the deletion commits rather than quarantined with the
+            originals: a rollback leaves the problems in place, and their
+            caches are still correct.
 
     Raises:
         ContestRemovalNotFoundError: If the contest does not exist.
@@ -304,6 +314,14 @@ async def remove_inactive_contest(
         raise ContestRemovalError("Contest database removal failed.") from exc
 
     quarantine.discard()
+    if export_cache_dir is not None:
+        for problem_id in sorted(targets.problem_ids):
+            # Best-effort: the rows are gone either way, and a surviving file is
+            # unreachable -- no route can name a problem that no longer exists.
+            try:
+                await discard_cached_export(export_cache_dir, problem_id)
+            except OSError:
+                logger.warning("Could not discard the cached export of removed problem %s", problem_id, exc_info=True)
     return ContestRemovalResult(
         contest_id=contest_id,
         problems_removed=len(targets.problem_ids),

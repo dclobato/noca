@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,11 +18,12 @@ owns the transaction boundary (``session.flush()`` is used internally).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.models.arena_classes import ArenaClass, ArenaClassMembership, ArenaClassRegistrationRequest
 from arena.services.arena_class_service import (
     ArenaClassNotFoundError,
@@ -297,7 +298,8 @@ async def request_registration(
 
     Any registered user may request a class that allows self-registration.
     Rejected if the class forbids self-registration, the user is already an active
-    member, or a pending request already exists for the class.
+    member, a pending request already exists for the class, or the user's last
+    request for it was denied within ``NOCA_ARENA_CLASS_REGISTRATION_RETRY_SECONDS``.
 
     Args:
         session: Active async database session.
@@ -330,6 +332,24 @@ async def request_registration(
     )
     if existing:
         raise ArenaClassValidationError("A pending request already exists for this class.")
+    # A denied student may not re-request at once: each request emails the teacher,
+    # and without this wait the deny/re-request loop was an unbounded amplifier.
+    retry_seconds = settings.CLASS_REGISTRATION_RETRY_SECONDS
+    if retry_seconds > 0:
+        last_denied_at = await session.scalar(
+            select(func.max(ArenaClassRegistrationRequest.__table__.c.decided_at)).where(
+                ArenaClassRegistrationRequest.__table__.c.class_id == class_id,
+                ArenaClassRegistrationRequest.__table__.c.user_id == user_id,
+                ArenaClassRegistrationRequest.__table__.c.status == ArenaClassRegistrationStatus.DENIED.value,
+            )
+        )
+        if last_denied_at is not None:
+            if last_denied_at.tzinfo is None:
+                last_denied_at = last_denied_at.replace(tzinfo=UTC)
+            if datetime.now(UTC) - last_denied_at < timedelta(seconds=retry_seconds):
+                raise ArenaClassValidationError(
+                    "Your last request for this class was denied recently. Please wait before requesting again."
+                )
     request = ArenaClassRegistrationRequest(
         class_id=class_id,
         user_id=user_id,

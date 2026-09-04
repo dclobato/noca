@@ -22,20 +22,23 @@ import re
 
 import valkey.asyncio as aivalkey
 
-from shared.reveal_schema import RevealStateChangedEvent
+from shared.reveal_schema import RevelationEvent
 from shared.services.valkey_service.constants import (
     REVEAL_CONTROLLER_KEY_PREFIX,
     REVEAL_LOCK_KEY_PREFIX,
+    REVEAL_PROJECTORS_KEY_PREFIX,
     REVEAL_STATE_KEY_PREFIX,
     REVELATION_CHANNEL_PREFIX,
 )
 
 __all__ = [
     "InvalidRevelationScopeError",
+    "fenced_publish_script",
     "fenced_save_state_script",
     "publish_revelation_with_client",
     "reveal_controller_key",
     "reveal_lock_key",
+    "reveal_projectors_key",
     "reveal_state_key",
     "revelation_channel",
     "validate_component",
@@ -55,6 +58,22 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then
 end
 redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
 return 1
+"""
+
+
+# Lua ownership fence for a publication that writes nothing. KEYS[1] is the
+# controller-lease key, KEYS[2] the scope's channel; ARGV[1] is the caller's
+# controller id and ARGV[2] the serialized frame. The check and the PUBLISH are
+# one atomic step, so a lease that expires — or a takeover that lands — between
+# a caller's own ownership check and its publication cannot let the former
+# controller reach the projectors anyway. Returns -1 when ownership is not
+# held, else the subscriber count the PUBLISH reached (0 included, which is an
+# ordinary success: no projector may be connected yet).
+_FENCED_PUBLISH_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return -1
+end
+return redis.call('PUBLISH', KEYS[2], ARGV[2])
 """
 
 
@@ -113,6 +132,13 @@ def reveal_controller_key(contest_id: str, scope: str) -> str:
     return f"{REVEAL_CONTROLLER_KEY_PREFIX}:{contest_id}:{scope}"
 
 
+def reveal_projectors_key(contest_id: str, scope: str) -> str:
+    """Build the projector-presence sorted-set key for one ceremony scope."""
+    validate_component("contest_id", contest_id)
+    validate_component("scope", scope)
+    return f"{REVEAL_PROJECTORS_KEY_PREFIX}:{contest_id}:{scope}"
+
+
 def revelation_channel(contest_id: str, scope: str) -> str:
     """Build the spectator projection channel for one ceremony scope."""
     validate_component("contest_id", contest_id)
@@ -125,15 +151,24 @@ def fenced_save_state_script() -> str:
     return _FENCED_SAVE_STATE_SCRIPT
 
 
+def fenced_publish_script() -> str:
+    """Return the Lua script that publishes only while the caller owns the scope."""
+    return _FENCED_PUBLISH_SCRIPT
+
+
 async def publish_revelation_with_client(
     client: aivalkey.Valkey,
-    event: RevealStateChangedEvent,
+    event: RevelationEvent,
 ) -> int:
-    """Publish a reveal-changed nudge to the scope's projection channel.
+    """Publish one revelation frame to the scope's projection channel.
+
+    Both payloads the channel carries go out through here -- the state-changed
+    nudge and the transient media cue -- because both address exactly the same
+    audience: every projector watching this contest and scope.
 
     Args:
         client: A connected async Valkey client.
-        event: The invalidation nudge to broadcast.
+        event: The nudge or presentation cue to broadcast.
 
     Returns:
         The number of subscribers the ``PUBLISH`` reached (may be ``0``). A

@@ -27,6 +27,7 @@ import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
+from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_classes import ArenaClass
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
@@ -37,6 +38,7 @@ from arena.routes.problem_problem_sets import router as arena_problem_problem_se
 from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
 from arena.services.token_service import ArenaTokenAction
+from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_problem_set_problems, arena_problem_solvers
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
@@ -50,6 +52,10 @@ from tests.arena.conftest import install_arena_templates, mount_arena_base_route
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-problem-detail-tests"
+
+# Rendered by problem_detail.html when an editorial exists but is still gated
+# behind an Accepted verdict for the viewing user.
+_EDITORIAL_PENDING_HINT = "Editorial available after AC"
 
 
 def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
@@ -346,6 +352,40 @@ async def test_problem_detail_renders_resizable_workspace(session: AsyncSession)
     assert 'role="separator"' in response.text
     assert 'aria-controls="problem-statement-panel solution-panel"' in response.text
     assert "problem-column-resizer.js?v=test" in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_renders_brazilian_affiliation_state_flag(
+    session: AsyncSession,
+) -> None:
+    """A Brazilian author's affiliation displays its country and state flags."""
+    app = _build_problem_detail_app(session)
+    affiliation = ArenaAffiliation(
+        name="Universidade de Teste",
+        country_code="BR",
+        subdivision_code="BR-RS",
+    )
+    session.add(affiliation)
+    await session.flush()
+    author = await _create_user(
+        session,
+        name="Brazilian Author",
+        email="brazilian-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    author.affiliation_id = affiliation.id
+    problem = await _create_enabled_problem(session, author)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}")
+
+    assert response.status_code == 200
+    assert "/static/vendor/img/state-flags/BR.svg" in response.text
+    assert "/static/vendor/img/state-flags/RS.svg" in response.text
 
 
 @pytest.mark.asyncio
@@ -1065,6 +1105,39 @@ async def test_problem_detail_omits_editorial_link_with_no_editorial_or_never(se
     for response in (no_editorial_response, never_response):
         assert response.status_code == 200
         assert "Editorial</a>" not in response.text
+        # A 'never' editorial must not even be hinted at: the page looks exactly
+        # like a problem that has no editorial at all.
+        assert _EDITORIAL_PENDING_HINT not in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_shows_last_updated(session: AsyncSession) -> None:
+    """The statement panel stamps the problem's last update in the viewer's timezone."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Last Updated Author",
+        email="last-updated-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    user = await _create_user(
+        session,
+        name="Last Updated User",
+        email="last-updated-user@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    problem = await _create_enabled_problem(session, author, title="Last Updated Problem")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, user)},
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}")
+
+    assert response.status_code == 200
+    assert "Last updated at:" in response.text
+    assert format_user_datetime(problem.updated_at, user) in response.text
 
 
 @pytest.mark.asyncio
@@ -1101,6 +1174,7 @@ async def test_problem_detail_shows_editorial_link_when_always(session: AsyncSes
     assert detail_response.status_code == 200
     assert detail_response.text.count(f'href="http://testserver{editorial_url}"') == 2
     assert 'target="_blank"' in detail_response.text
+    assert _EDITORIAL_PENDING_HINT not in detail_response.text
     assert editorial_response.status_code == 200
     assert "Use a segment tree." in editorial_response.text
     assert "markdown-src" in editorial_response.text
@@ -1140,6 +1214,8 @@ async def test_problem_detail_gates_editorial_link_after_ac(session: AsyncSessio
 
     assert before_ac_detail.status_code == 200
     assert f'href="http://testserver{editorial_url}"' not in before_ac_detail.text
+    # Both nav rows tell the viewer that solving unlocks the editorial.
+    assert before_ac_detail.text.count(_EDITORIAL_PENDING_HINT) == 2
     assert before_ac_direct.status_code == 404
 
     await _mark_solved(session, problem=problem, user=user)
@@ -1154,5 +1230,6 @@ async def test_problem_detail_gates_editorial_link_after_ac(session: AsyncSessio
 
     assert after_ac_detail.status_code == 200
     assert after_ac_detail.text.count(f'href="http://testserver{editorial_url}"') == 2
+    assert _EDITORIAL_PENDING_HINT not in after_ac_detail.text
     assert after_ac_direct.status_code == 200
     assert "Greedy works here." in after_ac_direct.text

@@ -108,6 +108,7 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
         color=_color(meta.get("color")),
         hide_author_show_source=_bool(meta, "hide_author_show_source"),
         statement_language=_string(meta, "statement_language", 8),
+        expected_difficulty=_expected_difficulty(meta.get("expected_difficulty")),
         time_limit_ms=_positive_int(meta, "time_limit_ms", default=_LIMIT_DEFAULTS["time_limit_ms"]),
         memory_limit_kb=_positive_int(meta, "memory_limit_kb", default=_LIMIT_DEFAULTS["memory_limit_kb"]),
         pids_limit=_positive_int(meta, "pids_limit", default=_LIMIT_DEFAULTS["pids_limit"]),
@@ -237,6 +238,26 @@ def _editorial_release_policy(value: Any) -> ArenaEditorialReleasePolicy | None:
         raise PackageError(
             f"problem.json: unknown editorial 'release_policy' {raw!r}; expected one of {known}."
         ) from exc
+
+
+def _expected_difficulty(value: Any) -> int | None:
+    """Validate the optional author-declared difficulty.
+
+    An integer on the internal ``[1, 100]`` rating scale, or ``null``/absent for
+    no estimate. Additive within version 2, so a package written before the key
+    existed parses as ``None``. Only Arena stores it, but both domains parse and
+    export it so a Contest round trip states plainly that it was lost.
+
+    Raises:
+        PackageError: On a non-integer (booleans included) or out-of-range value.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PackageError(f"problem.json: 'expected_difficulty' must be an integer or null; got {value!r}.")
+    if not 1 <= value <= 100:
+        raise PackageError(f"problem.json: 'expected_difficulty' must be between 1 and 100; got {value}.")
+    return value
 
 
 def _absent_or(meta: Mapping[str, Any], key: str) -> Any:

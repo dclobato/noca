@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,6 +29,7 @@ from web.services.contest_user_service import (
 )
 from web.services.user_credentials_email_service import (
     build_user_credentials_email_content,
+    email_actor_key,
     send_credentials_email,
 )
 
@@ -272,7 +273,7 @@ async def send_single_user_credentials_email(
         )
 
     email_service = request.app.state.email_service
-    delivery = send_credentials_email(
+    delivery = await send_credentials_email(
         email_service,
         to_email=email.strip(),
         fullname=fullname,
@@ -284,6 +285,7 @@ async def send_single_user_credentials_email(
             password=password,
             sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
+        actor_key=email_actor_key(ctx.actor),
     )
     await _record_credential_email_event(
         request,

@@ -149,6 +149,7 @@ async def import_problem_package(
         license=metadata.license,
         category_ids=category_ids,
         statement_language=language,
+        expected_difficulty=metadata.expected_difficulty,
         # The package's normalized strategy: version 2 states it, version 1 has it
         # derived by the shared parser. Never re-derived from validator presence.
         validator_type=package.metadata.validator_type,
@@ -240,6 +241,7 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         color=None,
         hide_author_show_source=problem.hide_author_show_source,
         statement_language=(problem.statement_language.value if problem.statement_language else None),
+        expected_difficulty=problem.expected_difficulty,
         time_limit_ms=problem.time_limit_ms,
         memory_limit_kb=problem.memory_limit_kb,
         pids_limit=problem.pids_limit,

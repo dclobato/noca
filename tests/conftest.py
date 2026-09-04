@@ -152,10 +152,6 @@ if _test_valkey_db != settings.VALKEY_DB:
     raise RuntimeError(
         f"Tests must use Valkey DB {_test_valkey_db} (worker {_xdist_worker or 'serial'}), got DB {settings.VALKEY_DB}"
     )
-from tests.fixtures.interif_2026 import (  # noqa: E402
-    InterIF2026ContestFixture,
-    load_interif_2026_contest,
-)
 from web.models.contest import Contest  # noqa: E402
 from web.models.problem import Problem, ProblemTestCase  # noqa: E402
 from web.models.users import UberAdmin, User  # noqa: E402
@@ -228,15 +224,6 @@ async def session(engine) -> AsyncSession:
     async with factory() as s:
         yield s
         await s.rollback()
-
-
-@pytest_asyncio.fixture
-async def interif_2026_contest_fixture(
-    session: AsyncSession,
-    uberadmin: UberAdmin,
-) -> InterIF2026ContestFixture:
-    """Populate the full IX InterIF 2026 local contest dataset."""
-    return await load_interif_2026_contest(session, uberadmin)
 
 
 # ---------------------------------------------------------------------------

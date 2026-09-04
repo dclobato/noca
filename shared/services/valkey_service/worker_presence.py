@@ -58,16 +58,17 @@ return removed
 class WorkerClass(StrEnum):
     """Process classes that publish Valkey presence.
 
-    The worker classes (autojudge, aiassistant, rating) are displayed by the
-    Arena administration dashboard and participate in the pause machinery.
-    The HTTP server classes (web, arena, animator) are presence-only: they are
-    monitored by the healthmonitor module and must never appear in
-    pause/dashboard UIs.
+    The worker classes (autojudge, aiassistant, rating, mailer) are displayed by
+    the Arena administration dashboard and, except for the always-on rating
+    worker, participate in the pause machinery. The HTTP server classes (web,
+    arena, animator) are presence-only: they are monitored by the healthmonitor
+    module and must never appear in pause/dashboard UIs.
     """
 
     AUTOJUDGE = "autojudge"
     AIASSISTANT = "aiassistant"
     RATING = "rating"
+    MAILER = "mailer"
     WEB = "web"
     ARENA = "arena"
     ANIMATOR = "animator"

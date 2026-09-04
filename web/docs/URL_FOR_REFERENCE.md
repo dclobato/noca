@@ -11,8 +11,10 @@ All names are stable — changing a route's path no longer breaks templates.
 | `request.url_for('static_css', path='<file>.css')` | `/static/css/<file>.css` | `static_css` |
 | `request.url_for('static_shared_js', path='<file>.js')` | `/static/shared-js/<file>.js` | `static_shared_js` |
 | `request.url_for('static_shared_css', path='<file>.css')` | `/static/shared-css/<file>.css` | `static_shared_css` |
+| `request.url_for('static_shared_img', path='<file>')` | `/static/shared-img/<file>` | `static_shared_img` |
 | `request.url_for('static_img', path='<file>')` | `/static/img/<file>` | `static_img` |
 | `request.url_for('static_vendor', path='<file>')` | `/static/vendor/<file>` | `static_vendor` |
+| `request.url_for('static_vendor', path='img/state-flags/<code>.svg')` | `/static/vendor/img/state-flags/<code>.svg` | `static_vendor` |
 | `request.url_for('static_webfonts', path='<file>')` | `/static/webfonts/<file>` | `static_webfonts` |
 
 ## Generated assets
@@ -34,12 +36,14 @@ parameters.
 |---|---|---|---|
 | `/` or `/contests` | `contests_list` | — | `root.py` |
 | `GET /contests/past` | `contests_past` | — | `root.py` |
+| `GET /announcements` | `announcements_list` | Query: `page=` | `announcements.py` |
+| `GET /announcements/{announcement_id}` | `announcement_detail` | `announcement_id=`; query: `page=` (list page for the Back link) | `announcements.py` |
 | `GET /login` | `login_get` | Optional query: safe local `next_url` | `auth.py` |
 | `POST /login` | `login_post` | Form: `identifier` (username only), `password`, optional safe local `next_url` | `auth.py` |
 | `/logout` | `logout` | — | `auth.py` (POST-only; submit a form, never link to it) |
-| `GET /c/{slug}/login` | `contest_login_get` | `slug=` | `auth.py` |
+| `GET /c/{slug}/login` | `contest_login_get` | `slug=` (optional `?next=` same-contest return path) | `auth.py` |
 | `POST /c/{slug}/login` | `contest_login_post` | `slug=` | `auth.py` |
-| `GET /problem-set/{slug}.zip` | `problem_set_download` | `slug=` | `problem_set.py` |
+| `GET /problem-set/{slug}.zip` | `problem_set_download` | `slug=` | `problem_set.py` (`429` over `NOCA_WEB_PUBLIC_RATE_LIMIT_PROBLEM_SET_*`; `503` in production without a cache path) |
 
 ## Session Keepalive (`session.py`)
 
@@ -68,6 +72,13 @@ with a degraded payload when either required backend is unavailable.
 | `GET /uberadmin/` | `uberadmin_dashboard` | — | `uberadmin_dashboard.py` |
 | `GET /uberadmin/security-events` | `uberadmin_security_events` | `event_type=`, `per_page=`, `page=` | `uberadmin_security.py` |
 | `GET /uberadmin/security-events.csv` | `uberadmin_security_events_csv` | none | `uberadmin_security.py` |
+| `GET /uberadmin/lockouts` | `uberadmin_lockouts` | `ip=`, `identifier=`, `identifier_hash=` (prefill + live status) | `uberadmin_lockouts.py` |
+| `POST /uberadmin/lockouts/unlock-ip` | `uberadmin_unlock_ip` | Form: `ip`, `password` | `uberadmin_lockouts.py` |
+| `POST /uberadmin/lockouts/unlock-account` | `uberadmin_unlock_account` | Form: `identifier` + `contest_scope` (`all` or an active contest id; required with `identifier`) and/or `identifier_hash`, `password` | `uberadmin_lockouts.py` |
+| `GET /uberadmin/announcements` | `uberadmin_announcements` | Query: `page=` | `uberadmin_announcements.py` |
+| `GET /uberadmin/announcements/new` | `uberadmin_announcement_new` | — | `uberadmin_announcements.py` |
+| `POST /uberadmin/announcements` | `uberadmin_announcement_create` | Form: `title`, `body` | `uberadmin_announcements.py` |
+| `POST /uberadmin/announcements/{announcement_id}/delete` | `uberadmin_announcement_delete` | `announcement_id=`; form: `page` | `uberadmin_announcements.py` |
 | `GET /uberadmin/uberadmins` | `list_uberadmins_route` | — | `uberadmin_users.py` |
 | `GET /uberadmin/uberadmins/new` | `add_uberadmin` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/uberadmins/new` | `add_uberadmin_submit` | — | `uberadmin_dashboard.py` |
@@ -75,6 +86,7 @@ with a degraded payload when either required backend is unavailable.
 | `POST /uberadmin/uberadmins/{uberadmin_id}/edit` | `edit_uberadmin_submit` | `uberadmin_id=` | `uberadmin_users.py` |
 | `POST /uberadmin/uberadmins/{uberadmin_id}/toggle` | `toggle_uberadmin_route` | `uberadmin_id=` | `uberadmin_users.py` |
 | `POST /uberadmin/uberadmins/credentials.json` | `download_uberadmin_credentials_json` | — | `uberadmin_dashboard.py` |
+| `POST /uberadmin/uberadmins/credentials/email` | `send_uberadmin_credentials_email` | Form: `fullname`, `email`, `username`, `password` | `uberadmin_dashboard.py` |
 | `GET /uberadmin/contests/new` | `add_contest` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/contests/new` | `add_contest_submit` | — | `uberadmin_dashboard.py` |
 | `GET /uberadmin/contests/inactive` | `uberadmin_inactive_contests` | — | `uberadmin_dashboard.py` |
@@ -122,13 +134,13 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 | `GET /c/{slug}/runs/` | `contest_runs` | `slug=`, `sort_by=`, `filter_problem_id=`, `filter_autojudge=`, `filter_final_verdict=`, `filter_team_id=`, `queued_submission=` | `contest_runs.py` |
 | `GET /c/{slug}/runs/list` | `contest_runs_list` | `slug=`, `sort_by=`, `filter_problem_id=`, `filter_autojudge=`, `filter_final_verdict=`, `filter_team_id=` | `contest_runs.py` |
 | `GET /c/{slug}/runs/language-info` | `contest_runs_language_info` | `slug=` | `contest_runs.py` |
-| `GET /c/{slug}/runs/events` | `contest_runs_events` | `slug=` | `contest_runs_events.py` |
+| `GET /c/{slug}/runs/events` | `contest_runs_events` | `slug=` | `contest_runs_events.py` (answers `429` when the IP/actor already holds `NOCA_WEB_SSE_MAX_PER_*` open streams) |
 | `POST /c/{slug}/runs/submit` | `contest_runs_submit` | `slug=` | `contest_runs_review.py` |
 | `POST /c/{slug}/runs/{submission_id}/override` | `contest_runs_override` | `slug=`, `submission_id=` | `contest_runs_review.py` |
 | `GET /c/{slug}/runs/{submission_id}/judging-history` | `contest_runs_judging_history` | `slug=`, `submission_id=` | `contest_runs_events.py` |
 | `GET /c/{slug}/live` | `contest_live` | `slug=` | `contest_live_feed.py` |
-| `GET /c/{slug}/live/feed.json` | `contest_live_feed` | `slug=` | `contest_live_feed.py` |
-| `GET /c/{slug}/live/events` | `contest_live_events` | `slug=` | `contest_live_feed.py` |
+| `GET /c/{slug}/live/feed.json` | `contest_live_feed` | `slug=` | `contest_live_feed.py` (`429` over `NOCA_WEB_PUBLIC_RATE_LIMIT_LIVE_FEED_*`) |
+| `GET /c/{slug}/live/events` | `contest_live_events` | `slug=` | `contest_live_feed.py` (answers `429` when the IP already holds `NOCA_WEB_SSE_MAX_PER_IP` open streams) |
 | `GET /c/{slug}/tasks/` | `contest_tasks` | `slug=` | `contest_tasks.py` |
 | `GET /c/{slug}/tasks/list` | `contest_tasks_list` | `slug=` | `contest_tasks.py` |
 | `POST /c/{slug}/tasks/sos` | `contest_tasks_sos` | `slug=` | `contest_tasks.py` |
@@ -136,8 +148,9 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 | `POST /c/{slug}/tasks/{task_id}/acquire` | `contest_tasks_acquire` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
 | `POST /c/{slug}/tasks/{task_id}/finish` | `contest_tasks_finish` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
 | `POST /c/{slug}/tasks/{task_id}/release` | `contest_tasks_release` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
-| `GET /c/{slug}/tasks/{task_id}/source` | `contest_tasks_source` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
-| `GET /c/{slug}/reports/` | `contest_reports` | `slug=` | `contest_reports.py` |
+| `GET /c/{slug}/tasks/{task_id}/source` | `contest_tasks_source` | `slug=`, `task_id=` | `contest_tasks_source.py` |
+| `GET /c/{slug}/tasks/{task_id}/printout` | `contest_tasks_printout` | `slug=`, `task_id=` | `contest_tasks_source.py` |
+| `GET /c/{slug}/reports/` | `contest_reports` | `slug=`, `site=` | `contest_reports.py` |
 | `GET /c/{slug}/solution-tests/` | `contest_solution_tests` | `slug=` | `contest_solution_tests.py` |
 | `POST /c/{slug}/solution-tests/submit` | `contest_solution_tests_submit` | `slug=` | `contest_solution_tests.py` |
 | `GET /c/{slug}/solution-tests/{run_id}` | `contest_solution_test_detail` | `slug=`, `run_id=` | `contest_solution_tests.py` |
@@ -214,8 +227,8 @@ Limits routes (`contest_admin_problem_limits.py`):
 | `GET /c/{slug}/admin/problems/{problem_id}/profiling-status` | `problem_profiling_status_partial` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/fallback-limits` | `apply_problem_fallback_limits` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}` | `problem_limit_change_batch_review` | `slug=`, `problem_id=`, `batch_id=` | `contest_admin_problem_limits.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/rejudge-all` | `problem_limit_change_batch_rejudge_all` | `slug=`, `problem_id=`, `batch_id=` | `contest_admin_problem_limits.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/languages/{language_id}/rejudge` | `problem_limit_change_batch_rejudge_language` | `slug=`, `problem_id=`, `batch_id=`, `language_id=` | `contest_admin_problem_limits.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/rejudge-all` | `problem_limit_change_batch_rejudge_all` | `slug=`, `problem_id=`, `batch_id=`; Form: `password` | `contest_admin_problem_limits.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/languages/{language_id}/rejudge` | `problem_limit_change_batch_rejudge_language` | `slug=`, `problem_id=`, `batch_id=`, `language_id=`; Form: `password` | `contest_admin_problem_limits.py` |
 
 Categories routes (`contest_admin_problem_categories.py`):
 
@@ -314,6 +327,9 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 | `POST /user/{user_id}/audio/remove` | `user_audio_remove` | `user_id=` | `user_media.py` |
 
 ## User media asset routes (`user_media.py`)
+
+These routes reuse the request-scoped database session that authorizes the
+viewer; they don't open a second session for media reads or writes.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|

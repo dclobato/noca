@@ -1,0 +1,61 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{#
+  Side-by-side comparison of the first differing lines between the student's
+  stored output and the expected output. Expects `diff` (an
+  arena.services.output_diff.OutputComparison) and `output_label`.
+  Rendered identically for sample and secret cases: the bound is the judge's
+  stored excerpt, not the case's visibility.
+#}
+<div class="arena-output-diff">
+    <table class="table table-sm table-borderless arena-output-diff-table mb-1">
+        <thead>
+            <tr>
+                <th scope="col" class="arena-output-diff-no"></th>
+                <th scope="col" class="arena-output-compare-label text-danger">{{ output_label }}</th>
+                <th scope="col" class="arena-output-diff-no"></th>
+                <th scope="col" class="arena-output-compare-label text-success">Expected output</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in diff.rows %}
+                <tr class="arena-output-diff-row arena-output-diff-{{ row.kind }}">
+                    <td class="arena-output-diff-no">{{ row.left_no if row.left_no is not none else "" }}</td>
+                    <td class="arena-output-diff-cell">
+                        {% if row.left is not none %}
+                            <pre class="arena-output-diff-pre">{{ row.left | e }}</pre>
+                        {% elif row.kind == "missing" %}
+                            <span class="text-muted fst-italic small">(missing)</span>
+                        {% endif %}
+                    </td>
+                    <td class="arena-output-diff-no">{{ row.right_no if row.right_no is not none else "" }}</td>
+                    <td class="arena-output-diff-cell">
+                        {% if row.right is not none %}
+                            <pre class="arena-output-diff-pre">{{ row.right | e }}</pre>
+                        {% elif row.kind == "extra" %}
+                            <span class="text-muted fst-italic small">(nothing expected here)</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="small text-muted mb-0">
+        {% if diff.no_visible_difference %}
+            No line differs in the stored output; the judge found a difference that line splitting hides, such as trailing whitespace or a missing final newline.
+        {% elif diff.difference_beyond_excerpt %}
+            The stored part of the output matches the expected output; the difference lies beyond what the judge keeps.
+        {% else %}
+            Showing {{ diff.differing_lines - diff.hidden_differing_lines }} of {{ diff.differing_lines }} differing line{{ "" if diff.differing_lines == 1 else "s" }}
+            {% if diff.hidden_differing_lines %}({{ diff.hidden_differing_lines }} more not shown){% endif %}
+            .
+        {% endif %}
+        {% if diff.actual_cut %}Only the first part of the output was stored by the judge.{% endif %}
+        {% if diff.expected_cut %}Only the first part of the expected output was compared.{% endif %}
+    </p>
+</div>

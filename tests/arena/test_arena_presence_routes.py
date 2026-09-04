@@ -31,7 +31,14 @@ from tests.arena._admin_problem_app import build_admin_app, create_user, login_t
 
 
 class _RecordingRuntime:
-    """In-memory Valkey stand-in recording eval/mget calls for assertions."""
+    """In-memory Valkey stand-in recording presence eval/mget calls for assertions.
+
+    The presence router also carries the per-user read ceiling, which runs its
+    own counter script through the same ``eval``. Only the presence scripts are
+    recorded, so "this guest never touched presence state" stays exactly what
+    the assertions below say -- and stays true regardless of what an unrelated
+    limiter counts before the auth check.
+    """
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
@@ -39,10 +46,11 @@ class _RecordingRuntime:
         self.mget_calls: list[list[str]] = []
 
     async def eval(self, script: str, numkeys: int, *args: str) -> int:
-        self.eval_calls.append((script, numkeys, args))
         if "ZADD" in script:  # mark online sets the live key
+            self.eval_calls.append((script, numkeys, args))
             self.store[args[0]] = "1"
         elif "ZREM" in script:  # mark offline clears the live key
+            self.eval_calls.append((script, numkeys, args))
             self.store.pop(args[0], None)
         return 1
 

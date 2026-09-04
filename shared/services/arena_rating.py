@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,10 +18,18 @@ drive these functions live in ``rating.loops``.
      *and* each problem's effective pivot are gated by that problem's own attempt
      count: the slope ramps from identity toward its maximum, and the pivot ramps
      from the neutral centre toward the population median. Low-data problems
-     therefore stay near the centre — neither pushed to the extremes nor measured
+     therefore stay near their prior — neither pushed to the extremes nor measured
      against a skewed population — and only well-attempted problems are pushed to
-     the easy/hard ends. Pulls toward medium difficulty when data is scarce;
-     diverges toward 1 or 100 as evidence accumulates.
+     the easy/hard ends. Diverges toward 1 or 100 as evidence accumulates.
+
+     The solve-rate prior's *mean* is per problem. With no author estimate it is
+     the flat ``PRIOR_SOLVE_RATE`` and a fresh problem sits at the scale centre.
+     With one (``arena_problems.expected_difficulty``), the mean is chosen by
+     ``prior_solve_rate_for_difficulty`` so that a zero-attempt problem lands
+     exactly on the declared value; the prior *weight* ``ALPHA`` is unchanged, so
+     evidence overrides an estimate at the same rate it overrides the flat
+     prior. The pivot is deliberately **not** per problem: a pivot equal to the
+     problem's own prior would put it at the centre regardless of the estimate.
 
   2. User score (0–∞) — Exponential-growth points per solved problem.
      Problems at display-difficulty 10.0 pay ~28× more than problems at
@@ -53,6 +61,7 @@ from shared.db_schema.arena import arena_problems as _arena_problems
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_user_rating_history as _arena_user_rating_history
 from shared.db_schema.arena import arena_users as _arena_users
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 from shared.services.arena_difficulty_histogram import persist_difficulty_histogram
 from shared.services.arena_query_helpers import counts_toward_problem_rating
 
@@ -62,7 +71,12 @@ from shared.services.arena_query_helpers import counts_toward_problem_rating
 
 ALPHA: float = 10.0  # prior weight for solve-rate; lower than before so empirical data diverges sooner
 BETA: float = 10.0  # prior weight for avg-tries   (new problem → pulled toward 2 tries)
-PRIOR_SOLVE_RATE: float = 0.50
+PRIOR_SOLVE_RATE: float = 0.50  # prior mean with no author estimate
+# Bounds for a prior mean derived from an author estimate. The exact inverse of the
+# display pipeline runs outside (0, 1) at the very ends of the scale; a clamp keeps
+# the prior a valid solve rate at the cost of not reaching 0.1 or 10.0 exactly.
+PRIOR_SOLVE_RATE_MIN: float = 0.01
+PRIOR_SOLVE_RATE_MAX: float = 0.99
 PRIOR_TRIES: float = 2.0
 MAX_RELEVANT_TRIES: float = 10.0  # tries at or above this saturate the component at 1.0
 W_SOLVE_RATE: float = 0.80  # weight of solve-rate component in difficulty
@@ -112,6 +126,7 @@ def _raw_difficulty(
     attempted_users: int,
     solved_users: int,
     total_tries_before_solve: int,
+    prior_solve_rate: float = PRIOR_SOLVE_RATE,
 ) -> float:
     """Return the raw weighted difficulty estimate in [0, 1] before contrast.
 
@@ -123,17 +138,55 @@ def _raw_difficulty(
         attempted_users: Unique users who submitted at least once.
         solved_users: Unique users who reached AC.
         total_tries_before_solve: Sum of per-user attempt counts up to first AC.
+        prior_solve_rate: Mean of the Beta prior on the solve rate. The flat
+            ``PRIOR_SOLVE_RATE`` by default; an author estimate supplies its own
+            through ``prior_solve_rate_for_difficulty``.
 
     Returns:
         float: Raw difficulty in [0, 1].
     """
-    solve_rate = (solved_users + ALPHA * PRIOR_SOLVE_RATE) / (attempted_users + ALPHA)
+    solve_rate = (solved_users + ALPHA * prior_solve_rate) / (attempted_users + ALPHA)
     avg_tries = (total_tries_before_solve + BETA * PRIOR_TRIES) / (solved_users + BETA)
 
     solve_component = 1.0 - solve_rate
     tries_component = max(0.0, min(1.0, log(avg_tries) / log(MAX_RELEVANT_TRIES)))
 
     return W_SOLVE_RATE * solve_component + W_TRIES * tries_component
+
+
+def prior_solve_rate_for_difficulty(expected_difficulty: int) -> float:
+    """Return the solve-rate prior mean that makes a fresh problem display ``expected_difficulty``.
+
+    Runs the zero-attempt display pipeline backwards. At zero attempts the
+    contrast gain is 1 and the effective pivot is ``_NEUTRAL_PIVOT``, so the
+    final value is a fixed function of the raw estimate, and the raw estimate is
+    a fixed function of the prior mean (the tries component sits at its own
+    prior). Inverting both gives the mean at which the stored rating equals the
+    declaration; every later attempt then moves it at the ``ALPHA`` rate exactly
+    as it moves the flat prior.
+
+    Args:
+        expected_difficulty: Author's estimate on the internal ``[1, 100]`` scale.
+
+    Returns:
+        float: Prior mean in ``[PRIOR_SOLVE_RATE_MIN, PRIOR_SOLVE_RATE_MAX]``.
+    """
+    eps = 1e-6
+    contrasted = (max(1, min(100, expected_difficulty)) - 1) / 99.0
+    contrasted = min(1.0 - eps, max(eps, contrasted))
+    pivot = min(1.0 - eps, max(eps, _NEUTRAL_PIVOT))
+    logit_raw = log(contrasted / (1.0 - contrasted)) + log(pivot / (1.0 - pivot))
+    raw = 1.0 / (1.0 + exp(-logit_raw))
+    tries_component = log(PRIOR_TRIES) / log(MAX_RELEVANT_TRIES)
+    prior = 1.0 - (raw - W_TRIES * tries_component) / W_SOLVE_RATE
+    return max(PRIOR_SOLVE_RATE_MIN, min(PRIOR_SOLVE_RATE_MAX, prior))
+
+
+def _prior_for(expected_difficulty: int | None) -> float:
+    """Return the solve-rate prior mean for a stored (possibly absent) author estimate."""
+    if expected_difficulty is None:
+        return PRIOR_SOLVE_RATE
+    return prior_solve_rate_for_difficulty(expected_difficulty)
 
 
 def _contrast_gain(attempted_users: int) -> float:
@@ -411,17 +464,17 @@ async def _recompute_stats_for_problem(session: AsyncSession, problem_id: str) -
     )
 
 
-async def _ensure_and_load_stats(session: AsyncSession, problem_id: str) -> tuple[int, int, int]:
-    """Ensure a rating row exists and return the problem's rating inputs.
+async def _ensure_rating_row(session: AsyncSession, problem_id: str) -> None:
+    """Insert a defaults ``arena_problem_ratings`` row when the problem has none.
 
-    Inserts a defaults row when the problem has never been attempted.
+    Must run *before* ``_recompute_stats_for_problem``: that function is an
+    ``UPDATE``, so on a problem whose first submissions arrived before any rating
+    row existed it would silently match nothing and the defaults inserted
+    afterwards would report zero attempts for a whole cycle.
 
     Args:
         session: Active async database session.
         problem_id: UUID of the Arena problem.
-
-    Returns:
-        tuple: (attempted_users, solved_users, total_tries_before_solve).
     """
     existing = await session.scalar(
         select(_arena_problem_rating.c.problem_id).where(_arena_problem_rating.c.problem_id == problem_id)
@@ -430,16 +483,46 @@ async def _ensure_and_load_stats(session: AsyncSession, problem_id: str) -> tupl
         await session.execute(_arena_problem_rating.insert().values(problem_id=problem_id))
         await session.flush()
 
+
+async def _load_stats(session: AsyncSession, problem_id: str) -> tuple[int, int, int, int | None]:
+    """Return the problem's rating inputs from its existing rating row.
+
+    Args:
+        session: Active async database session.
+        problem_id: UUID of the Arena problem; its rating row must exist.
+
+    Returns:
+        tuple: (attempted_users, solved_users, total_tries_before_solve,
+        expected_difficulty) -- the last being the author's estimate, or ``None``.
+    """
     row = (
         await session.execute(
             select(
                 _arena_problem_rating.c.attempted_users,
                 _arena_problem_rating.c.solved_users,
                 _arena_problem_rating.c.total_tries_before_solve,
-            ).where(_arena_problem_rating.c.problem_id == problem_id)
+                _arena_problems.c.expected_difficulty,
+            )
+            .join(_arena_problems, _arena_problems.c.id == _arena_problem_rating.c.problem_id)
+            .where(_arena_problem_rating.c.problem_id == problem_id)
         )
     ).one()
-    return row.attempted_users, row.solved_users, row.total_tries_before_solve
+    return row.attempted_users, row.solved_users, row.total_tries_before_solve, row.expected_difficulty
+
+
+async def _ensure_and_load_stats(session: AsyncSession, problem_id: str) -> tuple[int, int, int, int | None]:
+    """Ensure a rating row exists and return the problem's rating inputs.
+
+    Args:
+        session: Active async database session.
+        problem_id: UUID of the Arena problem.
+
+    Returns:
+        tuple: (attempted_users, solved_users, total_tries_before_solve,
+        expected_difficulty).
+    """
+    await _ensure_rating_row(session, problem_id)
+    return await _load_stats(session, problem_id)
 
 
 async def _persist_problem_rating(session: AsyncSession, problem_id: str, difficulty: int, now: datetime) -> None:
@@ -487,11 +570,12 @@ async def rate_problem(*, session: AsyncSession, problem_id: str, pivot: float |
             this value by the problem's attempt count (see ``_effective_pivot``),
             so a low-evidence problem still maps near the scale centre.
     """
-    attempted, solved, tries = await _ensure_and_load_stats(session, problem_id)
+    attempted, solved, tries, expected = await _ensure_and_load_stats(session, problem_id)
     raw = _raw_difficulty(
         attempted_users=attempted,
         solved_users=solved,
         total_tries_before_solve=tries,
+        prior_solve_rate=_prior_for(expected),
     )
     population_pivot = _NEUTRAL_PIVOT if pivot is None else pivot
     difficulty = _apply_contrast(raw, _effective_pivot(population_pivot, attempted), attempted)
@@ -521,12 +605,14 @@ async def rate_all_problems(session: AsyncSession) -> int:
     raws: dict[str, float] = {}
     attempts: dict[str, int] = {}
     for pid in problem_ids:
+        await _ensure_rating_row(session, pid)
         await _recompute_stats_for_problem(session, pid)
-        attempted, solved, tries = await _ensure_and_load_stats(session, pid)
+        attempted, solved, tries, expected = await _load_stats(session, pid)
         raws[pid] = _raw_difficulty(
             attempted_users=attempted,
             solved_users=solved,
             total_tries_before_solve=tries,
+            prior_solve_rate=_prior_for(expected),
         )
         attempts[pid] = attempted
 
@@ -534,7 +620,8 @@ async def rate_all_problems(session: AsyncSession) -> int:
     pivot = statistics.median(confident) if confident else _NEUTRAL_PIVOT
 
     now = datetime.now(UTC)
-    difficulties: list[int] = []
+    measured_difficulties: list[int] = []
+    unmeasured = 0
     for pid in problem_ids:
         # Each problem's pivot ramps from the neutral centre toward the population
         # median by its own attempt count, so low-data problems map near the scale
@@ -542,9 +629,14 @@ async def rate_all_problems(session: AsyncSession) -> int:
         # At zero attempts this returns exactly _NEUTRAL_PIVOT.
         difficulty = _apply_contrast(raws[pid], _effective_pivot(pivot, attempts[pid]), attempts[pid])
         await _persist_problem_rating(session, pid, difficulty, now)
-        difficulties.append(difficulty)
+        # The histogram describes measured problems only: a low-evidence rating is
+        # stored (and used for points) but sits at the centre by construction.
+        if attempts[pid] >= MIN_ATTEMPTS_FOR_DISPLAY:
+            measured_difficulties.append(difficulty)
+        else:
+            unmeasured += 1
 
-    await persist_difficulty_histogram(session, difficulties, now)
+    await persist_difficulty_histogram(session, measured_difficulties, now, unmeasured_problems=unmeasured)
 
     cutoff = datetime.now(UTC) - timedelta(days=730)
     await session.execute(
@@ -655,8 +747,9 @@ def _compute_affiliation_rating(scores: list[int], f: float) -> int:
 async def rate_affiliation(*, session: AsyncSession, affiliation_id: str, f: float) -> None:
     """Compute and persist the rating for a single Arena affiliation.
 
-    Reads all non-null ``user_rating`` values from members of this affiliation,
-    applies ``_compute_affiliation_rating``, and updates ``rating`` +
+    Reads each ranking-visible member's non-null ``user_rating`` and precomputed
+    ``solved_problems`` values. Applies ``_compute_affiliation_rating`` and
+    updates the affiliation's ``rating``, summed ``solved_problems``, and
     ``dta_rating_update``.
 
     Does **not** commit; caller is responsible for the transaction.
@@ -668,7 +761,10 @@ async def rate_affiliation(*, session: AsyncSession, affiliation_id: str, f: flo
     """
     rows = (
         await session.execute(
-            select(_arena_users.c.user_rating).where(
+            select(
+                _arena_users.c.user_rating,
+                _arena_users.c.solved_problems,
+            ).where(
                 _arena_users.c.affiliation_id == affiliation_id,
                 _arena_users.c.user_rating.is_not(None),
                 _arena_users.c.ranking_visible.is_(True),
@@ -678,12 +774,17 @@ async def rate_affiliation(*, session: AsyncSession, affiliation_id: str, f: flo
 
     scores = [row.user_rating for row in rows if row.user_rating is not None]
     rating = _compute_affiliation_rating(scores, f)
+    solved_problems = sum(row.solved_problems or 0 for row in rows)
 
     now = datetime.now(UTC)
     await session.execute(
         update(_arena_affiliations)
         .where(_arena_affiliations.c.id == affiliation_id)
-        .values(rating=rating, dta_rating_update=now)
+        .values(
+            rating=rating,
+            solved_problems=solved_problems,
+            dta_rating_update=now,
+        )
     )
     if await _should_record_history(
         session,

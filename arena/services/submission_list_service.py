@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -97,7 +97,8 @@ def build_arena_submission_query(
     Joins ``arena_submissions`` → ``arena_problems`` → ``languages`` → active judgment
     → ``arena_submission_ai_reviews`` (left) → ``arena_submission_teacher_feedback`` (left).
     When ``include_user=True``, also joins ``arena_users`` and appends
-    ``arena_users.c.nome`` (index 14) and ``arena_users.c.id`` (index 15) after
+    ``arena_users.c.nome`` (index 14), ``arena_users.c.id`` (index 15) and
+    ``arena_users.c.avatar_revision`` (index 16) after
     all existing columns so existing positional unpacking in callers that use
     ``include_user=False`` remains unchanged.
 
@@ -119,7 +120,7 @@ def build_arena_submission_query(
         date_from_utc: Inclusive UTC lower bound for ``created_at``.
         date_to_utc: Exclusive UTC upper bound for ``created_at``.
         sort_dir: ``"asc"`` for oldest first; any other value gives newest first.
-        include_user: When ``True``, joins ``arena_users`` and appends nome + id columns.
+        include_user: When ``True``, joins ``arena_users`` and appends nome, id and avatar_revision.
 
     Returns:
         Select: SQLAlchemy select statement ready for count or paginated execution.
@@ -180,6 +181,7 @@ def build_arena_submission_query(
         )
         columns.append(arena_users.c.nome)  # 14
         columns.append(arena_users.c.id)  # 15
+        columns.append(arena_users.c.avatar_revision)  # 16
 
     stmt = select(*columns).select_from(from_clause)
 

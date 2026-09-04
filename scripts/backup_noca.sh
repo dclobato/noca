@@ -54,23 +54,62 @@ find_compose_file() {
     die "No Compose file found in $PROJECT_DIR"
 }
 
+# Every `.env`-style file in the project directory, in increasing precedence:
+# the `.full` templates first, then the operator's filled-in copies, then the
+# root `.env` last. Populated once, below.
+ENV_FILES=()
+
+discover_env_files() {
+    local path
+    local -a templates=() copies=()
+
+    for path in "$PROJECT_DIR"/.env "$PROJECT_DIR"/.env.*; do
+        [[ -f "$path" ]] || continue
+        case "$path" in
+            "$PROJECT_DIR/.env") continue ;;
+            *.full) templates+=("$path") ;;
+            *) copies+=("$path") ;;
+        esac
+    done
+    ENV_FILES=("${templates[@]}" "${copies[@]}" "$PROJECT_DIR/.env")
+}
+
+# Read one variable out of the layered environment files.
+#
+# Configuration is split across `.env.<layer>` files (see docs/ENV_LAYERS.md), so
+# reading the root `.env` alone would miss NOCA_VALKEY_* entirely and the backup
+# would talk to an authenticated Valkey with no credentials. A variable has
+# exactly one home -- tests/test_env_layers.py enforces that no two templates
+# define the same name -- so scanning them all is unambiguous. The last non-empty
+# match wins, which is what makes a filled-in copy beat the empty `.full`
+# template it was copied from.
 read_dotenv_value() {
     local key="$1"
+    local file
     local pattern_prefix
     local value
+    local found=""
 
     pattern_prefix="^[[:space:]]*(export[[:space:]]+)?${key}"
-    value="$(sed -n -E \
-        "s/${pattern_prefix}[[:space:]]*=[[:space:]]*(.*)$/\\2/p" \
-        "$PROJECT_DIR/.env" | tail -n 1)"
-    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
-        value="${value:1:${#value}-2}"
-    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
-        value="${value:1:${#value}-2}"
-    else
-        value="${value%%[[:space:]]#*}"
-    fi
-    printf '%s' "$value"
+    for file in "${ENV_FILES[@]}"; do
+        value="$(sed -n -E \
+            "s/${pattern_prefix}[[:space:]]*=[[:space:]]*(.*)$/\\2/p" \
+            "$file" | tail -n 1)"
+        if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+            value="${value:1:${#value}-2}"
+        elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+            value="${value:1:${#value}-2}"
+        else
+            value="${value%%[[:space:]]#*}"
+        fi
+        # An `if` rather than `&&`: under `set -e` a trailing failed test on the
+        # last iteration would make the whole function exit non-zero, aborting
+        # the backup whenever the variable is legitimately empty.
+        if [[ -n "$value" ]]; then
+            found="$value"
+        fi
+    done
+    printf '%s' "$found"
 }
 
 service_exists() {
@@ -184,8 +223,17 @@ mapfile -t RUNNING_SERVICES < <("${COMPOSE[@]}" ps --status running --services)
 service_exists postgres || die "Compose service 'postgres' is required"
 service_exists valkey || die "Compose service 'valkey' is required"
 
+discover_env_files
+# Configuration lives in one file per layer (docs/ENV_LAYERS.md). Archiving a
+# fixed pair would restore a host that has the Compose file but none of the
+# templates its services name in `env_file:`, so the list is discovered.
+FILESYSTEM_CONFIG_PATHS=()
+for path in "${ENV_FILES[@]}"; do
+    FILESYSTEM_CONFIG_PATHS+=("${path#"$PROJECT_DIR/"}")
+done
+FILESYSTEM_CONFIG_PATHS+=("${COMPOSE_FILE#"$PROJECT_DIR/"}")
+readonly FILESYSTEM_CONFIG_PATHS
 readonly FILESYSTEM_DATA_PATHS=(problem_statements problem_testcases email_log)
-readonly FILESYSTEM_CONFIG_PATHS=(.env .env.crypto "${COMPOSE_FILE#"$PROJECT_DIR/"}")
 readonly FILESYSTEM_PATHS=("${FILESYSTEM_DATA_PATHS[@]}" "${FILESYSTEM_CONFIG_PATHS[@]}")
 for path in "${FILESYSTEM_PATHS[@]}"; do
     [[ -e "$PROJECT_DIR/$path" ]] || die "Required backup path is missing: $PROJECT_DIR/$path"
@@ -203,7 +251,7 @@ trap cleanup EXIT INT TERM HUP
 
 ensure_restic_repository
 
-for service in web arena autojudge rating aiassistant healthmonitor; do
+for service in web arena autojudge rating aiassistant mailer healthmonitor; do
     for running_service in "${RUNNING_SERVICES[@]}"; do
         if [[ "$running_service" == "$service" ]]; then
             STOPPED_SERVICES+=("$service")

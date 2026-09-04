@@ -22,6 +22,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from scripts.asset_manifest import devicon_assets, vendor_ace, vendor_fonts, vendor_libraries, webfont_assets
+from scripts.brazilian_flag_assets import download_brazilian_flags
 from shared.language_configs import default_language_configs
 from shared.language_registry import ace_modes_for_registry, highlightjs_languages_for_registry
 
@@ -420,6 +421,7 @@ def download_assets() -> None:
             },
             "img": {
                 "flags": {},
+                "state-flags": {},
                 "devicon": {},
             },
         },
@@ -443,6 +445,14 @@ def download_assets() -> None:
     _write_local_fonts_css(config, vendor_dir, webfonts_dir, failures)
 
     download_country_flags(vendor_dir, config["country_flags_sha"], config["country_flags_sha256"], failures)
+    download_brazilian_flags(
+        vendor_dir=vendor_dir,
+        sha=config["brazilian_flags_sha"],
+        expected_sha256=config["brazilian_flags_sha256"],
+        failures=failures,
+        session=_http_session(),
+        request_headers=_REQUEST_HEADERS,
+    )
 
     if failures:
         raise RuntimeError("Asset download failed:\n" + "\n".join(failures))

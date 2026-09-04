@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_icon, render_location with context %}
 {% block title_suffix %}&mdash; {{ target_user.nome }}{% endblock %}
 {% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_users %}active{% endblock %}
@@ -27,7 +27,7 @@
             <div class="arena-admin-avatar-actions">
                 <span class="avatar-wrapper avatar-wrapper--lg"
                       data-user-id="{{ target_user.id }}">
-                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=target_user.id) }}"
+                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=target_user.id) }}?v={{ target_user.avatar_revision }}"
                          alt="{{ target_user.nome }}"
                          class="arena-avatar arena-profile-avatar">
                 </span>
@@ -260,43 +260,54 @@
                                             </button>
                                         </form>
                                     </div>
-                                    <div class="small text-arena-muted mt-1">
+                                    <p class="arena-admin-field-note">
                                         {% if target_user.email_confirmado %}
                                             Confirmed
                                             {% if target_user.dta_validacao_email %}
                                                 on {{ arena_format_datetime(target_user.dta_validacao_email, current_user) }}
                                             {% endif %}
                                         {% else %}
-                                            Email not confirmed
+                                            Not confirmed
                                         {% endif %}
-                                    </div>
+                                    </p>
                                 </dd>
                                 <dt>Parental consent</dt>
                                 <dd>
                                     {% set target_age = target_user.idade() %}
                                     {% if target_age and target_age.anos >= 18 %}
-                                        <div class="text-arena-muted mt-2">Parental consent: Not required</div>
+                                        <span class="text-arena-muted">Not required</span>
+                                        <p class="arena-admin-field-note">{{ target_user.nome }} is 18 or older and manages this account alone.</p>
                                     {% else %}
-                                        <div class="arena-admin-inline-field mt-2">
-                                            <span class="{{ 'text-arena-primary fw-semibold' if target_user.consentimento_responsavel else 'text-arena-muted' }}">
-                                                Parental consent:
-                                                {{ 'Given' if target_user.consentimento_responsavel else 'Not given' }}
-                                            </span>
-                                            <form method="post"
-                                                  action="{{ request.url_for('arena_admin_user_toggle_parental_consent', user_id=target_user.id) }}">
-                                                {{ back_fields() }}
-                                                <button type="submit"
-                                                        class="btn {{ 'btn-outline-warning' if target_user.consentimento_responsavel else 'btn-outline-success' }} arena-icon-button btn-sm">
-                                                    {{ render_icon(icon="person_remove" if target_user.consentimento_responsavel else "how_to_reg") }}
-                                                    <span>{{ 'Revoke parental consent' if target_user.consentimento_responsavel else 'Grant parental consent' }}</span>
-                                                </button>
-                                            </form>
-                                        </div>
-                                    {% endif %}
-                                    {% if target_age and target_age.anos < 18 and target_user.dta_consentimento_responsavel %}
-                                        <div class="small text-arena-muted mt-1">
-                                            Given on
-                                            {{ arena_format_datetime(target_user.dta_consentimento_responsavel, current_user) }}
+                                        {# This control is the same write path the guardian's own withdrawal
+                                           link uses, so it is drawn with the weight of what it does rather
+                                           than as another inline value-and-button row. #}
+                                        <div class="arena-admin-consent {{ 'arena-admin-consent--given' if target_user.consentimento_responsavel else 'arena-admin-consent--withheld' }}">
+                                            <p class="arena-admin-consent-state">
+                                                {{ render_icon(icon="how_to_reg" if target_user.consentimento_responsavel else "person_off") }}
+                                                <span>{{ 'Given' if target_user.consentimento_responsavel else 'Not given' }}</span>
+                                            </p>
+                                            {% if target_user.consentimento_responsavel and target_user.dta_consentimento_responsavel %}
+                                                <p class="arena-admin-field-note">
+                                                    Given on
+                                                    {{ arena_format_datetime(target_user.dta_consentimento_responsavel, current_user) }}
+                                                </p>
+                                            {% endif %}
+                                            <p class="arena-admin-consent-effect">
+                                                {% if target_user.consentimento_responsavel %}
+                                                    Withdrawing suspends the account, ends any session open right now, and
+                                                    removes the name from every public page. Nothing is deleted.
+                                                {% else %}
+                                                    Without consent the account stays suspended. Granting it here activates
+                                                    the account once its remaining gates are clear.
+                                                {% endif %}
+                                            </p>
+                                            <button type="button"
+                                                    class="btn {{ 'btn-outline-danger' if target_user.consentimento_responsavel else 'btn-outline-success' }} arena-icon-button btn-sm"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#confirmParentalConsentModal">
+                                                {{ render_icon(icon="person_remove" if target_user.consentimento_responsavel else "how_to_reg") }}
+                                                <span>{{ 'Withdraw parental consent' if target_user.consentimento_responsavel else 'Grant parental consent' }}</span>
+                                            </button>
                                         </div>
                                     {% endif %}
                                 </dd>
@@ -311,15 +322,7 @@
                                 <dd>
                                     {% if target_user.country_name %}
                                         <div class="arena-admin-inline-field">
-                                            <span>
-                                                {% if target_user.country_code %}
-                                                    <img src="{{ request.url_for('static_vendor', path='img/flags/' + target_user.country_code.lower() + '.svg') }}"
-                                                         class="arena-country-flag"
-                                                         alt="">
-                                                {% endif %}
-                                                {{ target_user.country_name }}
-                                                {% if target_user.subdivision_name %}, {{ target_user.subdivision_name }}{% endif %}
-                                            </span>
+                                            <span>{{ render_location(request, target_user) }}</span>
                                             <form method="post"
                                                   action="{{ request.url_for('arena_admin_user_remove_location', user_id=target_user.id) }}">
                                                 {{ back_fields() }}
@@ -331,7 +334,7 @@
                                             </form>
                                         </div>
                                     {% else %}
-                                        <span class="text-arena-muted">Location not set</span>
+                                        <span class="text-arena-muted">Not set</span>
                                     {% endif %}
                                 </dd>
                                 <dt>Affiliation</dt>
@@ -350,7 +353,7 @@
                                             </form>
                                         </div>
                                     {% else %}
-                                        <span class="text-arena-muted">Affiliation not set</span>
+                                        <span class="text-arena-muted">Not set</span>
                                     {% endif %}
                                 </dd>
                                 <dt>Role</dt>
@@ -450,6 +453,65 @@
                                         </div>
                                     </div>
                                 </dd>
+                                <dt>Google account</dt>
+                                <dd>
+                                    <div class="row align-items-center">
+                                        <div class="col-5">
+                                            {% if google_identity %}
+                                                <span class="text-arena-primary fw-semibold">Linked</span>
+                                                {% if google_identity.google_email %}
+                                                    <div class="text-arena-muted small">{{ google_identity.google_email }}</div>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-arena-muted">Not linked</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-7">
+                                            {% if google_identity and google_unlink_refusal %}
+                                                <p class="text-arena-muted small mb-0">{{ google_unlink_refusal }}</p>
+                                            {% elif google_identity %}
+                                                <button type="button"
+                                                        class="btn btn-outline-danger arena-icon-button btn-sm w-100"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#confirmUnlinkGoogleModal">
+                                                    {{ render_icon(icon="link_off") }}
+                                                    <span>Unlink Google</span>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </dd>
+                                <dt>Sign-in lockout</dt>
+                                {# The only row here whose state is a list rather than a word, so it
+                                   breaks the col-5/col-7 pair its siblings use: the locks take the
+                                   full width and the button drops to a row of its own, offset so it
+                                   still lines up with the buttons above and below it. #}
+                                <dd>
+                                    {% if lockouts_unavailable %}
+                                        <div class="text-warning-emphasis">Status unknown</div>
+                                        <div class="text-arena-muted small">The lockout store cannot be reached.</div>
+                                    {% elif lockouts %}
+                                        <div class="text-danger fw-semibold">Locked</div>
+                                        {% for lock in lockouts %}
+                                            <div class="text-arena-muted small">
+                                                <span class="font-monospace">{{ lock.action }}</span> · lifts in {{ format_remaining(lock.retry_after_seconds) }}
+                                            </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="text-arena-muted">Not locked</div>
+                                    {% endif %}
+                                    <div class="row mt-2">
+                                        <div class="col-12 col-sm-7 offset-sm-5">
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary arena-icon-button btn-sm w-100"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#confirmUnlockModal">
+                                                {{ render_icon(icon="lock_open") }}
+                                                <span>Unlock sign-in</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </dd>
                                 <dt>Password change required</dt>
                                 <dd>
                                     <div class="row align-items-center">
@@ -467,6 +529,7 @@
                                         </div>
                                     </div>
                                 </dd>
+                                {% include "admin/_user_identity.html" %}
                                 <dt>Ranking visibility</dt>
                                 <dd>
                                     <div class="row align-items-center">
@@ -493,7 +556,8 @@
                                         <div class="col-7">
                                             <button type="button"
                                                     class="btn {{ 'btn-outline-warning' if target_user.public_profile else 'btn-outline-success' }} arena-icon-button btn-sm w-100"
-                                                    {% if not target_user.ranking_visible and not target_user.public_profile %}disabled{% endif %}
+                                                    {% if not target_user.public_profile and (not target_user.ranking_visible or target_user.is_age_shielded) %}disabled{% endif %}
+                                                    {% if not target_user.public_profile and target_user.is_age_shielded %}aria-describedby="admin-age-shield-note" title="This account is age-shielded; see Age shield above."{% endif %}
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#confirmTogglePublicProfileModal">
                                                 {{ render_icon(icon="public_off" if target_user.public_profile else "public") }}
@@ -638,6 +702,13 @@
             </div>
         </div>
     </section>
+    {# Gated on the same age condition as its trigger. An account of 18 or over shows
+       no consent control at all, and shipping the modal anyway left an unreachable
+       dialog -- and its heading -- in the document for every such profile. #}
+    {% set consent_age = target_user.idade() %}
+    {% if not (consent_age and consent_age.anos >= 18) %}
+        {% include "admin/_user_parental_consent_modal.html" %}
+    {% endif %}
     <div class="modal fade"
          id="confirmToggleActiveModal"
          tabindex="-1"
@@ -825,6 +896,12 @@
             </div>
         </div>
     {% endif %}
+    {% if google_identity and not google_unlink_refusal %}
+        {% include "admin/_user_google_unlink_modal.html" %}
+    {% endif %}
+    {% if active_tab == 'personal-security' %}
+        {% include "admin/_user_unlock_modal.html" %}
+    {% endif %}
     {% if target_user.usa_2fa %}
         <div class="modal fade"
              id="confirmDisable2FAProfileModal"
@@ -899,6 +976,88 @@
             </div>
         </div>
     {% endif %}
+    <div class="modal fade"
+         id="adminChangeUsernameModal"
+         tabindex="-1"
+         aria-labelledby="adminChangeUsernameLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="adminChangeUsernameLabel">Change username</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_change_username', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <p>
+                            Change the public handle for <strong>{{ target_user.nome }}</strong>, currently
+                            <strong>{{ target_user.username }}</strong>. This bypasses the user's own change
+                            cooldown and is recorded in the admin audit log.
+                        </p>
+                        <label class="form-label" for="admin-new-username">New username</label>
+                        {# Bound by arena-username-availability.js purely through these
+                           data attributes, so this modal needs no script of its own. The
+                           probe is scoped to the target user, not the acting admin: the
+                           handle this account already holds must not read as taken. #}
+                        <input type="text"
+                               class="form-control"
+                               id="admin-new-username"
+                               name="new_username"
+                               value="{{ target_user.username }}"
+                               maxlength="64"
+                               autocomplete="off"
+                               spellcheck="false"
+                               data-username-check-url="{{ request.url_for('arena_admin_user_username_available', user_id=target_user.id) }}"
+                               data-username-current="{{ target_user.username }}"
+                               data-username-status="admin-username-status"
+                               aria-describedby="admin-username-status admin-username-rules"
+                               required>
+                        <div class="form-text" id="admin-username-status" aria-live="polite"></div>
+                        <div class="form-text text-arena-muted" id="admin-username-rules">
+                            3 to 64 characters: lowercase letters, digits, hyphens and underscores, starting and ending with a letter or digit.
+                        </div>
+                        {# Unchecked is the protective default: a handle renamed off a
+                           report must not be renamed straight back. Checking it suits
+                           the benign cases -- a typo, or a rename this user asked for --
+                           where restarting the window would penalise them for something
+                           they did not do. Only the admin knows which this is. #}
+                        <div class="form-check mt-3">
+                            <input type="checkbox"
+                                   class="form-check-input"
+                                   id="admin-allow-immediate-username-change"
+                                   name="allow_immediate_change"
+                                   value="true">
+                            <label class="form-check-label" for="admin-allow-immediate-username-change">
+                                Let this user change their username again right away
+                            </label>
+                            <div class="form-text text-arena-muted">
+                                Leave unchecked after a rename made in response to a report: the user then waits
+                                the usual {{ username_change_cooldown_days }} day(s) before changing it themselves.
+                            </div>
+                        </div>
+                        <label class="form-label mt-3" for="confirm-pw-change-username">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-change-username"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning btn-sm">Change username</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
     <div class="modal fade"
          id="confirmToggleRankingVisibleModal"
          tabindex="-1"
@@ -1058,5 +1217,7 @@
     <script src="{{ request.url_for('arena_static_js', path='admin-topup-credits.js') }}"
             defer></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-user-profile.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-username-availability.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

@@ -144,15 +144,22 @@
         reconcile();
         return;
       }
-      source = new EventSource(endpoint(eventsUrl));
-      // Reconcile on (re)connect to recover any finalization missed while the
-      // pub/sub stream was unsubscribed; the server emits an initial ping too.
-      source.onopen = scheduleReconcile;
-      source.onmessage = function (event) {
+      function onMessage(event) {
         if (event.data === 'refresh') {
           scheduleReconcile();
         }
-      };
+      }
+      // Reconcile on (re)connect to recover any finalization missed while the
+      // pub/sub stream was unsubscribed; the server emits an initial ping too.
+      // A refused connection (429 from the SSE lease) leaves the poll as the
+      // only channel; NocaSse makes that visible and keeps retrying the stream.
+      if (window.NocaSse) {
+        source = NocaSse.open(endpoint(eventsUrl), { onMessage: onMessage, onOpen: scheduleReconcile });
+        return;
+      }
+      source = new EventSource(endpoint(eventsUrl));
+      source.onopen = scheduleReconcile;
+      source.onmessage = onMessage;
     }
 
     window.addEventListener('pagehide', teardown, { once: true });

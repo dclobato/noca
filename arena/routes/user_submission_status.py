@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -32,7 +32,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
-from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.auth import get_current_arena_user, get_streaming_arena_user
+from arena.dependencies.sse_limits import enforce_sse_connection_caps
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services.submission_list_service import (
     ARENA_SUBMISSIONS_PER_PAGE,
@@ -50,21 +52,6 @@ router = APIRouter(tags=["arena-user-submissions"])
 # The profile submissions tab renders at most one page of rows, so a request can
 # never watch more submission IDs than that page holds.
 _MAX_WATCHED_IDS = ARENA_SUBMISSIONS_PER_PAGE
-
-
-async def get_streaming_arena_user(request: Request) -> ArenaUser | None:
-    """Resolve the current Arena user in a short-lived, eagerly-closed session.
-
-    The SSE endpoint must not hold a request-scoped ``get_db`` session: its
-    response never finishes while the client stays connected, so a yield
-    dependency's cleanup (which runs only after the response completes) would keep
-    a database connection checked out for the entire stream and exhaust the pool.
-    This regular (non-yield) dependency opens its own session, resolves the user,
-    and closes the session before the streaming response is returned.
-    """
-    session_factory = request.app.state.arena_db_session
-    async with session_factory() as session:
-        return await get_current_arena_user(request, session)
 
 
 def _require_user(current_user: ArenaUser | None) -> ArenaUser:
@@ -148,7 +135,11 @@ async def resolve_owned_submission_ids(
     return frozenset(str(row[0]) for row in result.all())
 
 
-@router.get("/user/submissions/status.json", name="arena_user_submissions_status")
+@router.get(
+    "/user/submissions/status.json",
+    name="arena_user_submissions_status",
+    dependencies=[Depends(arena_user_read_rate_limit)],
+)
 async def arena_user_submissions_status(
     request: Request,
     ids: str | None = None,
@@ -189,7 +180,11 @@ async def arena_user_submissions_status(
     return JSONResponse({"submissions": submissions})
 
 
-@router.get("/user/submissions/status/events", name="arena_user_submissions_events")
+@router.get(
+    "/user/submissions/status/events",
+    name="arena_user_submissions_events",
+    dependencies=[Depends(enforce_sse_connection_caps)],
+)
 async def arena_user_submissions_events(
     request: Request,
     ids: str | None = None,
@@ -203,6 +198,9 @@ async def arena_user_submissions_events(
     ``should_emit`` predicate is pure set membership (no per-verdict database query
     and no database connection held for the stream's lifetime). No verdict data
     leaves the server — the browser refetches ``status.json`` on each ping.
+
+    ``enforce_sse_connection_caps`` holds an ``arena:sse`` per-IP and per-user
+    slot for the life of the stream (``429`` when either is exhausted).
     """
     user = _require_user(current_user)
     wanted = parse_submission_ids(ids)

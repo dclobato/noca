@@ -1,0 +1,26 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Announcements{% endblock %}
+{% block nav_announcements %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="campaign") }}
+                    Announcements
+                </h1>
+            </div>
+            {% with detail_url_name="arena_announcement_detail", table_class="arena-table" %}
+                {% include "_partials/announcement_list.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

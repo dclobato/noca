@@ -17,7 +17,8 @@ Two contracts are pinned here:
 
 Conditional-request behavior is tested through the real header parsing (weak,
 list, and wildcard forms), because a browser cache is exactly what makes a
-projector reopening the same photos cheap.
+projector reopening the same photos cheap — and a ``304`` is proven to run one
+narrow query and no decode, because that is the whole point of #148.
 """
 
 from __future__ import annotations
@@ -32,10 +33,12 @@ from sqlalchemy import insert, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from animator.routes.team_media import router as team_media_router
+from animator.services import team_media_service
 from animator.services.team_media_service import PLACEHOLDER_MIME, placeholder_image
 from shared.db_schema import users_media
 from shared.enumerations import RoleEnum
 from tests.animator._feed_seed import make_contest, make_site, make_user
+from tests.animator._media_probe import StatementProbe
 from tests.animator._reveal_seed import Ceremony, seed_ceremony
 from web.models.users import UberAdmin
 
@@ -70,8 +73,17 @@ def _build_app(engine: AsyncEngine) -> FastAPI:
 
 
 def _client(app: FastAPI) -> AsyncClient:
-    """Build an ASGI client for the app."""
+    """Build an ASGI client for the app (trusted loopback IP, so no limiter)."""
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+def _forbid_decode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make any image decode fail the test: the path under test must not reach it."""
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise AssertionError("image_validation must not run on this path")
+
+    monkeypatch.setattr(team_media_service, "image_validation", _boom)
 
 
 async def _set_media(
@@ -151,7 +163,10 @@ async def test_both_blobs_invalid_falls_through_to_the_placeholder(session: Asyn
     assert response.status_code == 200
     assert response.content == placeholder_image().data
     assert response.headers["content-type"] == PLACEHOLDER_MIME
-    assert response.headers["ETag"] == '"placeholder"'
+    # Stored candidates *fell through*: the tag carries the revision so that a
+    # re-upload (which moves it) can never be answered from a stale 304.
+    assert response.headers["ETag"].startswith('"placeholder-')
+    assert response.headers["ETag"] != '"placeholder"'
     assert response.headers["X-NOCA-Team-Image-Kind"] == "placeholder"
 
 
@@ -324,14 +339,161 @@ async def test_the_kind_is_part_of_the_etag(session: AsyncSession, uberadmin: Ub
 
     async with _client(app) as client:
         photo = await client.get(_url(ceremony, ceremony.a1))
-        # Corrupt only the photo: the same `dta_foto` now answers with the avatar,
-        # so the tag must move even though the version component did not.
-        await session.execute(update(users_media).where(users_media.c.user_id == ceremony.a1).values(foto_base64="!!!"))
+        # A write that leaves the photo unusable moves `dta_foto` (every
+        # supported write path does): the response now falls through to the
+        # avatar, and the tag must move in both its kind and its version.
+        await session.execute(
+            update(users_media)
+            .where(users_media.c.user_id == ceremony.a1)
+            .values(foto_base64="!!!", dta_foto=_DTA + timedelta(minutes=1))
+        )
         await session.commit()
         avatar = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": photo.headers["ETag"]})
 
     assert avatar.status_code == 200
     assert avatar.content == _GIF
+    assert avatar.headers["ETag"].startswith('"avatar-')
+    assert avatar.headers["ETag"] != photo.headers["ETag"]
+
+
+# ---------------------------------------------------------------------------
+# The 304 is decided from metadata alone
+# ---------------------------------------------------------------------------
+
+
+async def test_304_runs_one_narrow_query_and_no_decode(
+    session: AsyncSession, uberadmin: UberAdmin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_PNG).decode(), avatar=b64encode(_GIF).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        _forbid_decode(monkeypatch)
+        with StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+            second = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+
+    assert second.status_code == 304
+    assert second.headers["X-NOCA-Team-Image-Kind"] == "photo"
+    # Contest gate, scope resolution, and the one metadata row: no blob column.
+    assert not probe.selected_any("foto_base64", "avatar_base64", "audio_base64", "audio_mime")
+    assert probe.count_selecting("users_media") == 1
+
+
+async def test_a_valid_photo_never_loads_the_avatar_or_audio(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_PNG).decode(), avatar=b64encode(_GIF).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client, StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+        response = await client.get(_url(ceremony, ceremony.a1))
+
+    assert response.content == _PNG
+    assert probe.selected_any("foto_base64")
+    assert not probe.selected_any("avatar_base64", "audio_base64", "audio_mime")
+
+
+async def test_the_avatar_is_loaded_only_after_the_photo_fails(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_TRUNCATED_PNG).decode(), avatar=b64encode(_GIF).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client, StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+        response = await client.get(_url(ceremony, ceremony.a1))
+
+    assert response.content == _GIF
+    assert probe.order_of("foto_base64") < probe.order_of("avatar_base64")
+    assert not probe.selected_any("audio_base64")
+
+
+async def test_no_enabled_media_answers_without_any_blob_query(
+    session: AsyncSession, uberadmin: UberAdmin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, com_foto=False, foto=b64encode(_PNG).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+    _forbid_decode(monkeypatch)
+
+    async with _client(app) as client, StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+        response = await client.get(_url(ceremony, ceremony.a1))
+
+    assert response.headers["ETag"] == '"placeholder"'
+    assert not probe.selected_any("foto_base64", "avatar_base64")
+
+
+async def test_a_stale_tier_at_the_current_revision_is_not_honored(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """A client holding ``avatar-v`` for a row that stores no avatar gets a miss."""
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_PNG).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        forged = first.headers["ETag"].replace("photo-", "avatar-")
+        response = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": forged})
+
+    assert response.status_code == 200
+    assert response.headers["ETag"] == first.headers["ETag"]
+
+
+# ---------------------------------------------------------------------------
+# Tag transitions across the fallback tiers
+# ---------------------------------------------------------------------------
+
+
+async def test_static_placeholder_misses_once_media_is_enabled(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, com_foto=False, foto=b64encode(_PNG).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        await session.execute(update(users_media).where(users_media.c.user_id == ceremony.a1).values(com_foto=True))
+        await session.commit()
+        enabled = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+
+    assert first.headers["ETag"] == '"placeholder"'
+    assert enabled.status_code == 200
+    assert enabled.content == _PNG
+
+
+async def test_versioned_placeholder_matches_until_a_reupload(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_TRUNCATED_PNG).decode(), avatar=b64encode(_GIF[:8]).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        same = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+        await session.execute(
+            update(users_media)
+            .where(users_media.c.user_id == ceremony.a1)
+            .values(foto_base64=b64encode(_PNG).decode(), dta_foto=_DTA + timedelta(minutes=5))
+        )
+        await session.commit()
+        fixed = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+
+    assert first.headers["ETag"].startswith('"placeholder-')
+    assert same.status_code == 304
+    assert fixed.status_code == 200
+    assert fixed.content == _PNG
+
+
+async def test_a_held_photo_tag_misses_once_the_photo_is_removed(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_media(session, ceremony.a1, foto=b64encode(_PNG).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        await session.execute(update(users_media).where(users_media.c.user_id == ceremony.a1).values(com_foto=False))
+        await session.commit()
+        removed = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+
+    assert removed.status_code == 200
+    assert removed.headers["ETag"] == '"placeholder"'
+    assert removed.content == placeholder_image().data
 
 
 # ---------------------------------------------------------------------------

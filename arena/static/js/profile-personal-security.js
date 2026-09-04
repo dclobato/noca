@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -33,6 +33,7 @@
   const dateOfBirthInput = document.getElementById("profile-date-of-birth-input");
   const rankingVisibleInput = document.getElementById("profile-ranking-visible-input");
   const publicProfileInput = document.getElementById("profile-public-profile-input");
+  const fullNamePublicInput = document.getElementById("profile-full-name-public-input");
   const dateOfBirthError = document.getElementById("profile-date-of-birth-error");
   const languageSelect = document.getElementById("profile-language-select");
   const preferedLanguageSelect = document.getElementById("profile-prefered-language-select");
@@ -144,6 +145,13 @@
 
   nameInput.addEventListener("input", markDirty);
   dateOfBirthInput.addEventListener("change", markDirty);
+  // An age-shielded account may never enable the public profile, so re-enabling
+  // ranking visibility must not hand the checkbox back. The server refuses it
+  // either way; this only keeps the page from offering something it cannot do.
+  // `let`, not `const`: a save that changes the date of birth can move the
+  // account into or out of the shield, and the save handler updates this from
+  // the response rather than leaving a page-load snapshot behind.
+  let shielded = publicProfileInput?.dataset.shielded === "1";
   rankingVisibleInput?.addEventListener("change", () => {
     markDirty();
     if (publicProfileInput) {
@@ -151,11 +159,12 @@
         publicProfileInput.checked = false;
         publicProfileInput.disabled = true;
       } else {
-        publicProfileInput.disabled = false;
+        publicProfileInput.disabled = shielded;
       }
     }
   });
   publicProfileInput?.addEventListener("change", markDirty);
+  fullNamePublicInput?.addEventListener("change", markDirty);
   languageSelect.addEventListener("change", markDirty);
   preferedLanguageSelect.addEventListener("change", markDirty);
   subdivisionSelect.addEventListener("change", markDirty);
@@ -393,6 +402,7 @@
           prefered_language: preferedLanguageSelect ? preferedLanguageSelect.value : "en-US",
           ranking_visible: rankingVisibleInput ? rankingVisibleInput.checked : true,
           public_profile: publicProfileInput ? publicProfileInput.checked : false,
+          full_name_public: fullNamePublicInput ? fullNamePublicInput.checked : false,
         });
 
         markClean();
@@ -420,10 +430,30 @@
           rankingVisibleInput.checked = !!data.ranking_visible;
         }
 
+        // A date-of-birth change can move the account into or out of the age
+        // shield within this very request, so the shield is re-read from the
+        // response rather than from the page-load dataset. Without this the
+        // page would keep offering two opt-ins the server has just started
+        // refusing, until someone reloaded.
+        if (data.age_shielded !== undefined) {
+          shielded = !!data.age_shielded;
+          if (publicProfileInput) {
+            publicProfileInput.dataset.shielded = shielded ? "1" : "0";
+          }
+        }
+
         // Sync public profile checkbox from persisted server value
         if (publicProfileInput && data.public_profile !== undefined) {
           publicProfileInput.checked = !!data.public_profile;
-          publicProfileInput.disabled = !rankingVisibleInput?.checked;
+          publicProfileInput.disabled = !rankingVisibleInput?.checked || shielded;
+        }
+
+        // Sync the full-name opt-in. A date-of-birth change that moves the
+        // account into the age shield clears this server-side, so the persisted
+        // value is the only trustworthy one to render.
+        if (fullNamePublicInput && data.full_name_public !== undefined) {
+          fullNamePublicInput.checked = !!data.full_name_public;
+          fullNamePublicInput.disabled = shielded;
         }
 
         // Update affiliation modal data attributes to reflect saved state

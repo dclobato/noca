@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -355,7 +355,7 @@ class ArenaUserSolvedProblem(ArenaBase):
     Attributes:
         problem_id: Composite PK + FK to arena_problems (CASCADE).
         user_id: Composite PK + FK to arena_users (CASCADE).
-        solved_at: Timestamp of the first accepted submission.
+        solved_at: Timestamp when the first AC judgment completed.
         user: Back-reference to the ArenaUser.
         problem: Back-reference to the ArenaProblem.
     """

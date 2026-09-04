@@ -1,0 +1,151 @@
+{# Public identity and visibility settings for the profile page.
+   Lifted out of profile.html so that page stays within the source-size bound.
+
+   Two save models meet in this block, and saying so is not optional: the
+   username posts on its own the moment its button is pressed, while the three
+   checkboxes ride the surrounding personal-data form and land on "Save
+   changes". Two buttons four rows apart, both reading "Save", is exactly the
+   trap docs/PADROES_UI.md's deferred-save form-text convention exists to close.
+
+   When the account is age-shielded the two publication opt-ins render disabled
+   *with a visible explanation* rather than being hidden: LGPD transparency means
+   telling someone why a control is unavailable, not making it vanish. The
+   disabled attribute is only an affordance -- every write path re-derives the
+   shield server-side. #}
+{% from "_macros.html" import render_icon %}
+<dt>Username</dt>
+<dd>
+    <div class="mb-2">
+        <label for="profile-username-input" class="form-label">Your public username</label>
+        <div class="input-group input-group-sm">
+            <input type="text"
+                   class="form-control"
+                   id="profile-username-input"
+                   value="{{ current_user.username }}"
+                   maxlength="64"
+                   autocomplete="off"
+                   spellcheck="false"
+                   data-current-username="{{ current_user.username }}"
+                   data-check-url="{{ request.url_for("arena_user_profile_username_available") }}"
+                   data-update-url="{{ request.url_for("arena_user_profile_username_update") }}"
+                   aria-describedby="profile-username-error profile-username-help profile-username-rules"
+                   {% if current_user.username_cooldown_days > 0 %}disabled{% endif %}>
+            <button type="button"
+                    class="btn btn-outline-secondary"
+                    id="profile-username-save"
+                    {% if current_user.username_cooldown_days > 0 %}disabled{% endif %}>Save username</button>
+        </div>
+        {# Both slots are written by profile-username.js, so both announce. The
+           availability verdict and the save outcome are the only feedback this
+           field gives; without a live region they would be visual-only. #}
+        <div class="invalid-feedback d-block"
+             id="profile-username-error"
+             aria-live="assertive"></div>
+        <div class="form-text text-arena-muted"
+             id="profile-username-help"
+             aria-live="polite"></div>
+        <div class="form-text text-arena-muted" id="profile-username-rules">
+            {% if current_user.username_cooldown_days > 0 %}
+                You changed your username recently. You can change it again in
+                <strong>{{ current_user.username_cooldown_days }}</strong> day(s).
+            {% else %}
+                This is the name shown on the public ranking, the dashboard and your public profile.
+                3 to 64 characters: lowercase letters, digits, hyphens and underscores, starting and
+                ending with a letter or digit. Saved immediately by <strong>Save username</strong> —
+                {% if username_change_cooldown_days > 0 %}
+                    and once saved, it cannot be changed again for
+                    <strong>{{ username_change_cooldown_days }}</strong> day(s).
+                {% else %}
+                    separately from <strong>Save changes</strong> below.
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</dd>
+<dt>Ranking and public pages</dt>
+<dd>
+    <div class="form-check">
+        <input type="checkbox"
+               class="form-check-input"
+               id="profile-ranking-visible-input"
+               name="ranking_visible"
+               {% if current_user.ranking_visible %}checked{% endif %}>
+        <label class="form-check-label" for="profile-ranking-visible-input">Include me in the public ranking</label>
+        {# Deliberately does not say "my name": which name appears is the
+           full-name checkbox's decision, not this one's. #}
+        <div class="form-text text-arena-muted">Your rating and position are listed publicly.</div>
+    </div>
+    <div class="form-check mt-2">
+        <input type="checkbox"
+               class="form-check-input"
+               id="profile-public-profile-input"
+               name="public_profile"
+               data-shielded="{{ '1' if current_user.is_age_shielded else '0' }}"
+               {% if current_user.public_profile %}checked{% endif %}
+               {% if not current_user.ranking_visible or current_user.is_age_shielded %}disabled{% endif %}
+               {% if current_user.is_age_shielded %}aria-describedby="profile-age-shield-note"{% endif %}>
+        <label class="form-check-label" for="profile-public-profile-input">Make my profile page publicly accessible</label>
+        <div class="form-text text-arena-muted">Requires "Include me in the public ranking" to be enabled.</div>
+    </div>
+    <div class="form-check mt-2">
+        <input type="checkbox"
+               class="form-check-input"
+               id="profile-full-name-public-input"
+               name="full_name_public"
+               {% if current_user.full_name_public %}checked{% endif %}
+               {% if current_user.is_age_shielded %}disabled{% endif %}
+               {% if current_user.is_age_shielded %}aria-describedby="profile-age-shield-note"{% endif %}>
+        <label class="form-check-label" for="profile-full-name-public-input">
+            Show my full name instead of my username on public pages
+        </label>
+        <div class="form-text text-arena-muted">
+            Leave this off to appear everywhere as <strong>{{ current_user.username }}</strong>.
+        </div>
+    </div>
+    <div class="form-text text-arena-muted mt-2">
+        These three settings are saved only after clicking <strong>Save changes</strong>.
+    </div>
+    {% if current_user.is_age_shielded %}
+        <div class="alert alert-info d-flex gap-2 align-items-start mt-2 mb-0"
+             id="profile-age-shield-note">
+            {{ render_icon(icon="shield_person") }}
+            <div>
+                {% if current_user.dta_nascimento %}
+                    <strong>We keep your real name off public pages until you turn 18.</strong>
+                    <div class="small">
+                        You appear everywhere as <strong>{{ current_user.username }}</strong>, so the two
+                        options above are unavailable for now: your profile page stays private and your
+                        full name is never published. You are still in the ranking under your username.
+                        Both options become available on your 18th birthday, and you will need to enable
+                        them yourself — nothing is ever published automatically.
+                    </div>
+                {% else %}
+                    {# Currently unreachable on this page: `_user_access_gates_are_clear`
+                       refuses a session to an account with no date of birth, so such a
+                       user is bounced to the regularization flow rather than landing
+                       here. Kept as a fail-safe because `is_shielded` fails closed on a
+                       null date, and because the remedy differs from the minor's --
+                       sending someone to wait for a birthday that may be decades past
+                       would be the worst copy in the feature. #}
+                    <strong>Add your date of birth to unlock these two options.</strong>
+                    <div class="small">
+                        We have no date of birth on record for your account, so we apply the most
+                        protective setting: you appear everywhere as
+                        <strong>{{ current_user.username }}</strong>, your profile page stays private and
+                        your full name is never published. Fill in <em>Date of birth</em> above and save;
+                        if you are 18 or over, both options become available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+    {% if current_user.effective_public_profile %}
+        <a href="{{ request.url_for('arena_user_profile_public', user_id=current_user.id) }}"
+           target="_blank"
+           rel="noopener"
+           class="btn btn-outline-secondary arena-icon-button btn-sm mt-2">
+            {{ render_icon(icon="open_in_new") }}
+            <span>View public profile</span>
+        </a>
+    {% endif %}
+</dd>

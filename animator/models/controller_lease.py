@@ -24,3 +24,9 @@ class ControllerLeaseResponse(BaseModel):
     status: ControllerLeaseStatus
     lease_ttl_seconds: int
     heartbeat_interval_seconds: int
+    projector_count: int | None = None
+    """Open ``/reveal/events`` streams in this scope, or ``None`` when unknown.
+
+    Best-effort and additive: a Valkey outage, or a ``released`` lease that no
+    longer drives any projector, leaves it ``None`` rather than reporting zero.
+    """

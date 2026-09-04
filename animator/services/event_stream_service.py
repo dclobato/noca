@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -150,6 +151,7 @@ class AnimatorEventStream:
         timer_tick_seconds: float = _TIMER_TICK_SECONDS,
         backoff_base_seconds: float = _BACKOFF_BASE_SECONDS,
         backoff_max_seconds: float = _BACKOFF_MAX_SECONDS,
+        on_contest_changed: Callable[[str], None] | None = None,
     ) -> None:
         """Create the fan-out service.
 
@@ -158,11 +160,15 @@ class AnimatorEventStream:
             timer_tick_seconds: Bounded cadence for ``timer_tick`` emission.
             backoff_base_seconds: Initial reconnect backoff.
             backoff_max_seconds: Reconnect backoff ceiling.
+            on_contest_changed: Called with the contest id of every verdict or
+                submission event **before** any fan-out, whether or not a client
+                is connected — the feed cache's invalidation hook.
         """
         self._runtime = runtime
         self._timer_tick_seconds = timer_tick_seconds
         self._backoff_base_seconds = backoff_base_seconds
         self._backoff_max_seconds = backoff_max_seconds
+        self._on_contest_changed = on_contest_changed
         self._channels: set[_ClientChannel] = set()
         self._stop_event = asyncio.Event()
         self._subscriber_task: asyncio.Task[None] | None = None
@@ -310,6 +316,15 @@ class AnimatorEventStream:
     # ------------------------------------------------------------------
     # Fan-out
     # ------------------------------------------------------------------
+    def _notify_contest_changed(self, contest_id: str) -> None:
+        """Run the cache-invalidation hook; a failing hook never stalls fan-out."""
+        if self._on_contest_changed is None:
+            return
+        try:
+            self._on_contest_changed(contest_id)
+        except Exception:
+            logger.exception("contest-changed hook failed for contest=%s", contest_id)
+
     def _dispatch_verdict(self, event: VerdictEvent) -> None:
         """Fan one verdict out to matching channels, freeze-redacting per contest.
 
@@ -327,6 +342,7 @@ class AnimatorEventStream:
                 event.submission_id,
             )
             return
+        self._notify_contest_changed(event.contest_id)
         now = datetime.now(UTC)
         for channel in list(self._channels):
             if channel.contest.id != event.contest_id:
@@ -360,6 +376,7 @@ class AnimatorEventStream:
         Args:
             event: The new-submission event from Valkey.
         """
+        self._notify_contest_changed(event.contest_id)
         now = datetime.now(UTC)
         for channel in list(self._channels):
             if channel.contest.id != event.contest_id:

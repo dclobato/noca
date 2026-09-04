@@ -19,9 +19,20 @@
    leaves the screen and there is no dead space under the table.
    `dvh` rather than `vh` so mobile browser chrome does not leave a gap either. */
 .ceremony-root {
-    --animator-row-motion-duration: 3s;
-    --animator-row-motion-easing: cubic-bezier(0.22, 1, 0.36, 1);
+    /* Restated rather than inherited, and currently the same 5s the live board
+       uses. The projector used to be the slower of the two, on the reasoning that
+       a row climbing the standings IS the ceremony; in practice the same duration
+       reads correctly on both, and stating it here keeps the projector's motion a
+       decision of its own rather than a side effect of the live board's. */
+    --animator-row-motion-duration: 5s;
+    /* The same symmetric ease-in-out the live board uses, not the old
+       fast-then-decelerate curve: on a projector the start of the movement is
+       what tells the room a team is climbing, and a curve that spends its speed
+       immediately hides exactly that moment. */
+    --animator-row-motion-easing: cubic-bezier(0.65, 0, 0.35, 1);
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     height: auto;
     min-height: 0;
     overflow: hidden;
@@ -34,9 +45,15 @@
     max-width: 100%;
     /* A bounded height, not a minimum: a `min-height` would let a long table
        push the container past the window, so the *page* would scroll and the
-       header would leave the screen instead of the board scrolling under it. */
-    height: 100%;
+       header would leave the screen instead of the board scrolling under it.
+       The bound comes from flexing inside `.ceremony-root` rather than from
+       `height: 100%`: a percentage against a flexed `<main>` is not reliably
+       definite, and when it fell back to `auto` the whole table overflowed the
+       window and the focus scroll dragged the footer into the middle of it. */
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 0 auto;
+    width: 100%;
 }
 
 .ceremony-site {
@@ -86,6 +103,9 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    /* See `.animator-board-scroll` in animator-scoreboard.css: keeps the
+       table's height from leaking into the viewport's scrollable overflow. */
+    contain: paint;
 }
 
 /* Table geometry, typography, header, the four leading columns, and every medal
@@ -128,15 +148,18 @@
 
 /* A cell still holding an unrevealed frozen submission: the whole point of the
    ceremony, so it is the strongest non-medal signal on the board. */
+/* The projector states a pending cell a little louder than the live board does,
+   because the whole ceremony is about what is still unrevealed -- but it is the
+   RING that carries that emphasis, not saturation in the fill. A strong wash here
+   would read as a balloon colour from the back of the room. */
 .ceremony-cell--pending {
-    background-color: var(--bs-warning-bg-subtle);
-    color: var(--bs-warning-text-emphasis);
-    box-shadow: inset 0 0 0 2px var(--bs-warning-border-subtle);
+    background-color: color-mix(in srgb, var(--noca-warning) 10%, var(--noca-surface));
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--noca-warning) 45%, transparent);
 }
 
-.ceremony-cell--first {
-    box-shadow: inset 0 0 0 2px var(--bs-success);
-}
+/* There is deliberately no `.ceremony-cell--first` rule. The projector draws its
+   cells through the shared `fillProblemCell`, which only ever adds
+   `.animator-cell--first`, so a ceremony-scoped variant never matched anything. */
 
 /* The cell the next step will resolve: a continuous glow, so a room full of
    people knows where to look *before* anything changes. It pulses rather than
@@ -206,6 +229,45 @@
     background-color: var(--bs-tertiary-bg);
 }
 
+/* How many projectors this panel's commands reach, read back on every lease
+   heartbeat. The operator is on stage and cannot see the hall, so the readout
+   sits beside the ownership badge -- the same glance that answers "am I in
+   control?" answers "is anyone listening?". The dot carries the state: live
+   when at least one projector is connected, warning when none is, and neutral
+   when the server could not tell -- an outage must never read as an empty hall. */
+.control-projectors {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    color: var(--bs-secondary-color);
+}
+
+.control-projectors::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: var(--bs-success);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-success) 25%, transparent);
+}
+
+.control-projectors.is-empty {
+    color: var(--bs-warning-text-emphasis);
+}
+
+.control-projectors.is-empty::before {
+    background-color: var(--bs-warning);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-warning) 25%, transparent);
+}
+
+.control-projectors.is-unknown::before {
+    background-color: transparent;
+    border: 1px solid var(--bs-secondary-color);
+    box-shadow: none;
+}
+
 .control-row {
     display: flex;
     flex-wrap: wrap;
@@ -226,6 +288,23 @@
 .control-row > .btn,
 .control-row > .form-select {
     min-height: 44px;
+}
+
+/* The media cue is a presentation action, not a ceremony-progress one. A rule
+   above it separates it from Step and Back so a hand moving fast in a dark hall
+   cannot mistake one for the other. */
+.control-row-presentation {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.control-row-presentation:has(> .btn[hidden]) {
+    display: none;
+}
+
+.control-media-team {
+    font-size: var(--noca-type-label);
+    color: var(--bs-secondary-color);
 }
 
 .control-state {

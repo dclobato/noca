@@ -61,6 +61,7 @@
                       action="{{ request.url_for('contest_login_post', slug=contest.login_slug) }}"
                       data-login-form
                       novalidate>
+                    <input type="hidden" name="next_url" value="{{ next_url | default("") }}">
                     <div class="mb-3">
                         <label for="identifier" class="form-label">Username</label>
                         <input type="text"

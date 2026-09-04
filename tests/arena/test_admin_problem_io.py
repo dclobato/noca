@@ -882,6 +882,68 @@ async def test_editorial_release_policy_survives_an_export_import_round_trip(ses
 
 
 @pytest.mark.asyncio
+async def test_expected_difficulty_survives_an_export_import_round_trip(session: AsyncSession) -> None:
+    """The author's estimate moves between Arena installs with the problem."""
+    author = await _make_author(session)
+    meta = dict(_VALID_META)
+    meta["expected_difficulty"] = 70
+    created = (
+        await _import_zip(
+            session,
+            zip_bytes=_build_raw_package(
+                {
+                    "problem.json": json.dumps(meta),
+                    "statement.md": "# X\n\nbody\n",
+                    "in/001.in": "1\n",
+                    "out/001.out": "1\n",
+                }
+            ),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    assert created.expected_difficulty == 70
+
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+    exported = _export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    exported_meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
+    assert exported_meta["expected_difficulty"] == 70
+
+    reimported = await _import_zip(
+        session,
+        zip_bytes=exported,
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    assert reimported.problem.expected_difficulty == 70
+
+
+@pytest.mark.asyncio
+async def test_a_package_without_an_expected_difficulty_imports_with_no_estimate(session: AsyncSession) -> None:
+    """Packages written before the key existed keep the flat prior, stated as null on export."""
+    author = await _make_author(session)
+    created = (
+        await _import_zip(
+            session,
+            zip_bytes=_editorial_package(None),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    assert created.expected_difficulty is None
+
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+    exported = _export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    exported_meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
+    assert exported_meta["expected_difficulty"] is None
+
+
+@pytest.mark.asyncio
 async def test_a_package_without_a_release_policy_imports_as_never(session: AsyncSession) -> None:
     """Packages written before the property existed keep their old behavior."""
     author = await _make_author(session)

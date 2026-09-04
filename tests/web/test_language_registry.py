@@ -197,11 +197,12 @@ def test_new_language_config_ocaml() -> None:
     assert ocaml.compile_image == "noca/judge-ocaml:compile"
     assert ocaml.run_image == "noca/judge-ocaml:run"
     # ocamlopt (native), not ocamlc (bytecode): the artifact is a standalone binary.
-    assert ocaml.compile_cmd == ["/usr/local/bin/ocamlopt", "-o", "/sandbox/solution", "/sandbox/source.ml"]
+    # Debian's ocaml-nox installs under /usr, unlike the former source build's /usr/local.
+    assert ocaml.compile_cmd == ["/usr/bin/ocamlopt", "-o", "/sandbox/solution", "/sandbox/source.ml"]
     assert ocaml.run_cmd == ["/sandbox/solution"]
     assert ocaml.artifact_path == "/sandbox/solution"
     assert ocaml.artifact_is_source is False
-    # "-O2" is flambda-only and this is a stock source build; it must not creep back in.
+    # "-O2" is flambda-only and Debian ships no flambda build; it must not creep back in.
     assert "-O2" not in ocaml.compile_cmd
 
     seed_ids = {str(row["id"]) for row in default_language_seed_rows()}

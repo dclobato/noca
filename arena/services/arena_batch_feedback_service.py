@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -37,6 +37,12 @@ from arena.services.arena_problem_set_service import (
     _needs_feedback,
     _set_problem_ids,
 )
+from arena.services.output_diff import (
+    EXPECTED_PREFIX_BYTES,
+    OUTPUT_MISMATCH_VERDICTS,
+    OutputComparison,
+    build_output_comparison,
+)
 from shared.db_schema.arena import (
     arena_submission_ai_reviews,
     arena_submission_judgments,
@@ -49,7 +55,7 @@ from shared.db_schema.arena import (
 from shared.enumerations import VERDICT_LABELS, ArenaRole, Verdict
 from shared.language_registry import highlightjs_language_for_language_id
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
-from shared.services.testcase_files import read_testcase_full
+from shared.services.testcase_files import read_testcase_output_prefix
 from shared.signal_names import describe_signal
 
 # Fixed summary order requested by the teacher UI — differs from both the
@@ -81,7 +87,7 @@ class BatchFeedbackTestResult:
 
     verdict: str
     stdout_excerpt: str | None
-    expected_output: str | None
+    output_diff: OutputComparison | None
     is_sample: bool
     test_case_ordinal: int
     stderr_excerpt: str | None
@@ -288,16 +294,20 @@ async def _load_test_result(
     ).one_or_none()
     if row is None:
         return None
-    _, expected_output = await anyio.to_thread.run_sync(
-        read_testcase_full,
-        problem_id,
-        row.ordinal,
-        arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    output_diff: OutputComparison | None = None
+    if row.verdict in OUTPUT_MISMATCH_VERDICTS:
+        expected_prefix, expected_cut = await anyio.to_thread.run_sync(
+            read_testcase_output_prefix,
+            problem_id,
+            row.ordinal,
+            arena_settings.PROBLEM_TESTCASE_DIR,
+            EXPECTED_PREFIX_BYTES,
+        )
+        output_diff = build_output_comparison(row.stdout_excerpt, expected_prefix, expected_cut=expected_cut)
     return BatchFeedbackTestResult(
         verdict=row.verdict,
         stdout_excerpt=row.stdout_excerpt,
-        expected_output=expected_output,
+        output_diff=output_diff,
         is_sample=row.is_sample,
         test_case_ordinal=row.ordinal,
         stderr_excerpt=row.stderr_excerpt,

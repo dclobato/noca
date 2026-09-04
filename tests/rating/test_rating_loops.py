@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,7 +16,12 @@ from _helpers import _make_problem, _make_user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rating.loops import run_problem_rating_loop, run_user_rating_loop, run_user_stats_loop
+from rating.loops import (
+    run_problem_rating_loop,
+    run_problem_stats_loop,
+    run_user_rating_loop,
+    run_user_stats_loop,
+)
 from shared.db_schema.arena import arena_problem_ratings, arena_users
 
 
@@ -231,6 +236,40 @@ async def test_user_stats_loop_runs_immediately_and_stops(
 
     await asyncio.wait_for(
         run_user_stats_loop(
+            session_factory=factory,
+            interval_seconds=3600,
+            stop_event=stop,
+            logger=__import__("logging").getLogger("test"),
+            run_immediately=True,
+        ),
+        timeout=5,
+    )
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_problem_stats_loop_runs_immediately_and_stops(
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup mode computes one problem-statistics cycle immediately."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    stop = asyncio.Event()
+    calls = 0
+
+    async def _compute(_session: AsyncSession) -> int:
+        nonlocal calls
+        calls += 1
+        stop.set()
+        return 7
+
+    monkeypatch.setattr("rating.loops.compute_all_problem_statistics", _compute)
+
+    await asyncio.wait_for(
+        run_problem_stats_loop(
             session_factory=factory,
             interval_seconds=3600,
             stop_event=stop,

@@ -616,6 +616,10 @@ def _build_app(
     async def _dashboard_security_events() -> Response:
         return Response("security events")
 
+    @app.get("/admin/dashboard/terms", name="arena_admin_dashboard_terms")
+    async def _dash_terms() -> Response:
+        return Response("stub")
+
     app.include_router(router)
     app.include_router(arena_legal_router)
 

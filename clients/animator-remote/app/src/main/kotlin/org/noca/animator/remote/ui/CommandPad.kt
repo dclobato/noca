@@ -11,16 +11,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.noca.animator.remote.core.teamLabel
 
 /**
  * The button pad.
@@ -44,6 +49,7 @@ internal fun CommandPad(
     onStepMany: () -> Unit,
     onBackMany: () -> Unit,
     onJumpPending: () -> Unit,
+    onToggleMedia: () -> Unit,
     onStart: () -> Unit,
     onStartOver: () -> Unit,
     onReset: () -> Unit,
@@ -122,6 +128,37 @@ internal fun CommandPad(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Jump to next pending")
+                }
+            }
+        }
+
+        // A presentation action, not a ceremony-progress one: it moves nothing
+        // and reveals nothing. The divider is load-bearing rather than
+        // decorative — this pad is operated at speed in a dark hall, and a hand
+        // reaching for STEP must never land here. It states what is on the
+        // projector, not only what can be done next, and names the team, because
+        // "Show media" alone is a question.
+        if (visibility.mediaVisible) {
+            HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+            FilledTonalButton(
+                onClick = onToggleMedia,
+                enabled = state.mediaEnabled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (state.mediaShown) "Hide team media" else "Show team media",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val focusedName = state.projection?.let { projection ->
+                        projection.teams.firstOrNull { it.teamId == projection.focusedTeamId }
+                    }?.let(::teamLabel)
+                    if (focusedName != null) {
+                        Text(focusedName, fontSize = 13.sp)
+                    }
                 }
             }
         }

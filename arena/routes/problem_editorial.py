@@ -18,12 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services import problem_browse_service
 from shared.enumerations import ArenaEditorialReleasePolicy
 from shared.http_params import DbId
 
-router = APIRouter(tags=["arena-problems"])
+router = APIRouter(tags=["arena-problems"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 
 @router.get(

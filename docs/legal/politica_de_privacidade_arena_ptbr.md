@@ -1,58 +1,123 @@
 ## NOCA Arena  
 ### Política de Privacidade  
-Versão 2.1 — 25 de maio de 2026
+Versão 3.0 de 02 de setembro de 2026
 
-A presente Política de Privacidade ("Política") descreve como [PESSOA JURÍDICA RESPONSÁVEL — A DEFINIR] ("NOCA", "nós" ou "nosso") coleta, utiliza, armazena e protege os dados pessoais dos Usuários da plataforma NOCA Arena ("Plataforma"), em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 – "LGPD") e demais normas aplicáveis. Esta Política deve ser lida em conjunto com os Termos e Condições de Uso.
+Esta Política de Privacidade ("Política") descreve como **Daniel Lobato** ("eu", "controlador" ou "site") coleta, utiliza, armazena e protege os dados pessoais dos Usuários da plataforma **NOCA Arena** 
+("Plataforma"), em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 – "LGPD") e demais normas aplicáveis. Esta Política deve ser lida em conjunto com os Termos e Condições de Uso.
 
-Ao se cadastrar e utilizar a Plataforma, o Usuário declara ter lido, compreendido e consentido com o tratamento de seus dados pessoais nos termos desta Política. O consentimento poderá ser retirado a qualquer momento, sem prejuízo da licitude do tratamento realizado anteriormente à revogação.
+Ao se cadastrar e utilizar a Plataforma, o Usuário declara ter lido, compreendido e consentido com o tratamento de seus dados pessoais nos termos desta Política. O consentimento poderá ser retirado a qualquer 
+momento, sem prejuízo da licitude do tratamento realizado anteriormente à revogação.
 
-#### 1. Controlador dos Dados Pessoais  
+---
 
-O controlador dos dados pessoais tratados por meio da Plataforma é:
-Razão Social: [A DEFINIR]
-CNPJ: [A DEFINIR]
-Endereço: [A DEFINIR]
-E-mail de contato: [A DEFINIR]
-Encarregado de Dados (DPO): dpo.noca@lobato.org
+## 1. Controlador dos Dados Pessoais
 
-#### 2. Dados Pessoais Coletados  
-A NOCA coleta apenas os dados pessoais estritamente necessários para a prestação dos serviços da Plataforma, observando os princípios da necessidade e da minimização previstos na LGPD. Isso inclui dados de identificação (como nome de usuário), endereço de e-mail, dados de uso e logs de acesso, soluções submetidas (código-fonte), endereço IP e localização geográfica aproximada, além de cookies funcionais e analíticos. A NOCA não coleta dados pessoais sensíveis, salvo quando estritamente necessário e com o consentimento específico do Usuário.
+O controlador dos dados pessoais tratados por meio desta Plataforma sou **eu, Daniel Lobato**, residente e domiciliado(a) em São José do Rio Preto/SP, e-mail de contato: **daniel ARROBA lobato.org**.
 
-#### 3. Forma de Coleta dos Dados  
-Os dados pessoais são coletados de forma direta pelo Usuário no cadastro, de forma automática pelo uso da Plataforma (logs e cookies), por meio da submissão de soluções (código-fonte e metadados) e durante comunicações com o suporte.
+> Para dúvidas ou solicitações relacionadas à proteção de dados, entre em contato diretamente por este e-mail.
 
-#### 4. Finalidades do Tratamento e Proteção Estudantil  
-Os dados são utilizados para autenticação, avaliação das soluções, comunicações, segurança da plataforma, geração de estatísticas regionais agregadas e cumprimento de obrigações legais.
+## 2. Dados Pessoais Coletados
 
-Proteção de Registros Educacionais: A Plataforma tem finalidade estritamente educacional. Comprometemo-nos com a proteção rigorosa dos dados e registros estudantis, alinhando-nos a padrões internacionais de proteção educacional, como a FERPA. Garantimos que o acesso aos registros seja restrito a pessoal autorizado. Nenhuma informação de desempenho individual, ranking ou histórico de Soluções será compartilhada com terceiros, incluindo recrutadores ou empresas, sem a permissão explícita da instituição de ensino ou do próprio estudante.
+Coleto apenas os dados pessoais estritamente necessários para a prestação dos serviços da Plataforma, observando os princípios da necessidade e da minimização previstos na LGPD. Isso inclui:
 
-#### 5. Compartilhamento e Operadores de Dados  
-Os dados pessoais dos Usuários não são vendidos, alugados ou cedidos a terceiros para fins comerciais. O compartilhamento ocorre apenas com:
-- Prestadores de serviços técnicos (Operadores): que atuam sob instrução da NOCA. Tais entidades processam dados exclusivamente com base em acordos ou contratos formais de processamento firmados com o Controlador e agem estritamente de acordo com nossas instruções.
-- Transparência de Operadores: nossos parceiros técnicos podem incluir provedores de proteção contra bots e distribuição de conteúdo (como Cloudflare) que processam IPs, serviços de e-mails transacionais (como Mailchimp) e plataformas de suporte de TI (como FreshDesk).
-- Autoridades públicas: quando exigido por lei ou processo legal.
+- Dados de identificação (nome de usuário, endereço de e-mail)
+- Dados de uso e logs de acesso (endereço IP, localização geográfica aproximada)
+- Soluções submetidas (código-fonte e metadados)
+- Cookies funcionais e analíticos
 
-**Agentes de IA Externos (Envio por Opção do Usuário):** A Plataforma oferece uma integração de análise de código em que o Usuário pode, de forma ativa e opcional, submeter seu código-fonte a um agente de inteligência artificial externo e independente. Esse fluxo de dados **não ocorre de forma automatizada ou oculta pela NOCA**. A transferência do código ao provedor de IA terceirizado só é realizada mediante o comando explícito (*opt-in* por clique) do Usuário no momento da consulta. Uma vez transferidos, o tratamento dos dados passa a ser de responsabilidade regulatória do respectivo provedor de IA externa, estando sujeito às suas próprias políticas de privacidade.
+Não coleto dados pessoais sensíveis, salvo quando estritamente necessário e com seu consentimento específico.
 
-#### 6. Transferência Internacional de Dados  
-Caso dados pessoais sejam transferidos para fora do território nacional — inclusive no escopo do processamento por Agentes de IA Externos acionados pelo Usuário —, a NOCA e seus parceiros adotarão as salvaguardas exigidas pela LGPD, como a verificação de nível de proteção adequado do país de destino ou a celebração de cláusulas contratuais padrão.
+## 3. Forma de Coleta dos Dados
 
-#### 7. Prazo de Retenção e Exclusão de Dados  
-Os dados são retidos pelo período necessário para cumprimento das finalidades ou obrigações legais. Logs de acesso são mantidos por 6 meses, conforme o Marco Civil da Internet.
+Os dados pessoais são coletados:
 
-Encerramento de Conta: Os dados do Usuário serão processados até que o mesmo manifeste o desejo de excluir a sua conta. A solicitação de encerramento e exclusão pode ser feita a qualquer momento, por escrito, via site ou por e-mail. Após a solicitação, os dados são eliminados ou anonimizados.
+- **Diretamente por você** no cadastro
+- **Automaticamente** pelo uso da Plataforma (logs e cookies)
+- **Por meio da submissão de soluções** (código-fonte e metadados)
+- **Durante comunicações** com o suporte
 
-#### 8. Segurança dos Dados  
-Adotamos medidas técnicas como HTTPS (TLS), armazenamento seguro de senhas por hash, execução em sandbox isolado e monitoramento contínuo. Em caso de incidente de segurança que possa acarretar risco relevante, notificaremos a ANPD e os Usuários afetados.
+## 4. Finalidades do Tratamento
 
-#### 9. Cookies e Tecnologias de Rastreamento  
-A Plataforma utiliza cookies estritamente necessários para o funcionamento e autenticação, sem necessidade de consentimento prévio, e cookies analíticos, com consentimento, para entender o uso da Plataforma. O Usuário pode desativá-los no navegador.
+Os dados são utilizados para:
 
-#### 10. Direitos do Titular dos Dados  
-O Usuário tem direitos assegurados pela LGPD, incluindo o acesso aos dados, correção, anonimização, portabilidade e revogação do consentimento. Para exercer seus direitos ou solicitar a exclusão imediata de sua conta, o Usuário deverá contatar o DPO. Responderemos nos prazos legais.
+- Autenticação e acesso à Plataforma
+- Avaliação das soluções submetidas
+- Comunicações essenciais (suporte, notificações)
+- Segurança da Plataforma e prevenção de abuso
+- Geração de estatísticas agregadas de uso
+- Cumprimento de obrigações legais
 
-#### 11. Dados de Crianças e Adolescentes  
-A Plataforma não é destinada a menores de 13 anos e o tratamento de dados de adolescentes requer consentimento de um responsável.
+> **Proteção educacional:** A Plataforma tem finalidade educacional. Comprometo-me com a proteção rigorosa dos registros estudantis. Nenhuma informação de desempenho individual, ranking ou histórico de soluções será 
+> compartilhada com terceiros sem a permissão explícita do próprio estudante ou de seu responsável legal.
 
-#### 12. Alterações desta Política e Contato  
-A NOCA reserva-se o direito de modificar esta Política, comunicando alterações materiais com antecedência mínima de 15 dias. Para dúvidas ou solicitações, entre em contato com nosso Encarregado de Dados (DPO) através do e-mail: dpo.noca@lobato.org
+## 5. Compartilhamento de Dados
+
+Seus dados **não são vendidos, alugados ou cedidos a terceiros para fins comerciais**. O compartilhamento ocorre apenas nas seguintes situações:
+
+- **Prestadores de serviço técnicos (Operadores):** Oracle Cloud Infrastructure (https://www.oracle.com/cloud/), Cloudflare (https://cloudflare.com) e Amazon Web Services (https://www.aws.amazon.com), que tratam 
+dados apenas sob minhas instruções e conforme as políticas de privacidade de cada serviço.
+- **Autoridades públicas:** quando exigido por lei ou processo legal.
+- **Agentes de IA Externos (Envio por Opção do Usuário):** A Plataforma oferece integração opcional em que você pode, de forma ativa e voluntária, submeter seu código-fonte a um agente de inteligência artificial 
+externo e independente. Esse fluxo **não ocorre de forma automatizada ou oculta**. A transferência só é realizada mediante seu comando explícito (*opt-in* por clique). Uma vez transferidos, o tratamento dos dados 
+passa a ser de responsabilidade do respectivo provedor de IA externo, sujeito às **suas próprias políticas de privacidade**.
+
+## 6. Transferência Internacional de Dados
+
+Caso dados pessoais sejam transferidos para fora do território nacional — inclusive no escopo do processamento por Agentes de IA Externos acionados por você — adotarei as salvaguardas exigidas pela LGPD, como a 
+verificação do nível de proteção do país de destino.
+
+## 7. Prazo de Retenção e Exclusão de Dados
+
+Os dados são retidos pelo período necessário ao cumprimento das finalidades ou de obrigações legais. Logs de acesso são mantidos por **6 meses**, conforme o Marco Civil da Internet (Lei nº 12.965/2014).
+
+**Encerramento de Conta:** Você pode solicitar a exclusão da sua conta a qualquer momento, por escrito, por e-mail. Após a solicitação, seus dados serão eliminados ou anonimizados.
+
+## 8. Segurança dos Dados
+
+Adoto medidas técnicas como:
+
+- HTTPS (TLS) para comunicação criptografada
+- Armazenamento seguro de senhas por hash
+- Execução em ambiente isolado (sandbox) para código submetido
+- Monitoramento contínuo de acesso
+
+Em caso de incidente de segurança que possa acarretar risco relevante, notificarei a **ANPD** e os Usuários afetados, conforme exigido pela lei.
+
+## 9. Cookies e Tecnologias de Rastreamento
+
+A Plataforma utiliza:
+
+- **Cookies estritamente necessários:** para funcionamento e autenticação (sem necessidade de consentimento prévio)
+- **Cookies analíticos:** com consentimento, para entender o uso da Plataforma
+
+Você pode desativá-los nas configurações do seu navegador.
+
+## 10. Direitos do Titular dos Dados
+
+Você tem os direitos assegurados pela LGPD, incluindo:
+
+- Acesso, correção, anonimização, bloqueio e eliminação de dados
+- Portabilidade
+- Revogação do consentimento
+
+Para exercer qualquer direito, envie um e-mail para: **daniel ARROBA lobato.org**. Responderei dentro dos prazos legais.
+
+## 11. Dados de Crianças e Adolescentes
+
+A Plataforma **não é destinada a menores de 13 anos** e o tratamento de dados de adolescentes (13 a 18 anos) requer consentimento de um responsável legal.
+
+O responsável legal pode **revogar esse consentimento a qualquer momento**, conforme o art. 8º, §5º, da LGPD. Para isso, basta utilizar o link enviado no e-mail de confirmação do consentimento, ou solicitar por 
+e-mail. Cada link é válido para uma única revogação.
+
+**A revogação suspende a conta, mas não a exclui.** Após a revogação, o Usuário deixa de acessar a Plataforma e seu nome deixa de aparecer em áreas públicas. As submissões, resultados e histórico são preservados até 
+que a exclusão definitiva seja solicitada por e-mail.
+
+**Sobre identificação pública:**
+
+- **Usuários com 18 anos ou mais:** identificados, por padrão, pelo **nome civil**; podem optar por exibir o pseudônimo nas configurações.
+- **Usuários com 13 a 18 anos:** identificados **exclusivamente** pelo pseudônimo. O nome civil não é publicado e essa proteção não pode ser desativada.
+- **Quando a data de nascimento não estiver registrada:** aplica-se a proteção mais restritiva (tratamento como adolescente).
+
+## 12. Alterações desta Política e Contato
+
+Reservo-me o direito de modificar esta Política, comunicando alterações materiais com antecedência mínima de **15 dias**. Para dúvidas ou solicitações, entre em contato pelo e-mail: **daniel ARROBA lobato.org**.

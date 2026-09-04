@@ -18,6 +18,7 @@ protocols defined here.
 
 from __future__ import annotations
 
+import sys
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -147,6 +148,10 @@ class TeamStanding:
         problems_solved: Number of solved problems.
         total_time: Total ICPC time, including attempt penalties.
         problems: Problem results keyed by display label.
+        last_accepted_minutes: Contest minute of the team's *latest* accepted
+            submission, or ``None`` when the team solved nothing. It is the
+            third ranking key, applied only to teams tied on solved count and
+            total time.
     """
 
     rank: int
@@ -156,6 +161,7 @@ class TeamStanding:
     problems_solved: int
     total_time: int
     problems: dict[str, ProblemResult]
+    last_accepted_minutes: int | None = None
 
 
 @dataclass
@@ -180,6 +186,39 @@ class ScoreboardSnapshot:
 
 
 _CREATED_AT_FLOOR = datetime.min.replace(tzinfo=UTC)
+
+# Sorts a team with no accepted submission last within its own group. Only teams
+# with zero solves can carry it, and those are already grouped together by the
+# first two keys, so the value is uniform wherever it appears.
+_NO_LAST_ACCEPTED = sys.maxsize
+
+
+def standing_score_key(standing: TeamStanding) -> tuple[int, int, int]:
+    """Return the canonical ICPC ranking key for one standing.
+
+    The key is ``(-problems_solved, total_time, last_accepted_minutes)``: more
+    solves first, then less total time, then the earlier final solve. This
+    module is the single owner of that identity -- ``compute_icpc`` both orders
+    standings with it and decides shared ranks by comparing it, so the sort and
+    the tie test cannot disagree about what makes two teams equal.
+
+    A team that solved nothing has no last accepted minute and sorts last
+    within its group. Only teams tied at zero solves and zero total time can
+    reach that branch, so the substituted sentinel is uniform wherever it
+    applies and never orders one scoring team ahead of another.
+
+    Args:
+        standing: The standing to key.
+
+    Returns:
+        A totally ordered comparison key, ascending.
+    """
+    last_accepted = standing.last_accepted_minutes
+    return (
+        -standing.problems_solved,
+        standing.total_time,
+        _NO_LAST_ACCEPTED if last_accepted is None else last_accepted,
+    )
 
 
 def penalizing_verdicts(accept_pe: bool, ce_adds_penalty: bool) -> tuple[Verdict, ...]:
@@ -293,7 +332,8 @@ def compute_icpc(
         viewer_sees_frozen: Whether to hide submissions after the freeze boundary.
 
     Returns:
-        Team standings ordered by solved count and total time.
+        Team standings ordered by solved count, total time, and the contest
+        minute of the team's last accepted submission.
     """
     wa_penalty = int(contest.wa_penalty)
     accept_pe = bool(contest.accept_pe)
@@ -324,12 +364,13 @@ def compute_icpc(
             first_accepted_by_problem.setdefault(str(submission.problem_id), str(submission.id))
 
     problem_labels = {str(problem.id): ordinal_to_label(problem.ordinal) for problem in problems}
-    unranked: list[tuple[int, int, TeamStanding]] = []
+    unranked: list[TeamStanding] = []
 
     for team in teams:
         team_id = str(team.id)
         total_time = 0
         problems_solved = 0
+        last_accepted_minutes: int | None = None
         problem_results: dict[str, ProblemResult] = {}
 
         for problem in problems:
@@ -367,6 +408,8 @@ def compute_icpc(
             if solved and solved_at_minutes is not None:
                 problems_solved += 1
                 total_time += solved_at_minutes + penalty
+                if last_accepted_minutes is None or solved_at_minutes > last_accepted_minutes:
+                    last_accepted_minutes = solved_at_minutes
 
             problem_results[label] = ProblemResult(
                 label=label,
@@ -387,19 +430,26 @@ def compute_icpc(
             problems_solved=problems_solved,
             total_time=total_time,
             problems=problem_results,
+            last_accepted_minutes=last_accepted_minutes,
         )
-        unranked.append((-problems_solved, total_time, standing))
+        unranked.append(standing)
 
-    unranked.sort(key=lambda item: (item[0], item[1]))
+    # One key drives both the order and the tie test, so the two cannot drift:
+    # a team ranks below another exactly when their keys differ, and shares a
+    # rank exactly when they are equal. Sorting is stable, so teams with equal
+    # keys keep their input order -- the animator's bottom-up cursor indexes
+    # rows positionally and depends on that determinism.
+    unranked.sort(key=standing_score_key)
 
     standings: list[TeamStanding] = []
     rank = 1
-    for index, (_, _, standing) in enumerate(unranked):
-        if index > 0:
-            previous = unranked[index - 1][2]
-            if standing.problems_solved != previous.problems_solved or standing.total_time != previous.total_time:
-                rank = index + 1
+    previous_key: tuple[int, int, int] | None = None
+    for index, standing in enumerate(unranked):
+        key = standing_score_key(standing)
+        if previous_key is not None and key != previous_key:
+            rank = index + 1
         standing.rank = rank
+        previous_key = key
         standings.append(standing)
 
     return standings
@@ -434,6 +484,7 @@ def snapshot_from_dict(data: dict[str, Any]) -> ScoreboardSnapshot:
             team_fullname=row.get("team_fullname", row["team_name"]),
             problems_solved=row["problems_solved"],
             total_time=row["total_time"],
+            last_accepted_minutes=row.get("last_accepted_minutes"),
             problems={
                 label: ProblemResult(**{**problem, "is_first_balloon": problem.get("is_first_balloon", False)})
                 for label, problem in row["problems"].items()

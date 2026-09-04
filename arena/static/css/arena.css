@@ -27,10 +27,12 @@
 @import url('./arena/_auth.css');
 @import url('./arena/_signup.css');
 @import url('./arena/_auth-flow.css');
+@import url('./arena/_consent.css');
 @import url('./arena/_two-factor.css');
 @import url('./arena/_backup-codes.css');
 @import url('./arena/_upload.css');
 @import url('./arena/_problems.css');
+@import url('./arena/_problem-statistics.css');
 @import url('./arena/_classes.css');
 @import url('./arena/_classes-open.css');
 @import url('./arena/_classes-registered.css');

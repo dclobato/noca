@@ -221,9 +221,9 @@ def focus_at_cursor(standings: Sequence[TeamStanding], cursor: int) -> str | Non
     finished with.
 
     ``standings`` is indexed rather than searched by rank because teams tied on
-    ``(solved, total_time)`` share a rank number; ``compute_icpc`` sorts stably
-    over teams loaded in ``(username, id)`` order, so row positions are
-    deterministic.
+    ``(solved, total_time, last_accepted_minutes)`` share a rank number;
+    ``compute_icpc`` sorts stably over teams loaded in ``(username, id)`` order,
+    so row positions are deterministic.
 
     Args:
         standings: Current standings, best first.

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,6 +11,13 @@ every difficulty-recompute cycle to bucket the freshly computed internal
 difficulties (``[1, 100]``) into 20 bins over the ``[0, 10]`` display scale and
 persist the snapshot into the singleton ``arena_rating_cycle_state`` row. The
 Arena help page reads this snapshot to show a current distribution chart.
+
+Only **measured** problems -- those with at least
+:data:`~shared.services.arena_difficulty_display.MIN_ATTEMPTS_FOR_DISPLAY`
+attempters -- are bucketed. A problem below that threshold sits at the centre
+because of its prior, not because it is medium, and counting it would turn the
+chart into one spike that says nothing. The snapshot records how many problems
+were left out so the page can say so.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from shared.db_schema.arena.arena_rating_cycle_state import (
     RATING_CYCLE_STATE_ID,
     arena_rating_cycle_state,
 )
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 
 #: Number of histogram bins over the [0, 10] display-difficulty scale.
 BIN_COUNT = 20
@@ -34,14 +42,19 @@ BIN_COUNT = 20
 BIN_WIDTH = 10.0 / BIN_COUNT
 
 
-def build_difficulty_histogram(difficulties: list[int]) -> dict[str, Any]:
-    """Bucket internal difficulties into a 20-bin histogram over [0, 10].
+def build_difficulty_histogram(difficulties: list[int], *, unmeasured_problems: int = 0) -> dict[str, Any]:
+    """Bucket measured internal difficulties into a 20-bin histogram over [0, 10].
 
     Args:
-        difficulties: Internal difficulty values in [1, 100], one per problem.
+        difficulties: Internal difficulty values in [1, 100], one per **measured**
+            problem.
+        unmeasured_problems: How many problems were excluded for having fewer
+            than ``MIN_ATTEMPTS_FOR_DISPLAY`` attempters.
 
     Returns:
-        dict: JSON-serializable histogram payload with per-bin counts.
+        dict: JSON-serializable histogram payload with per-bin counts,
+        ``total_problems`` (measured only), ``unmeasured_problems``, and the
+        ``min_attempts`` threshold that separated them.
     """
     counts = [0] * BIN_COUNT
     for difficulty in difficulties:
@@ -55,20 +68,29 @@ def build_difficulty_histogram(difficulties: list[int]) -> dict[str, Any]:
         "scale_max": 10.0,
         "counts": counts,
         "total_problems": len(difficulties),
+        "unmeasured_problems": unmeasured_problems,
+        "min_attempts": MIN_ATTEMPTS_FOR_DISPLAY,
     }
 
 
-async def persist_difficulty_histogram(session: AsyncSession, difficulties: list[int], computed_at: datetime) -> None:
+async def persist_difficulty_histogram(
+    session: AsyncSession,
+    difficulties: list[int],
+    computed_at: datetime,
+    *,
+    unmeasured_problems: int = 0,
+) -> None:
     """Build and upsert the difficulty histogram into the singleton snapshot row.
 
     Does **not** commit; caller is responsible for the transaction.
 
     Args:
         session: Active async database session.
-        difficulties: Internal difficulty values in [1, 100], one per problem.
+        difficulties: Internal difficulty values in [1, 100], one per measured problem.
         computed_at: Timestamp of the difficulty cycle that produced this snapshot.
+        unmeasured_problems: Problems excluded for lacking enough attempters.
     """
-    payload = build_difficulty_histogram(difficulties)
+    payload = build_difficulty_histogram(difficulties, unmeasured_problems=unmeasured_problems)
     insert = sqlite_insert if session.bind is not None and session.bind.dialect.name == "sqlite" else pg_insert
     stmt = insert(arena_rating_cycle_state).values(id=RATING_CYCLE_STATE_ID, data=payload, computed_at=computed_at)
     stmt = stmt.on_conflict_do_update(

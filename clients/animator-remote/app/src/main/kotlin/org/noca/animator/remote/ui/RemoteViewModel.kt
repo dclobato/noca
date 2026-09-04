@@ -28,12 +28,14 @@ import org.noca.animator.remote.core.HeartbeatStep
 import org.noca.animator.remote.core.HttpMethod
 import org.noca.animator.remote.core.HttpRequest
 import org.noca.animator.remote.core.LeaseOutcome
+import org.noca.animator.remote.core.MediaCueOutcome
 import org.noca.animator.remote.core.RELOAD_REQUIRED
 import org.noca.animator.remote.core.RevealProjection
 import org.noca.animator.remote.core.SequenceOutcome
 import org.noca.animator.remote.core.SiteMeta
 import org.noca.animator.remote.core.heartbeatStep
 import org.noca.animator.remote.core.UNKNOWN_OUTCOME
+import org.noca.animator.remote.core.ceremonySignature
 import org.noca.animator.remote.core.controlEndpoints
 import org.noca.animator.remote.core.metaUrl
 import org.noca.animator.remote.core.parseContestMeta
@@ -72,11 +74,53 @@ data class RemoteUiState(
     /** A token was stored but could not be decrypted, so it must be re-entered. */
     val storedTokenUnreadable: Boolean = false,
     val leaseState: ControllerLeaseState = ControllerLeaseState.UNCLAIMED,
+    /**
+     * The projectors this remote's commands reach, as the server last reported.
+     *
+     * Every successful lease operation carries `projector_count`, so the value
+     * refreshes at the heartbeat cadence with no request of its own. It is
+     * held only while the lease is active: a number under a banner that no
+     * longer means control would be a stale claim. [ProjectorReadout.count] is
+     * `null` when the server could not tell, which is shown as such and never
+     * as zero.
+     */
+    val projectors: ProjectorReadout? = null,
+    /**
+     * Whether this remote believes a team-media overlay is on the projectors.
+     *
+     * Local rather than read from the projection, because the cue persists
+     * nothing: there is no authoritative "is the photo up" to read. It stays
+     * honest because the projector clears its overlay on exactly the signal that
+     * resets this flag — a changed `ceremonySignature`, and *only* that. See
+     * `RemoteViewModel.mediaShownAfter` for why "any applied projection" would
+     * be wrong.
+     */
+    val mediaShown: Boolean = false,
 ) {
     /** Whether any command may be issued right now. */
     val commandsEnabled: Boolean
         get() = hasToken && leaseState == ControllerLeaseState.ACTIVE && !inFlight && !blocked
+
+    /**
+     * Whether the media cue may be sent right now.
+     *
+     * Hiding is deliberately permitted while [blocked]. That is the case it
+     * matters most in: an ambiguous outcome with a photograph covering the board
+     * is exactly when the operator needs the board back, and hiding can never
+     * double-apply. Raising one stays behind the ordinary gate, because putting
+     * a face on screen while the ceremony's true position is unknown risks
+     * showing the wrong team.
+     */
+    val mediaEnabled: Boolean
+        get() = if (mediaShown) {
+            hasToken && leaseState == ControllerLeaseState.ACTIVE && !inFlight
+        } else {
+            commandsEnabled
+        }
 }
+
+/** One reported projector count; `count == null` means the server could not tell. */
+data class ProjectorReadout(val count: Int?)
 
 /**
  * Drives one ceremony from the UI.
@@ -102,6 +146,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private var heartbeatJob: Job? = null
     private var foreground = false
     private var settings = RemoteSettings()
+    private var lastSignature: String? = null
 
     init {
         viewModelScope.launch {
@@ -167,6 +212,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                     sites = emptyList(),
                     contestName = "",
                     leaseState = ControllerLeaseState.UNCLAIMED,
+                    projectors = null,
                 )
             }
             if (updated.isComplete) {
@@ -263,6 +309,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                     status = "",
                     error = null,
                     leaseState = ControllerLeaseState.UNCLAIMED,
+                    projectors = null,
                 )
             }
         }
@@ -328,6 +375,26 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     fun jump(teamId: String) = command { it.jump(teamId) }
 
     fun jumpPending() = command { it.jumpPending() }
+
+    /**
+     * Raises or lowers the focused team's media on every projector in scope.
+     *
+     * Deliberately not routed through [command]: a cue answers `204` and carries
+     * no projection, and — crucially — a failure must not engage the ambiguity
+     * lock. Only a confirmed cue flips [RemoteUiState.mediaShown], so a refused
+     * one leaves the button describing what is actually on the projector and the
+     * operator's next press repeats the attempt rather than sending its opposite.
+     */
+    fun toggleMedia() {
+        val active = client ?: return
+        val showing = !_state.value.mediaShown
+        viewModelScope.launch {
+            _state.update { it.copy(inFlight = true, error = null) }
+            val outcome = if (showing) active.showMedia() else active.hideMedia()
+            _state.update { it.copy(inFlight = false) }
+            applyMediaOutcome(outcome, showing)
+        }
+    }
 
     fun stepMany(count: Int) = sequence("Advancing", count) { it.stepMany(count) }
 
@@ -453,9 +520,60 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 stateUnusable = active?.stateUnusable == true,
                 canRetry = active?.canRetryLastAttempt == true,
                 noCeremony = outcome is CommandOutcome.NoCeremony,
+                mediaShown = mediaShownAfter(active?.projection, current.mediaShown),
                 status = status ?: current.status,
                 error = error,
                 streaming = if (outcome is CommandOutcome.AuthFailure) false else current.streaming,
+            )
+        }
+    }
+
+    /**
+     * Maps a cue's result onto the UI without ever touching the ambiguity lock.
+     *
+     * The one thing this must not do is set `blocked`: a cue reveals nothing, so
+     * a failed one is simply pressed again. It reports *sent*, never *displayed*
+     * — the animator publishes the cue and cannot learn whether a projector
+     * rendered it.
+     */
+    private fun applyMediaOutcome(outcome: MediaCueOutcome, showing: Boolean) {
+        val active = client
+        var status: String? = null
+        var error: String? = null
+        var shown: Boolean? = null
+
+        when (outcome) {
+            MediaCueOutcome.Sent -> {
+                shown = showing
+                status = if (showing) "Team media sent to the projectors." else ""
+            }
+
+            is MediaCueOutcome.Refused -> {
+                error = outcome.detail ?: "The media cue was refused."
+            }
+
+            is MediaCueOutcome.Failed -> {
+                error = outcome.cause
+            }
+
+            MediaCueOutcome.AuthFailure -> {
+                vault.clear()
+                streamJob?.cancel()
+                status = ""
+                error = "Invalid or expired operator token. Enter it again."
+            }
+
+            MediaCueOutcome.Suppressed -> Unit
+        }
+
+        _state.update { current ->
+            current.copy(
+                hasToken = active?.hasSecret == true,
+                leaseState = active?.leaseState ?: ControllerLeaseState.UNCLAIMED,
+                mediaShown = shown ?: current.mediaShown,
+                status = status ?: current.status,
+                error = error,
+                streaming = if (outcome is MediaCueOutcome.AuthFailure) false else current.streaming,
             )
         }
     }
@@ -471,6 +589,21 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         val active = client ?: return
         _state.update { it.copy(leaseState = active.leaseState) }
     }
+
+    /**
+     * The projector readout after a lease outcome.
+     *
+     * A successful operation replaces it with what the server reported; a
+     * stated loss of control or a release clears it; a tolerated blip or a
+     * suppressed renewal keeps the last reading, since the lease is still
+     * believed active.
+     */
+    private fun projectorsAfter(outcome: LeaseOutcome, current: ProjectorReadout?): ProjectorReadout? =
+        when (outcome) {
+            is LeaseOutcome.Active -> ProjectorReadout(outcome.lease.projectorCount)
+            LeaseOutcome.ReadOnly, LeaseOutcome.Lost, LeaseOutcome.AuthFailure, LeaseOutcome.Released -> null
+            is LeaseOutcome.Unavailable, LeaseOutcome.Suppressed -> current
+        }
 
     /** Maps lease ownership onto command authority without discarding projection state. */
     private fun applyLeaseOutcome(outcome: LeaseOutcome) {
@@ -491,6 +624,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             it.copy(
                 hasToken = active.hasSecret,
                 leaseState = active.leaseState,
+                projectors = projectorsAfter(outcome, it.projectors),
                 // Success and no-op outcomes keep any visible command error:
                 // a heartbeat landing mid-banner must not erase what the
                 // operator is reading.
@@ -519,6 +653,10 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                                     syncLeaseState()
                                 }
                                 missed = 0
+                                // The confirmed renewal is also the readout's
+                                // refresh; a reading is only as fresh as the
+                                // last heartbeat that carried it.
+                                _state.update { it.copy(projectors = projectorsAfter(heartbeat, it.projectors)) }
                             }
                             // Only a real missed renewal spends the budget. One
                             // suppressed by an in-flight command must not, or a
@@ -617,8 +755,34 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 blocked = active.isBlocked,
                 stateUnusable = active.stateUnusable,
                 noCeremony = outcome is CommandOutcome.NoCeremony,
+                // A nudge can carry movement this remote did not cause — another
+                // panel starting over, or a controller that took the scope. The
+                // projector closes its overlay on that just the same, so the
+                // label has to follow it here too, not only on our own commands.
+                mediaShown = mediaShownAfter(active.projection, current.mediaShown),
             )
         }
+    }
+
+    /**
+     * Whether a media overlay is still believed to be up after [projection].
+     *
+     * The remote holds this locally because a cue persists nothing — there is no
+     * authoritative "is the photo up" to read. What keeps it honest is that the
+     * projector closes its overlay on exactly one signal, a changed
+     * [ceremonySignature], so the label is cleared on that and on nothing else.
+     *
+     * Clearing it on *every* applied projection instead would be wrong in the
+     * common case: an unchanged reload, or a refresh that returns identical
+     * state, leaves the photograph on the projector while the button flips back
+     * to "Show team media" — and the operator's next press would re-show it
+     * rather than take it down.
+     */
+    private fun mediaShownAfter(projection: RevealProjection?, current: Boolean): Boolean {
+        val signature = ceremonySignature(projection)
+        val moved = lastSignature != null && signature != lastSignature
+        lastSignature = signature
+        return if (moved) false else current
     }
 
     override fun onCleared() {

@@ -25,6 +25,10 @@ from web.models.clarification import Clarification
 from web.models.contest import Contest
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
+from web.services.rate_limit_service import (
+    check_clarification_rate_limit,
+    check_open_clarification_limit,
+)
 
 from .errors import (
     ClarificationAlreadyAcquiredError,
@@ -32,8 +36,10 @@ from .errors import (
     ClarificationHiddenError,
     ClarificationLockUnavailableError,
     ClarificationNotAcquiredByActorError,
+    ClarificationRateLimitError,
     ContestNotRunningError,
     ForbiddenClarificationActionError,
+    TooManyUnansweredClarificationsError,
 )
 from .permissions import (
     can_answer_clarifications,
@@ -91,8 +97,15 @@ async def create_clarification(
     *,
     problem_id: str | None,
     question: str,
+    rate_limit_window_seconds: int = 600,
+    rate_limit_max_requests: int = 5,
+    max_open_clarifications: int = 3,
 ) -> Clarification:
     """Create a new clarification on behalf of a team.
+
+    The throttles run after the role gate, so judges and admins are unaffected --
+    they publish announcements through :func:`create_announcement`, which is not
+    throttled.
 
     Args:
         session: Active database session.
@@ -101,6 +114,10 @@ async def create_clarification(
         problem_id: Problem the question is about, or ``None`` for a general
             contest-wide clarification.
         question: Question text.
+        rate_limit_window_seconds: Rolling window for the per-team budget.
+        rate_limit_max_requests: Clarifications allowed in that window; 0 disables the rule.
+        max_open_clarifications: Unanswered clarifications the team may hold; 0 disables
+            the rule.
 
     Returns:
         The created clarification.
@@ -108,6 +125,10 @@ async def create_clarification(
     Raises:
         ContestNotRunningError: If the contest is not running.
         ForbiddenClarificationActionError: If the actor is not a team.
+        TooManyUnansweredClarificationsError: If the team already holds
+            ``max_open_clarifications`` unanswered questions.
+        ClarificationRateLimitError: If the team exceeded ``rate_limit_max_requests``
+            in the window.
         ValueError: If *problem_id* does not belong to the contest.
     """
     if actor.role != RoleEnum.TEAM:
@@ -116,6 +137,20 @@ async def create_clarification(
         raise ContestNotRunningError("Clarifications can only be requested while the contest is running.")
 
     await _require_contest_problem(session, contest, problem_id)
+
+    # Throttles come after validation: they count rows, not attempts, so a request
+    # that writes nothing must not consume budget.
+    open_allowed, open_count = await check_open_clarification_limit(session, actor.id, max_open_clarifications)
+    if not open_allowed:
+        raise TooManyUnansweredClarificationsError(
+            "Too many unanswered clarifications.", open_count=open_count, limit=max_open_clarifications
+        )
+    allowed, next_allowed_at = await check_clarification_rate_limit(
+        session, actor.id, rate_limit_window_seconds, rate_limit_max_requests
+    )
+    if not allowed:
+        assert next_allowed_at is not None
+        raise ClarificationRateLimitError("Clarification limit reached.", next_allowed_at=next_allowed_at)
 
     now = _utcnow()
     clarification = Clarification(

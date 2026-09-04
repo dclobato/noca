@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -90,6 +90,21 @@ async def record_probe(
     )
 
 
+def _window_slots(newest_slot: int) -> list[int]:
+    """Return the slot epochs of the visible window, oldest first."""
+    return [newest_slot - index * SLOT_SECONDS for index in range(SLOTS_PER_WINDOW - 1, -1, -1)]
+
+
+def _slot_stat(slot: int, raw: list[str | None] | None) -> SlotStat:
+    """Build one slot from a raw ``[up, total]`` hash reply (missing hash = no probes)."""
+    up_raw, total_raw = (raw or [None, None])[0], (raw or [None, None])[1]
+    return SlotStat(
+        slot_start=datetime.fromtimestamp(slot, tz=UTC),
+        up=int(up_raw or 0),
+        total=int(total_raw or 0),
+    )
+
+
 async def read_service_heatmap(
     valkey_runtime: ValkeyRuntime,
     worker_class: WorkerClass,
@@ -99,17 +114,9 @@ async def read_service_heatmap(
     """Return the last ``SLOTS_PER_WINDOW`` slots for one service, oldest first."""
     newest_slot = slot_epoch(now or datetime.now(UTC))
     slots: list[SlotStat] = []
-    for index in range(SLOTS_PER_WINDOW - 1, -1, -1):
-        slot = newest_slot - index * SLOT_SECONDS
+    for slot in _window_slots(newest_slot):
         raw = await valkey_runtime.hmget(stats_key(worker_class, slot), ["up", "total"])
-        up_raw, total_raw = (raw or [None, None])[0], (raw or [None, None])[1]
-        slots.append(
-            SlotStat(
-                slot_start=datetime.fromtimestamp(slot, tz=UTC),
-                up=int(up_raw or 0),
-                total=int(total_raw or 0),
-            )
-        )
+        slots.append(_slot_stat(slot, raw))
     return slots
 
 
@@ -119,12 +126,27 @@ async def read_service_heatmaps(
     *,
     now: datetime | None = None,
 ) -> dict[WorkerClass, list[SlotStat]]:
-    """Return the heatmap slots of every monitored service."""
-    reference = now or datetime.now(UTC)
-    return {
-        service.worker_class: await read_service_heatmap(valkey_runtime, service.worker_class, now=reference)
-        for service in services
-    }
+    """Return the heatmap slots of every monitored service in one round trip.
+
+    All ``len(services) * SLOTS_PER_WINDOW`` hashes are read through a single
+    pipelined ``HMGET`` batch instead of one round trip per slot.
+
+    Raises:
+        RuntimeError: When Valkey could not answer the batch. The caller must
+            treat this as an outage rather than as an empty history, because
+            the result may be cached for a whole probe interval.
+    """
+    newest_slot = slot_epoch(now or datetime.now(UTC))
+    window = _window_slots(newest_slot)
+    keys = [stats_key(service.worker_class, slot) for service in services for slot in window]
+    rows = await valkey_runtime.hmget_many(keys, ["up", "total"])
+    if rows is None:
+        raise RuntimeError("Uptime history unavailable: pipelined hash read failed")
+    heatmaps: dict[WorkerClass, list[SlotStat]] = {}
+    for index, service in enumerate(services):
+        service_rows = rows[index * SLOTS_PER_WINDOW : (index + 1) * SLOTS_PER_WINDOW]
+        heatmaps[service.worker_class] = [_slot_stat(slot, raw) for slot, raw in zip(window, service_rows, strict=True)]
+    return heatmaps
 
 
 async def reap_expired_slots(

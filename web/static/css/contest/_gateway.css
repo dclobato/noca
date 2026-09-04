@@ -65,10 +65,24 @@
     line-height: 1.15;
 }
 
-.noca-gateway-heading > p:last-child {
+.noca-gateway-heading > p:last-of-type {
     max-width: 40rem;
     margin: 0.75rem 0 0;
     color: var(--noca-on-surface-variant);
+}
+
+/* The announcement board link sits under the hero copy, spaced like it. Its
+   hover follows the gateway's link pattern -- the deeper brand green that
+   `--bs-link-hover-color` already names -- rather than the underline the
+   section links use, so it reads as part of the hero rather than a table link. */
+.noca-gateway-heading > .noca-gateway-section-link {
+    margin-top: 0.75rem;
+}
+
+.noca-gateway-heading > .noca-gateway-section-link:hover,
+.noca-gateway-heading > .noca-gateway-section-link:focus-visible {
+    color: var(--noca-brand-container);
+    text-decoration: none;
 }
 
 .noca-gateway-signal {

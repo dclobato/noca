@@ -95,3 +95,63 @@ def test_forwarded_allow_ips_rejects_invalid_values(monkeypatch: pytest.MonkeyPa
     """
     with pytest.raises(ValueError):
         _make_settings(monkeypatch, NOCA_FORWARDED_ALLOW_IPS=value)
+
+
+def test_rate_limit_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both buckets are on by default with a loopback bypass."""
+    settings = _make_settings(monkeypatch)
+
+    assert settings.RATE_LIMIT_ENABLED is True
+    assert settings.RATE_LIMIT_MAX_REQUESTS == 120
+    assert settings.RATE_LIMIT_WINDOW_SECONDS == 60
+    assert settings.RATE_LIMIT_TRUSTED_CIDRS == "127.0.0.0/8,::1/128"
+    assert settings.HEALTH_RATE_LIMIT_ENABLED is True
+    assert settings.HEALTH_RATE_LIMIT_MAX_REQUESTS == 30
+    assert settings.HEALTH_RATE_LIMIT_WINDOW_SECONDS == 60
+    assert settings.HEALTH_RATE_LIMIT_TRUSTED_CIDRS == "127.0.0.0/8,::1/128"
+
+
+def test_rate_limit_env_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dashboard knobs bind to NOCA_HEALTHMON_RATE_LIMIT_*; health knobs stay unprefixed."""
+    settings = _make_settings(
+        monkeypatch,
+        NOCA_HEALTHMON_RATE_LIMIT_ENABLED="false",
+        NOCA_HEALTHMON_RATE_LIMIT_MAX_REQUESTS="7",
+        NOCA_HEALTHMON_RATE_LIMIT_WINDOW_SECONDS="9",
+        NOCA_HEALTHMON_RATE_LIMIT_TRUSTED_CIDRS=" 10.0.0.0/8 , ,192.0.2.1 ",
+        NOCA_HEALTH_RATE_LIMIT_MAX_REQUESTS="5",
+        NOCA_NOCA_HEALTHMON_RATE_LIMIT_MAX_REQUESTS="99",
+    )
+
+    assert settings.RATE_LIMIT_ENABLED is False
+    assert settings.RATE_LIMIT_MAX_REQUESTS == 7
+    assert settings.RATE_LIMIT_WINDOW_SECONDS == 9
+    assert settings.RATE_LIMIT_TRUSTED_CIDRS == "10.0.0.0/8,192.0.2.1"
+    assert settings.HEALTH_RATE_LIMIT_MAX_REQUESTS == 5
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "NOCA_HEALTHMON_RATE_LIMIT_MAX_REQUESTS",
+        "NOCA_HEALTHMON_RATE_LIMIT_WINDOW_SECONDS",
+        "NOCA_HEALTH_RATE_LIMIT_MAX_REQUESTS",
+        "NOCA_HEALTH_RATE_LIMIT_WINDOW_SECONDS",
+    ],
+)
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_rate_limit_rejects_non_positive_values(monkeypatch: pytest.MonkeyPatch, variable: str, value: str) -> None:
+    """A zero or negative window or budget would disable or invert the limiter silently."""
+    with pytest.raises(ValidationError):
+        _make_settings(monkeypatch, **{variable: value})
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["NOCA_HEALTHMON_RATE_LIMIT_TRUSTED_CIDRS", "NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS"],
+)
+@pytest.mark.parametrize("value", ["", " , ", "not-a-network", "10.0.0.0/8,bogus"])
+def test_rate_limit_rejects_invalid_trusted_cidrs(monkeypatch: pytest.MonkeyPatch, variable: str, value: str) -> None:
+    """Both bypass lists refuse empty and malformed entries, naming the variable."""
+    with pytest.raises(ValidationError, match=variable):
+        _make_settings(monkeypatch, **{variable: value})

@@ -4,8 +4,15 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Reusable FastAPI dependencies for the animator runtime."""
+"""Reusable FastAPI dependencies for the animator runtime.
 
+The public-route limiter (feeds and team media) lives here too. Its policy is rebuilt from ``settings``
+on every call and its fallback limiter is module-level, mirroring the health
+monitor and Arena signup limiters, so tests can monkeypatch the knobs and reset
+the in-memory state between cases.
+"""
+
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -20,11 +27,126 @@ from animator.models.query_records import ContestRecord
 from animator.services.contest_feed_service import load_enabled_contest
 from animator.services.control_audit import note_control_outcome, scope_label
 from animator.services.controller_lease_service import ControllerLeaseService
+from animator.services.feed_cache import AnimatorFeedCache
+from animator.services.projector_presence import ProjectorPresence
 from animator.services.public_scope_service import PublicScope, resolve_public_scope
 from animator.services.reveal_session_store import RevealSessionStore, RevealStoreClient
+from animator.services.sse_capacity import SseCapacity
 from shared.reveal_schema import GLOBAL_SCOPE
 from shared.services.animator_access_service import ResolvedScope, resolve_scope
+from shared.services.auth_rate_limit import (
+    AuthRateLimitSettings,
+    AuthThrottleIdentity,
+    InMemoryAuthRateLimiter,
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+    reset_auth_throttle,
+)
+from shared.services.request_rate_limit import (
+    InMemoryRateLimiter,
+    RateLimitPolicy,
+    enforce_ip_rate_limit,
+    parse_trusted_cidrs,
+)
+from shared.services.sse_connection_limit import SseSlotPolicy, sse_connection_slots
 from shared.services.valkey_service import ValkeyRuntime
+
+PUBLIC_RATE_LIMIT_BUCKET = "animator:public"
+PUBLIC_RATE_LIMITER = InMemoryRateLimiter()
+PUBLIC_RATE_LIMIT_DETAIL = "Animator public rate limit exceeded."
+
+
+def _public_rate_limit_policy() -> RateLimitPolicy:
+    """Build the public-route bucket policy from the current settings."""
+    return RateLimitPolicy(
+        bucket=PUBLIC_RATE_LIMIT_BUCKET,
+        max_requests=settings.PUBLIC_RATE_LIMIT_MAX_REQUESTS,
+        window_seconds=settings.PUBLIC_RATE_LIMIT_WINDOW_SECONDS,
+        trusted_networks=parse_trusted_cidrs(settings.PUBLIC_RATE_LIMIT_TRUSTED_CIDRS),
+        enabled=settings.PUBLIC_RATE_LIMIT_ENABLED,
+    )
+
+
+async def enforce_public_rate_limit(request: Request) -> None:
+    """Apply the shared per-IP window to the anonymous feeds and team-media routes.
+
+    Installed as a route-level ``dependencies=[...]`` entry, so it runs *before*
+    the contest gate. That is deliberate: the answer depends on the client IP
+    alone, never on the slug or scope, so a ``429`` cannot be used to probe the
+    non-enumerating ``404``, and a flood has to be stopped ahead of the gate's
+    own query or the limiter would protect nothing.
+
+    Raises:
+        HTTPException: ``429`` with ``Retry-After`` once the window is spent.
+    """
+    await enforce_ip_rate_limit(
+        request,
+        policy=_public_rate_limit_policy(),
+        fallback_limiter=PUBLIC_RATE_LIMITER,
+        detail=PUBLIC_RATE_LIMIT_DETAIL,
+    )
+
+
+SSE_LIMIT_BUCKET = "animator:sse"
+SSE_LIMIT_DETAIL = "Too many open animator event streams."
+
+
+def _sse_slot_policy() -> SseSlotPolicy:
+    """Build the SSE connection-cap policy from the current settings."""
+    return SseSlotPolicy(
+        bucket=SSE_LIMIT_BUCKET,
+        max_per_ip=settings.SSE_MAX_PER_IP,
+        max_per_user=1,
+        ttl_seconds=settings.SSE_CONNECTION_TTL_SECONDS,
+        trusted_networks=parse_trusted_cidrs(settings.SSE_TRUSTED_CIDRS),
+        enabled=settings.SSE_LIMIT_ENABLED,
+    )
+
+
+def get_sse_capacity(request: Request) -> SseCapacity:
+    """Return the process-wide SSE client gauge, creating it on first use.
+
+    The lifespan installs it on ``app.state``; an app assembled without the
+    lifespan (tests, tooling) gets one lazily from the configured ceiling so the
+    stream routes never depend on startup order.
+    """
+    capacity: SseCapacity | None = getattr(request.app.state, "sse_capacity", None)
+    if capacity is None:
+        capacity = SseCapacity(settings.MAX_SSE_CLIENTS)
+        request.app.state.sse_capacity = capacity
+    return capacity
+
+
+async def enforce_sse_connection_caps(request: Request) -> AsyncIterator[None]:
+    """Hold the process ceiling and the per-IP lease for one anonymous stream.
+
+    Installed as a route-level ``dependencies=[...]`` entry on ``/events`` and
+    ``/reveal/events``, so both refusals happen *before* the contest gate: the
+    answer depends on the client IP and this process's load alone, never on the
+    slug, so a ``503``/``429`` cannot probe the non-enumerating ``404``. As a
+    yield dependency its teardown runs when the streamed response ends -- that
+    is, when the client disconnects -- which is what frees the slots.
+
+    The process ceiling is checked first because it never needs Valkey; the
+    per-IP lease is Valkey-backed and fails open.
+
+    Raises:
+        HTTPException: ``503`` when this process is full; ``429`` when the
+            client IP already holds ``NOCA_ANIMATOR_SSE_MAX_PER_IP`` streams.
+    """
+    capacity = get_sse_capacity(request)
+    async with capacity.slot(), sse_connection_slots(request, policy=_sse_slot_policy(), detail=SSE_LIMIT_DETAIL):
+        yield
+
+
+def get_feed_cache(request: Request) -> AnimatorFeedCache:
+    """Return the process-wide feed cache from application state."""
+    cache: AnimatorFeedCache = request.app.state.feed_cache
+    return cache
+
+
+FeedCache = Annotated[AnimatorFeedCache, Depends(get_feed_cache)]
 
 
 def get_valkey_runtime(request: Request) -> ValkeyRuntime:
@@ -195,6 +317,19 @@ def get_controller_lease_service(valkey: Valkey) -> ControllerLeaseService:
 ControllerLease = Annotated[ControllerLeaseService, Depends(get_controller_lease_service)]
 
 
+def get_projector_presence(request: Request) -> ProjectorPresence:
+    """Build the per-scope projector presence gauge over the Valkey runtime.
+
+    Reads the runtime off ``app.state`` directly rather than through ``Valkey``
+    so the detached ``/reveal/events`` stream can use it without a session.
+    """
+    runtime: ValkeyRuntime = request.app.state.valkey_runtime
+    return ProjectorPresence(runtime, ttl_seconds=settings.PROJECTOR_PRESENCE_TTL_SECONDS)
+
+
+ProjectorPresenceDep = Annotated[ProjectorPresence, Depends(get_projector_presence)]
+
+
 async def get_control_contest(request: Request, contest: EnabledContest) -> ContestRecord:
     """Resolve an enabled contest and then apply the control kill switch.
 
@@ -248,7 +383,35 @@ OperatorCredentials = Annotated[HTTPAuthorizationCredentials | None, Depends(_op
 
 FORBIDDEN_DETAIL = "Invalid operator credential"
 """One detail string for every authorization refusal, so an unknown token, a
-wrong scheme, and a scope mismatch are indistinguishable to the caller."""
+wrong scheme, a scope mismatch, and a locked-out address are indistinguishable
+to the caller."""
+
+CONTROL_LOCKOUT_LIMITER = InMemoryAuthRateLimiter()
+"""Process-local fallback for the operator-token lockout; tests reset it."""
+
+
+def _control_lockout_settings() -> AuthRateLimitSettings:
+    """Build the IP-only lockout policy for the operator-token gate.
+
+    The identity carries no account component (``identifier=None``), so the
+    account cap and the HMAC secret are never used; the lockout duration doubles
+    as the window the failures are counted in.
+    """
+    return AuthRateLimitSettings(
+        enabled=settings.CONTROL_LOCKOUT_ENABLED,
+        window_seconds=settings.CONTROL_LOCKOUT_SECONDS,
+        ip_max_failures=settings.CONTROL_LOCKOUT_FAILURES,
+        account_max_failures=settings.CONTROL_LOCKOUT_FAILURES,
+        lockout_seconds=settings.CONTROL_LOCKOUT_SECONDS,
+        secret="",  # unused: IP-only identity, no account hash
+    )
+
+
+def _control_lockout_identity(request: Request, throttle_settings: AuthRateLimitSettings) -> AuthThrottleIdentity:
+    """The per-IP identity of the control gate (``auth:rate-limit:animator:control:ip:…``)."""
+    return build_auth_throttle_identity(
+        request, module="animator", action="control", identifier=None, settings=throttle_settings
+    )
 
 
 async def resolve_operator_scope(
@@ -270,6 +433,16 @@ async def resolve_operator_scope(
     attempt (with ``scope=unknown``), because the refusal is *noted* here and
     emitted by the audit boundary that wraps the whole request.
 
+    Failures are counted per client IP. Once ``NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES``
+    of them land inside one window the address is locked out for
+    ``NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS``: the lockout is checked *before*
+    the header is inspected — but after ``ControlContest``, so the contest gate
+    and the kill switch still answer ``404`` first and the lockout cannot probe
+    them — and it answers the very same generic ``403`` (no ``Retry-After``),
+    audited as ``outcome=throttled``. A valid token resets the counter; scope
+    and controller-ownership refusals are not counted, since their token
+    authenticated.
+
     Args:
         request: Current request, for the audit record.
         contest: The resolved enabled contest (both gates already passed).
@@ -283,21 +456,34 @@ async def resolve_operator_scope(
     Raises:
         HTTPException: ``403`` for any invalid or missing credential.
     """
+    throttle_settings = _control_lockout_settings()
+    identity = _control_lockout_identity(request, throttle_settings)
+    lockout = await check_auth_throttle(
+        request, identity, settings=throttle_settings, fallback_limiter=CONTROL_LOCKOUT_LIMITER
+    )
+    if not lockout.allowed:
+        note_control_outcome(request, outcome="throttled")
+        raise HTTPException(status_code=403, detail=FORBIDDEN_DETAIL)
+
     if credentials is None or credentials.scheme.lower() != "bearer" or not credentials.credentials.strip():
-        raise _refuse_credential(request)
+        raise await _refuse_credential(request, identity, throttle_settings)
     scope = await resolve_scope(db, contest.id, credentials.credentials)
     if scope is None:
-        raise _refuse_credential(request)
+        raise await _refuse_credential(request, identity, throttle_settings)
+    await reset_auth_throttle(request, identity, fallback_limiter=CONTROL_LOCKOUT_LIMITER)
     note_control_outcome(request, scope=scope_label(scope.site_id))
     return scope
 
 
-def _refuse_credential(request: Request) -> HTTPException:
-    """Note one rejected credential and build its uniform ``403``.
+async def _refuse_credential(
+    request: Request, identity: AuthThrottleIdentity, throttle_settings: AuthRateLimitSettings
+) -> HTTPException:
+    """Count and note one rejected credential, and build its uniform ``403``.
 
     The record itself is emitted by the audit boundary, so a refusal here and a
     refusal in a route cannot produce two lines for one request.
     """
+    await record_auth_failure(request, identity, settings=throttle_settings, fallback_limiter=CONTROL_LOCKOUT_LIMITER)
     note_control_outcome(request, outcome="invalid_credential")
     return HTTPException(status_code=403, detail=FORBIDDEN_DETAIL)
 

@@ -1,0 +1,131 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_auth_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% from "auth/_consent_macros.html" import consent_welcome, consent_milestone, consent_back_to_login with context %}
+{% block title_suffix %}&mdash; Withdraw parental consent{% endblock %}
+{% block auth_content %}
+    {#
+      THESIS: the withdrawal is one lit node on the same chronology the grant page
+      draws, so what the account keeps afterwards is read as history rather than as
+      a reassuring footnote. The refused arrangement is the warning-alert card.
+      OWN-WORLD: Arena's Academic Modern, unchanged, in the same two-panel auth
+      shell login and 2FA use; the rail runs in error red here and brand green on
+      the grant page, which is what tells a guardian holding both emails which page
+      they are on. The panel carries no mascot: a parent suspending their child's
+      account is not being welcomed.
+      STORY: a parent sees when consent was given, what withdrawing suspends, what
+      it never deletes, and that it can be granted again -- then acts once.
+      FIRST VIEWPORT: the welcome panel states the decision; the card holds the
+      rail -- creation and the grant above, the bordered decision panel with the
+      three effects, the kept-data statement and one full-width destructive action,
+      and the way back below it.
+      FORM: chronology with a live node; candidate 6 of 7, user-locked over the
+      dealt lead; seed 8da719d8.
+
+      Only the `confirm` stage has a subject. `done`, `throttled` and the dead-link
+      stage deliberately name no account and carry no token, so they cannot draw a
+      chronology and must not invent one: they render as the decision panel alone.
+    #}
+    <div class="container arena-auth-flow-page arena-auth-flow-page--prose my-auto">
+        <div class="arena-auth-flow-shell">
+            {% if stage == "confirm" %}
+                {{ consent_welcome('Withdraw your consent.', 'Here is exactly what changes, and what is kept.') }}
+            {% else %}
+                {{ consent_welcome('Parental consent.', 'Withdrawing consent suspends an account. Nothing is ever deleted.') }}
+            {% endif %}
+            <main class="arena-auth-card arena-auth-flow-card arena-consent-page arena-consent-page--withdraw">
+                {% if stage == "confirm" %}
+                    <div class="arena-auth-flow-heading">
+                        <h1 class="arena-auth-title">Withdraw consent for {{ child_name }}&rsquo;s account</h1>
+                        <p class="arena-auth-subtitle">As their parent or legal guardian, you may withdraw your consent at any time.</p>
+                    </div>
+                    <ol class="arena-consent-rail">
+                        {% if timeline.created_on %}{{ consent_milestone("Account created", timeline.created_on) }}{% endif %}
+                        {{ consent_milestone("You consented to this account", timeline.consent_given_on, child_name ~ " has been using Arena since then.") }}
+                        <li class="arena-consent-node arena-consent-node--now">
+                            <div class="arena-consent-decision">
+                                <p class="arena-consent-account">
+                                    You are about to withdraw your consent, as their parent or legal guardian,
+                                    for the Arena account of <strong>{{ child_name }}</strong> ({{ child_email }}).
+                                    The account is suspended immediately.
+                                </p>
+                                <ul class="arena-consent-effects">
+                                    <li class="arena-consent-effect">
+                                        {{ render_icon(icon="lock") }}
+                                        <span>{{ child_name }} will no longer be able to log in.</span>
+                                    </li>
+                                    <li class="arena-consent-effect">
+                                        {{ render_icon(icon="logout") }}
+                                        <span>Any session open right now ends.</span>
+                                    </li>
+                                    <li class="arena-consent-effect">
+                                        {{ render_icon(icon="visibility_off") }}
+                                        <span>The name stops appearing on every public page.</span>
+                                    </li>
+                                </ul>
+                                <p class="arena-consent-keeps">
+                                    {{ render_icon(icon="inventory_2") }}
+                                    <span><strong>Nothing is deleted.</strong> Submissions, results and history are kept.</span>
+                                </p>
+                                <p class="arena-consent-attestation">
+                                    Pressing this button records your decision as {{ child_name }}&rsquo;s parent or legal
+                                    guardian.
+                                </p>
+                                <form method="post"
+                                      action="{{ request.url_for("arena_parental_consent_revoke_submit") }}"
+                                      novalidate>
+                                    <input type="hidden" name="token" value="{{ token }}">
+                                    <button type="submit" class="btn btn-danger arena-consent-submit">Withdraw consent and suspend the account</button>
+                                </form>
+                                <p class="arena-consent-escape">
+                                    <a href="{{ request.url_for("arena_dashboard") }}"
+                                       class="arena-auth-link">Keep consent &mdash; return to the dashboard without changing anything</a>
+                                </p>
+                            </div>
+                        </li>
+                        {{ consent_milestone("Consent can be given again at any time", none, "Give it again and the account works exactly as it did before.") }}
+                        {% if timeline.consent_ends_on %}
+                            {{ consent_milestone("Consent is no longer required", timeline.consent_ends_on, child_name ~ " turns 18 and manages the account alone from that day.") }}
+                        {% endif %}
+                    </ol>
+                {% else %}
+                    <div class="arena-auth-flow-heading arena-consent-statement">
+                        {% if stage == "done" %}
+                            <h1 class="arena-auth-title">Consent withdrawn</h1>
+                            <p class="arena-consent-account">
+                                The account has been suspended, and we have emailed both you and the account holder
+                                to confirm it.
+                            </p>
+                            <p class="arena-consent-note">
+                                Nothing has been deleted. If you would rather the account and its data were removed
+                                entirely, or if this was a mistake, please contact us.
+                            </p>
+                        {% elif stage == "throttled" %}
+                            <h1 class="arena-auth-title">Too many attempts</h1>
+                            <p class="arena-consent-account">
+                                Too many requests have come from this address. Please wait a few minutes and open
+                                the link from your email again.
+                            </p>
+                        {% else %}
+                            <h1 class="arena-auth-title">This link is no longer valid</h1>
+                            <p class="arena-consent-account">A withdrawal link stops working once anything about the consent changes.</p>
+                            <p class="arena-consent-note">
+                                The most common reason is that a newer email replaced it, so please use the link
+                                from the most recent message we sent you. A link also stops working once it has
+                                been used, and once the account holder turns 18 and the consent is no longer
+                                required. If you still need to withdraw consent, please contact us.
+                            </p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                {{ consent_back_to_login() }}
+            </main>
+        </div>
+    </div>
+{% endblock %}

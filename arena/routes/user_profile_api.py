@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,15 +20,20 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services import arena_auth_service, user_service
+from arena.services.geocode_service import (
+    GeocodeLimitError,
+    GeocodeUnavailableError,
+    detect_profile_location,
+)
 from arena.services.profile_location_service import (
     list_subdivisions,
-    reverse_geocode_location,
     search_affiliations,
     update_user_affiliation,
     update_user_location,
 )
 from arena.services.user_stats_service import get_user_statistics
 from arena.services.user_timezone_service import format_user_datetime
+from arena.services.user_visibility_service import is_shielded
 from shared.age_check import AgeStatus
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena.arena_heatmap import arena_user_submission_heatmap
@@ -77,6 +82,7 @@ class PersonalDataUpdateRequest(BaseModel):
     prefered_language: Literal["en-US", "pt-BR"] = "en-US"
     ranking_visible: bool | None = None
     public_profile: bool | None = None
+    full_name_public: bool | None = None
 
 
 class ApiKeyUpdateRequest(BaseModel):
@@ -160,12 +166,25 @@ async def arena_user_profile_location_detect(
         )
     )
     try:
-        result = reverse_geocode_location(
+        result = await detect_profile_location(
+            request,
+            user_id=current_user.id,
             latitude=payload.latitude,
             longitude=payload.longitude,
             endpoint_url=settings.ARENA_REVERSE_GEOCODER_URL,
             user_agent=user_agent,
             network_service=network_service,
+        )
+    except GeocodeLimitError as exc:
+        return JSONResponse(
+            {"error": f"Too many location detections. Try again in {exc.retry_after} seconds."},
+            status_code=429,
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+    except GeocodeUnavailableError:
+        return JSONResponse(
+            {"error": "Location detection is temporarily unavailable. Try again shortly."},
+            status_code=503,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -262,7 +281,11 @@ async def arena_user_profile_personal_data_update(
 
     A date-of-birth change applies the Arena age policy. Changes that make the
     user a minor invalidate every active session and log out the current
-    browser.
+    browser, and clear both public-identity opt-ins.
+
+    Enabling ``public_profile`` or ``full_name_public`` while the account is
+    age-shielded is refused with ``400 {"error": "age_shielded"}`` before
+    anything is written. Clearing them is always allowed.
 
     Args:
         request: Current request, including the authenticated token.
@@ -296,6 +319,24 @@ async def arena_user_profile_personal_data_update(
             status_code=422,
         )
     date_of_birth_changed = current_user.dta_nascimento != parsed_date_of_birth
+    # The age shield is evaluated against the *submitted* date of birth, not the
+    # stored one, so that lowering the date into the 13-17 band while asking to
+    # publish is refused rather than silently cleared further down by
+    # update_date_of_birth(). This check is hoisted above every mutation below --
+    # the handler assigns name, language, location and affiliation onto the ORM
+    # object before it reaches the visibility flags -- so that a refusal leaves
+    # the row genuinely unchanged rather than merely uncommitted.
+    if is_shielded(parsed_date_of_birth) and (payload.public_profile or payload.full_name_public):
+        return JSONResponse(
+            {
+                "error": "age_shielded",
+                "message": (
+                    "Accounts under 18 are always shown under their username. "
+                    "This option becomes available once you turn 18."
+                ),
+            },
+            status_code=400,
+        )
     try:
         update_user_location(
             current_user,
@@ -341,10 +382,16 @@ async def arena_user_profile_personal_data_update(
     effective_public_profile = (
         payload.public_profile if payload.public_profile is not None else current_user.public_profile
     )
+    # The ranking coupling stays a silent coercion (a public profile page means
+    # nothing for a user who is not in the ranking); only the age shield, checked
+    # above, is an outright refusal. The database CHECK constraint backs the
+    # coupling either way.
     if not effective_ranking_visible and effective_public_profile:
         effective_public_profile = False
     if effective_public_profile != current_user.public_profile:
         current_user.public_profile = effective_public_profile
+    if payload.full_name_public is not None:
+        current_user.full_name_public = payload.full_name_public
     age_status = await user_service.update_date_of_birth(
         current_user,
         parsed_date_of_birth,
@@ -364,7 +411,13 @@ async def arena_user_profile_personal_data_update(
         "language_name": language_name,
         "prefered_language": current_user.prefered_language,
         "ranking_visible": current_user.ranking_visible,
+        # All three are read after update_date_of_birth() so that a request which
+        # moves the account into the shielded band echoes the cleared values and
+        # the shield that cleared them. Without age_shielded the page would keep
+        # offering two opt-ins the server has just started refusing, until reload.
         "public_profile": current_user.public_profile,
+        "full_name_public": current_user.full_name_public,
+        "age_shielded": is_shielded(current_user.dta_nascimento),
     }
     if date_of_birth_changed and age_status != AgeStatus.ALLOWED:
         raw_token: str | None = getattr(request.state, "raw_arena_token", None)

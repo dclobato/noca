@@ -75,6 +75,11 @@ The web module is a server-rendered FastAPI application with these main layers:
   `hampusborgos/country-flags` (SHA recorded in `[tool.assets]` of the root
   `pyproject.toml`). They are served at `/static/vendor/img/flags/{code}.svg` by
   the `static_vendor` mount in the arena app.
+- Circular Brazilian national and UF flag SVGs are generated into
+  `shared/static/vendor/img/state-flags/` from the pinned
+  `pierrelapalu/icones-bandeiras-br-uf` archive. The national flag is `BR.svg`,
+  and each UF uses its uppercase two-letter code. The shared `static_vendor`
+  mount serves them at `/static/vendor/img/state-flags/{code}.svg`.
 - The `/static/css` and `/static/js` mounts (both the app-specific and
   `shared-*` variants, in web, arena, animator, and healthmonitor) use
   `shared.static_files.RevalidatedStaticFiles` instead of plain `StaticFiles`,
@@ -209,7 +214,7 @@ The autojudge module is a separate async worker process that owns:
 - Judge images are standardized on Debian-family or other mainstream glibc-based bases to keep runtime
   loader paths predictable inside the isolate sandbox; each `:run` image receives the `isolate` binary
   via `COPY --from` of the shared `noca/isolate-base` build-time artifact rather than recompiling it
-- The shared isolate binary is built from upstream `ioi/isolate` v2.6. Run images install both
+- The shared isolate binary is built from upstream `ioi/isolate` v2.7. Run images install both
   `libcap2` and `libseccomp2` so the copied binary can start, while `isolate-base` installs
   `libcap-dev` and `libseccomp-dev` only for compilation.
 - Isolate's inner seccomp filtering applies to contestant processes and is independent of
@@ -414,6 +419,27 @@ a durable staged `arena_ai_batch_jobs` row without calling OpenAI, and remove
 the queue item from inflight. The batch flusher periodically collects all staged
 rows into one multi-item OpenAI batch, and the batch poller stores results after
 OpenAI reaches a terminal state.
+
+### `mailer/`
+
+The mailer module is a standalone async worker that owns outbound email
+delivery. It runs the dequeue loop over `mail:queue:pending`, the stale-inflight
+reaper, the heartbeat and worker-presence loops, and the pause/resume command
+loop when `NOCA_WORKER_COMMAND_SECRET` is set.
+
+- `worker.py`: `main` / `run_mailer_worker` entrypoint for `noca-mailer`;
+  `process_job` delivers one rendered `MailJob` through the shared
+  `EmailProvider` on a worker thread, drops a job past its TTL unsent, completes
+  a delivered one, and leaves a provider-refused one inflight for the reaper
+- `reaper.py`: requeues stale inflight jobs with an incremented `requeue_count`
+  (TTL re-applied) and drops them past `NOCA_MAILER_MAX_REQUEUE_COUNT`
+- `config.py`: the shared `NOCA_EMAIL_*` / `NOCA_SMTP_*` provider settings plus
+  the `NOCA_MAILER_*` worker knobs; `NOCA_MAILER_MAX_PER_MINUTE` is the
+  deployment-wide sending pace
+- `healthcheck.py` / `database.py`: the container probe and the tiny pool used
+  only for pause-state reconciliation
+
+Single replica by design: the pace is per process.
 
 ### `healthmonitor/`
 
@@ -920,13 +946,14 @@ expiration is retryable. After two such attempts, an Arena validator becomes
 removed from Valkey, and its owner receives one idempotent notification. Clean
 exit codes never trigger containment.
 
-In short, NOCA is an eight-process contest platform:
+In short, NOCA is a nine-process contest platform:
 
 - `web` manages contest and business workflows (default port 8000)
 - `autojudge` manages sandboxed compilation and execution
 - `arena` manages the public Arena participant platform (default port 8001)
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages Arena AI code review execution and OpenAI batch polling
+- `mailer` manages outbound email delivery from the Valkey mail queue
 - `healthmonitor` manages the public availability dashboards (default port 8002)
 - `animator` manages the public live scoreboard and reveal presentation (default port 8003)
 - `landingpage` serves the environment entry point and public module links

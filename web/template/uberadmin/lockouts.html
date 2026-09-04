@@ -1,0 +1,213 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}— Sign-in lockouts{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Sign-in lockouts</h1>
+                <p class="text-muted mb-0">
+                    After repeated failures the UberAdmin login, the contest login, the password re-confirmation
+                    and the animator control gate refuse a login or an address for a while. Lift that early here.
+                    Every unlock is password-confirmed and recorded in the security-event log. Unlocking something
+                    that is not locked changes nothing, so it is safe to try.
+                </p>
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        {% if status_label or status_error %}
+            <section class="card shadow-sm mb-4" aria-labelledby="lockout-status-heading">
+                <div class="card-body">
+                    {% set status_subject = status_label or prefill_ip or prefill_identifier or ("hash " ~ prefill_hash[:12] ~ "…") %}
+                    <h2 class="h5 mb-2 text-break" id="lockout-status-heading">
+                        Status for <span class="font-monospace">{{ status_subject }}</span>
+                    </h2>
+                    {% if status_error %}
+                        <p class="text-danger mb-0">
+                            {{ render_icon(icon="error") }}
+                            {{ status_error }}
+                        </p>
+                    {% elif status_unavailable %}
+                        <p class="text-warning-emphasis mb-0">
+                            {{ render_icon(icon="cloud_off") }}
+                            Status unknown: the lockout store cannot be reached, so an active lockout may not be
+                            listed. An unlock will report what it could not reach.
+                        </p>
+                    {% elif active_lockouts %}
+                        <p class="text-danger fw-semibold mb-2">
+                            {{ render_icon(icon="lock") }}
+                            Locked
+                        </p>
+                        <ul class="list-unstyled d-flex flex-column gap-1 mb-0">
+                            {% for lock in active_lockouts %}
+                                <li class="text-break">
+                                    <span class="font-monospace">{{ lock.module }}/{{ lock.action }}</span>
+                                    {% set contest_label = lock_labels.get(lock.subject) %}
+                                    <span class="text-muted">{{ 'address' if lock.scope == 'ip' else 'account' }}
+                                        {% if contest_label %}· {{ contest_label }}{% endif %}
+                                    · lifts in {{ format_remaining(lock.retry_after_seconds) }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-success mb-0">
+                            {{ render_icon(icon="check_circle") }}
+                            No active lockout.
+                        </p>
+                    {% endif %}
+                </div>
+            </section>
+        {% endif %}
+        <div class="row g-4">
+            <div class="col-12 col-lg-6 d-flex">
+                <section class="card shadow-sm flex-fill" aria-labelledby="unlock-ip-heading">
+                    <div class="card-body">
+                        <h2 class="h5 mb-2" id="unlock-ip-heading">Unlock an address</h2>
+                        <p class="text-muted small mb-3" id="unlock-ip-help">
+                            Clears the failure counters and locks of one IPv4 or IPv6 address across every Web sign-in
+                            step and the animator control gate. Everyone behind that address is unblocked.
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for("uberadmin_unlock_ip") }}"
+                              data-submit-once="Unlocking…">
+                            <div class="mb-3">
+                                <label class="form-label" for="unlock-ip">IP address</label>
+                                <input type="text"
+                                       class="form-control font-monospace"
+                                       id="unlock-ip"
+                                       name="ip"
+                                       value="{{ prefill_ip }}"
+                                       maxlength="45"
+                                       autocomplete="off"
+                                       autocapitalize="none"
+                                       autocorrect="off"
+                                       spellcheck="false"
+                                       placeholder="203.0.113.9"
+                                       aria-describedby="unlock-ip-help"
+                                       required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="password-unlock-ip">Your uberadmin password</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="password-unlock-ip"
+                                       name="password"
+                                       autocomplete="current-password"
+                                       {% if prefill_ip %}autofocus{% endif %}
+                                       required>
+                            </div>
+                            <div class="d-grid d-sm-block">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {{ render_icon(icon="lock_open") }}
+                                    <span data-submit-once-label>Unlock address</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </div>
+            <div class="col-12 col-lg-6 d-flex">
+                <section class="card shadow-sm flex-fill"
+                         aria-labelledby="unlock-account-heading">
+                    <div class="card-body">
+                        <h2 class="h5 mb-2" id="unlock-account-heading">Unlock a login</h2>
+                        <p class="text-muted small mb-3" id="unlock-identifier-help">
+                            {% if prefill_hash %}
+                                This clears the one bucket the security event was recorded against — one login, in
+                                one contest. There is nothing to choose, so no scope is asked for. The address itself
+                                stays locked: use the form beside this one for that.
+                            {% else %}
+                                Enter the username the person signs in with: an UberAdmin username or a team login,
+                                then say which contest to release. A team login is unique only per contest, so
+                                <em>All contests</em> releases the name everywhere — and, because an UberAdmin is not
+                                a contest, it is the only choice that also lifts an UberAdmin's own lockout. The
+                                address itself stays locked: use the form beside this one for that.
+                            {% endif %}
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for("uberadmin_unlock_account") }}"
+                              data-submit-once="Unlocking…">
+                            <div class="mb-3">
+                                <label class="form-label" for="unlock-identifier">Login</label>
+                                {% if prefill_hash %}
+                                    {# Not submitted: with an exact hash in hand the typed name would only widen
+                                       what the operator asked for, and the scope select is what makes widening a
+                                       deliberate act. Shown so the row stays recognizable. #}
+                                    <input type="text"
+                                           class="form-control"
+                                           id="unlock-identifier"
+                                           value="{{ prefill_identifier }}"
+                                           aria-describedby="unlock-identifier-help unlock-identifier-hash-help"
+                                           readonly>
+                                    <input type="hidden" name="identifier_hash" value="{{ prefill_hash }}">
+                                    <div class="form-text text-break" id="unlock-identifier-hash-help">
+                                        Clears the exact bucket the security event was recorded against
+                                        (<span class="font-monospace">{{ prefill_hash[:12] }}…</span>). To release
+                                        this login more widely, open the page without the event link and choose a
+                                        scope.
+                                    </div>
+                                {% else %}
+                                    <input type="text"
+                                           class="form-control"
+                                           id="unlock-identifier"
+                                           name="identifier"
+                                           value="{{ prefill_identifier }}"
+                                           maxlength="80"
+                                           autocomplete="off"
+                                           autocapitalize="none"
+                                           autocorrect="off"
+                                           spellcheck="false"
+                                           placeholder="team042"
+                                           aria-describedby="unlock-identifier-help"
+                                           required>
+                                {% endif %}
+                            </div>
+                            {% if not prefill_hash %}
+                                <div class="mb-3">
+                                    <label class="form-label" for="unlock-contest-scope">Scope</label>
+                                    <select class="form-select"
+                                            id="unlock-contest-scope"
+                                            name="contest_scope"
+                                            aria-describedby="unlock-contest-scope-help"
+                                            required>
+                                        <option value="" selected disabled>Select…</option>
+                                        <option value="{{ all_contests_scope }}">All contests</option>
+                                        {% for choice in contest_choices %}<option value="{{ choice.contest_id }}">{{ choice.label }}</option>{% endfor %}
+                                    </select>
+                                    <div class="form-text" id="unlock-contest-scope-help">
+                                        There is no default on purpose: releasing every contest and releasing one
+                                        look identical afterwards, so the wide action has to be chosen.
+                                    </div>
+                                </div>
+                            {% endif %}
+                            <div class="mb-3">
+                                <label class="form-label" for="password-unlock-account">Your uberadmin password</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="password-unlock-account"
+                                       name="password"
+                                       autocomplete="current-password"
+                                       {% if not prefill_ip and (prefill_identifier or prefill_hash) %}autofocus{% endif %}
+                                       required>
+                            </div>
+                            <div class="d-grid d-sm-block">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {{ render_icon(icon="lock_open") }}
+                                    <span data-submit-once-label>Unlock login</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+{% endblock %}

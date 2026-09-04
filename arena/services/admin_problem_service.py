@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,21 +38,20 @@ from arena.services.problem_search_service import (
     prepare_problem_search,
     prepare_problem_suggestion_search,
 )
+from arena.services.text_search_primitives import query_is_trigram_searchable
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
 from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
-from shared.db_schema.arena import arena_submission_judgments as _arena_submission_judgments
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_users as _users_table
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
     ArenaRole,
     CustomValidatorActiveState,
-    JudgmentStatus,
     ProblemValidatorType,
     StatementLanguage,
 )
 from shared.problem_statement_markdown import validate_md_content
-from shared.queue_schema import ArenaSubmissionJob
+from shared.services.arena_difficulty_display import DifficultyDisplay, difficulty_display
 from shared.services.problem_package import (
     DEFAULT_MEMORY_LIMIT_KB,
     DEFAULT_OUTPUT_LIMIT_BYTES,
@@ -105,7 +104,7 @@ class ProblemListItem:
     enabled: bool
     public_tc_count: int
     private_tc_count: int
-    rating: float | None
+    difficulty: DifficultyDisplay
     categories: list[ProblemListCategory]
     has_custom_validator: bool
     has_editorial: bool
@@ -128,12 +127,15 @@ def _validate_problem_data(
     output_limit_in_bytes: int,
     problem_statement: str,
     editorial: str | None,
+    expected_difficulty: int | None = None,
 ) -> None:
     """Validate problem form data and raise ValueError on any violation.
 
     Image validation is handled upstream by ``ImageProcessingService`` before
     the service is called; only scalar fields are validated here.
     """
+    if expected_difficulty is not None and not 1 <= expected_difficulty <= 100:
+        raise ValueError("Expected difficulty must be between 1 and 100.")
     if not title.strip():
         raise ValueError("Title is required.")
     if len(title) > _MAX_TITLE_LEN:
@@ -236,8 +238,8 @@ async def list_problems_paginated(
         page: 1-based page number.
         per_page: Number of items per page.
         search: Free-text search applied to arena number, title, statement, source, and author.
-        category_ids: Require ALL listed category IDs (AND semantics). None = no filter.
-        category_slugs: Require ALL listed category slugs (AND semantics). None = no filter.
+        category_ids: Require ANY listed category ID (OR semantics). None = no filter.
+        category_slugs: Require ANY listed category slug (OR semantics). None = no filter.
         owner_id: Restrict to a specific owner (admin-only filter). None = no filter.
         language: Restrict to problems whose statement is in this language. None = no filter.
         enabled: Restrict to enabled (True) or disabled (False) problems. None = no filter.
@@ -300,9 +302,9 @@ async def list_problems_paginated(
     if category_slugs:
         effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
         if effective_slugs:
-            # AND semantics: problem must have every selected category slug.
-            sub = (
-                select(func.count(_cat_map_table.c.category_id.distinct()))
+            # OR semantics: one matching category slug is enough to include the problem.
+            matching_category = (
+                select(_cat_map_table.c.category_id)
                 .select_from(
                     _cat_map_table.join(
                         ArenaCategory,
@@ -313,21 +315,16 @@ async def list_problems_paginated(
                     _cat_map_table.c.problem_id == ArenaProblem.id,
                     ArenaCategory.slug.in_(effective_slugs),
                 )
-                .scalar_subquery()
             )
-            filtered_problem_ids = filtered_problem_ids.where(sub == len(effective_slugs))
+            filtered_problem_ids = filtered_problem_ids.where(matching_category.exists())
     elif category_ids:
         effective_ids = list(dict.fromkeys(category_ids))
-        # AND semantics: problem must have every selected category
-        sub = (
-            select(func.count(_cat_map_table.c.category_id.distinct()))
-            .where(
-                _cat_map_table.c.problem_id == ArenaProblem.id,
-                _cat_map_table.c.category_id.in_(effective_ids),
-            )
-            .scalar_subquery()
+        # OR semantics: one matching category is enough to include the problem.
+        matching_category = select(_cat_map_table.c.category_id).where(
+            _cat_map_table.c.problem_id == ArenaProblem.id,
+            _cat_map_table.c.category_id.in_(effective_ids),
         )
-        filtered_problem_ids = filtered_problem_ids.where(sub == len(effective_ids))
+        filtered_problem_ids = filtered_problem_ids.where(matching_category.exists())
 
     count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
@@ -343,6 +340,8 @@ async def list_problems_paginated(
             ArenaProblem.editorial,
             ArenaProblem.editorial_release_policy,
             ArenaRatingProblem.rating.label("rating_value"),
+            ArenaRatingProblem.attempted_users,
+            ArenaProblem.expected_difficulty,
         )
         .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
         .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
@@ -369,7 +368,7 @@ async def list_problems_paginated(
                 enabled=row.enabled,
                 public_tc_count=public_tc_count,
                 private_tc_count=private_tc_count,
-                rating=row.rating_value / 10.0 if row.rating_value is not None else None,
+                difficulty=difficulty_display(row.rating_value, row.attempted_users, row.expected_difficulty),
                 categories=categories.get(row.id, []),
                 has_custom_validator=row.validator_type is ProblemValidatorType.INTERACTIVE,
                 has_editorial=row.editorial is not None,
@@ -465,6 +464,7 @@ async def create_problem(
     statement_language: StatementLanguage | None = None,
     editorial: str | None = None,
     editorial_release_policy: ArenaEditorialReleasePolicy = ArenaEditorialReleasePolicy.NEVER,
+    expected_difficulty: int | None = None,
 ) -> ArenaProblem:
     """Create a new Arena problem in the disabled state.
 
@@ -505,6 +505,7 @@ async def create_problem(
         output_limit_in_bytes,
         problem_statement,
         editorial,
+        expected_difficulty,
     )
 
     now = _now()
@@ -531,6 +532,7 @@ async def create_problem(
         notes=notes.strip() if notes else None,
         license=license.strip() if license and license.strip() else None,
         statement_language=statement_language,
+        expected_difficulty=expected_difficulty,
         created_at=now,
         updated_at=now,
     )
@@ -565,6 +567,7 @@ async def update_problem(
     validator_type: ProblemValidatorType | None = None,
     editorial: str | None = None,
     editorial_release_policy: ArenaEditorialReleasePolicy = ArenaEditorialReleasePolicy.NEVER,
+    expected_difficulty: int | None = None,
 ) -> ArenaProblem:
     """Update mutable fields of an existing Arena problem.
 
@@ -605,6 +608,7 @@ async def update_problem(
         output_limit_in_bytes,
         problem_statement,
         editorial,
+        expected_difficulty,
     )
     problem.title = title.strip()
     problem.author = None if author_is_owner else author.strip() if author else None
@@ -635,6 +639,7 @@ async def update_problem(
     problem.notes = notes.strip() if notes else None
     problem.license = license.strip() if license and license.strip() else None
     problem.statement_language = statement_language
+    problem.expected_difficulty = expected_difficulty
 
     await _set_categories(session, problem, category_ids)
     return problem
@@ -727,6 +732,9 @@ async def search_problem_suggestions(
         field: Stored free-text field to project: ``"author"``, ``"license"``, or
             ``"source"``.
         query: Literal text to search after surrounding whitespace is removed.
+            Each whitespace-separated term is matched independently as a
+            substring, so terms may be partial, out of order, or begin
+            mid-word.
         caller_id: UUID of the requesting user.
         is_admin: When False, includes enabled problems plus drafts owned by ``caller_id``.
 
@@ -735,7 +743,12 @@ async def search_problem_suggestions(
         authors, nulls, and blank legacy values are excluded.
     """
     normalized_query = query.strip()
-    if len(normalized_query) < 2:
+    # Every term must carry a trigram PostgreSQL can index-match. A shorter term
+    # is not merely unhelpful: no branch can answer it without reading every row
+    # (full-text matching compares whole lexemes, and both `ILIKE '%xx%'` and the
+    # `%` similarity operator fall back to a sequential scan), so the search is
+    # declined rather than served expensively.
+    if not query_is_trigram_searchable(normalized_query):
         return []
 
     search_expressions = await prepare_problem_suggestion_search(session, field, normalized_query)
@@ -796,69 +809,3 @@ async def delete_problem(session: AsyncSession, problem: ArenaProblem) -> int:
     await session.execute(_arena_submissions.delete().where(_arena_submissions.c.problem_id == problem.id))
     await session.delete(problem)
     return number
-
-
-async def build_rejudge_jobs(session: AsyncSession, problem_id: str) -> list[ArenaSubmissionJob]:
-    """Supersede every submission's active judgments and queue fresh ones.
-
-    Each submission's existing non-superseded judgments are marked
-    ``SUPERSEDED`` before its new ``QUEUED`` judgment is inserted, exactly as the
-    single-submission rejudge in
-    :func:`arena.services.admin_submission_service.force_rejudge_arena_submission`
-    does. Leaving the old judgment active would give the submission two live
-    judgments, which fans out every query that outer-joins active judgments and
-    makes one submission appear once per judgment.
-
-    The caller owns the database transaction and must commit before enqueueing
-    the returned jobs, so the worker never picks up a job whose rows are not yet
-    visible in the database.
-
-    Args:
-        session: Active async database session (caller commits).
-        problem_id: UUID of the problem whose submissions should be re-judged.
-
-    Returns:
-        list[ArenaSubmissionJob]: One ready-to-enqueue job per submission.
-    """
-    from arena.models.arena_submissions import ArenaSubmissionJudgment
-
-    rows = list(
-        (
-            await session.execute(
-                select(
-                    _arena_submissions.c.id,
-                    _arena_submissions.c.user_id,
-                    _arena_submissions.c.language_id,
-                ).where(_arena_submissions.c.problem_id == problem_id)
-            )
-        ).all()
-    )
-
-    jobs: list[ArenaSubmissionJob] = []
-    for submission_id, user_id, language_id in rows:
-        await session.execute(
-            update(_arena_submission_judgments)
-            .where(
-                _arena_submission_judgments.c.submission_id == submission_id,
-                _arena_submission_judgments.c.status != JudgmentStatus.SUPERSEDED.value,
-            )
-            .values(status=JudgmentStatus.SUPERSEDED.value)
-        )
-        judgment = ArenaSubmissionJudgment(
-            id=str(uuid.uuid4()),
-            submission_id=submission_id,
-            status=JudgmentStatus.QUEUED.value,
-        )
-        session.add(judgment)
-        await session.flush()
-        jobs.append(
-            ArenaSubmissionJob(
-                judgment_id=judgment.id,
-                submission_id=submission_id,
-                user_id=user_id,
-                problem_id=problem_id,
-                language_id=language_id,
-                requeue_count=0,
-            )
-        )
-    return jobs

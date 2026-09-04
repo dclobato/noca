@@ -1,10 +1,11 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 from dataclasses import dataclass
+from urllib.parse import quote, urlsplit
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
@@ -22,13 +23,16 @@ from web.services.session_service import (
     build_session_auth_redirect_exception,
     get_validated_auth_token,
     mark_auth_refresh_eligible,
+    safe_contest_next_url,
 )
 
 _WEB_PUBLIC_EXACT: frozenset[str] = frozenset({"/", "/contests", "/contests/past", "/login", "/health", "/favicon.ico"})
 # ``/problem-set`` is public: the route itself gates on the contest being over
 # with its problem set released, so unauthenticated visitors may download the
-# materials of a contest whose author chose to publish them.
-_WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static", "/problem-set")
+# materials of a contest whose author chose to publish them. ``/announcements``
+# is the public announcement board: the list and every detail page are readable
+# anonymously by decision (#138); management lives under ``/uberadmin``.
+_WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static", "/problem-set", "/announcements")
 
 
 def _is_public_web_path(path: str) -> bool:
@@ -60,8 +64,32 @@ async def enforce_web_default_auth(request: Request) -> None:
     if path.startswith("/c/"):
         parts = path.strip("/").split("/")
         if len(parts) >= 2 and parts[1]:
-            raise build_auth_redirect_exception(request, f"/c/{parts[1]}/login")
+            login_url = f"/c/{parts[1]}/login"
+            destination = _contest_return_destination(request, parts[1])
+            if destination:
+                login_url = f"{login_url}?next={quote(destination, safe='/?=&%')}"
+            raise build_auth_redirect_exception(request, login_url)
     raise build_auth_redirect_exception(request, "/login")
+
+
+def _contest_return_destination(request: Request, slug: str) -> str | None:
+    """Return the page a contest login should come back to, or ``None``.
+
+    A ``GET`` names its own page. A ``POST`` names a save target that cannot be
+    revisited with a ``GET``, so the same-origin ``Referer`` -- the form's page,
+    where a browser draft (``noca-form-draft.js``) waits to be restored -- is
+    used instead. Only paths inside this contest qualify; the login route
+    re-validates whatever it is handed.
+    """
+    if request.method == "GET":
+        candidate = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    else:
+        referer = request.headers.get("referer", "")
+        parsed = urlsplit(referer)
+        if not parsed.path or (parsed.netloc and parsed.netloc != request.url.netloc):
+            return None
+        candidate = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    return safe_contest_next_url(slug, candidate, default=None)
 
 
 async def get_request_user(
@@ -124,23 +152,6 @@ async def get_avatar_viewer(
     return user, False
 
 
-async def get_visible_user(
-    request: Request,
-    user_id: str,
-    session: AsyncSession = Depends(get_db),
-) -> User:
-    """Load a user visible to the current viewer, enforcing same-contest access for non-UberAdmins."""
-    viewer, is_uberadmin = await get_avatar_viewer(request, session)
-    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
-    if not is_uberadmin:
-        assert isinstance(viewer, User)
-        if user.contest_id != viewer.contest_id:
-            raise HTTPException(status_code=403)
-    return user
-
-
 @dataclass
 class UserMediaContext:
     """Resolved actor/target context for user media routes.
@@ -148,6 +159,7 @@ class UserMediaContext:
     Args:
         actor: Authenticated actor viewing or mutating the target user's image.
         target_user: User whose image is being accessed.
+        session: Request-scoped database session that loaded both users.
         is_uberadmin: Whether the authenticated actor is an UberAdmin.
         is_self: Whether the authenticated actor is the same contest user as `target_user`.
 
@@ -164,6 +176,7 @@ class UserMediaContext:
 
     actor: UberAdmin | User
     target_user: User
+    session: AsyncSession
     is_uberadmin: bool
     is_self: bool
 
@@ -205,6 +218,7 @@ async def get_user_media_context(
     return UserMediaContext(
         actor=actor,
         target_user=target_user,
+        session=session,
         is_uberadmin=is_uberadmin,
         is_self=is_self,
     )

@@ -46,6 +46,7 @@ def _configure_common_monkeypatches(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(main_module, "wait_for_db", AsyncMock())
     monkeypatch.setattr(main_module, "wait_for_valkey", AsyncMock())
+    monkeypatch.setattr(main_module, "wait_for_mailer", AsyncMock())
     monkeypatch.setattr(main_module, "create_engine", lambda: _FakeEngine())
     monkeypatch.setattr(main_module, "create_session_factory", lambda engine: object())
     monkeypatch.setattr(main_module, "JWTService", _FakeJWTService)

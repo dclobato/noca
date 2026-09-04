@@ -1,0 +1,127 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<!DOCTYPE html>
+<html lang="en">
+    {% from "_macros.html" import render_icon %}
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Source printout — {{ contest.contest_name }} — {{ team.fullname or team.username }}</title>
+        <link href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_css', path='contest.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+    </head>
+    <body class="noca-task-printout-page">
+        <!--
+        THESIS: A delivery sheet whose destination is unmistakable before its code is read.
+        OWN-WORLD: NOCA's academic-modern typography, paper surfaces, exact rules, and code mono.
+        STORY: Staff confirms the recipient, verifies provenance, prints, and delivers the listing.
+        FIRST VIEWPORT: Delivery banner first, compact task metadata second, source artifact third.
+        FORM: Precisely specified operational print sheet; seed issue-140-approved-plan.
+        FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+        -->
+        <nav class="noca-task-printout-toolbar d-print-none"
+             aria-label="Printout actions">
+            <a href="{{ request.url_for('contest_tasks', slug=contest.login_slug) }}"
+               class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back", classes="me-1") }}Back to tasks</a>
+            <a href="{{ request.url_for('contest_tasks_source', slug=contest.login_slug, task_id=task.id) }}"
+               class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="download", classes="me-1") }}Download raw source</a>
+            <button type="button" class="btn btn-primary btn-sm" data-print-page>
+                {{ render_icon(icon="print", classes="me-1") }}Print
+            </button>
+        </nav>
+        <main class="noca-task-printout-sheet">
+            <header class="noca-task-printout-delivery">
+                <h1>Deliver source code to</h1>
+                <div class="noca-task-printout-destination">
+                    <div>
+                        <div class="noca-task-printout-label">Team</div>
+                        <div class="noca-task-printout-value">
+                            {{ team.fullname or team.username }}
+                            <span class="noca-task-printout-team-account">{{ team.username }}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="noca-task-printout-label">Site</div>
+                        <div class="noca-task-printout-value">
+                            {% if team.site %}
+                                {{ team.site.sitename }}
+                            {% else %}
+                                <span class="noca-task-printout-missing">Not assigned</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="noca-task-printout-label">Location</div>
+                        <div class="noca-task-printout-value">
+                            {% if team.location %}
+                                {{ team.location }}
+                            {% else %}
+                                <span class="noca-task-printout-missing">Not provided</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </header>
+            <dl class="noca-task-printout-meta">
+                <div>
+                    <dt>Contest</dt>
+                    <dd>
+                        {{ contest.contest_name }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Contest time</dt>
+                    <dd>
+                        {{ contest_time }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Requested at</dt>
+                    <dd>
+                        {{ created_at_text }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Problem</dt>
+                    <dd>
+                        {{ problem_text }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Handled by</dt>
+                    <dd>
+                        {{ handler_label }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Source reference</dt>
+                    <dd>
+                        {{ task.source_size_bytes }} bytes · Task {{ task.id[:8] }} · SHA-256 {{ task.source_hash[:12] }}
+                    </dd>
+                </div>
+            </dl>
+            <section class="noca-task-printout-source"
+                     aria-labelledby="source-code-heading">
+                <h2 id="source-code-heading">Source code</h2>
+                <ol class="noca-task-printout-lines">
+                    {% for line in source_lines %}
+                        <li>
+                            <code>{{- line | e -}}</code>
+                        </li>
+                    {% endfor %}
+                </ol>
+            </section>
+        </main>
+        <script src="{{ request.url_for('static_shared_js', path='print-page.js') }}?v={{ app_version }}"
+                defer></script>
+    </body>
+</html>

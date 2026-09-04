@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,6 +27,7 @@ from shared.db_schema.arena import (
     arena_problems,
 )
 from shared.enumerations import ArenaRole, ProblemValidatorType
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 
 
 async def _make_user(session: AsyncSession) -> ArenaUser:
@@ -55,6 +56,7 @@ async def _make_problem(
     title: str,
     rating: int,
     arena_number: int | None = None,
+    attempted_users: int = 1,
 ) -> str:
     """Create a problem and rating row."""
     problem_id = str(uuid.uuid4())
@@ -71,9 +73,9 @@ async def _make_problem(
     await session.execute(
         arena_problem_ratings.insert().values(
             problem_id=problem_id,
-            attempted_users=1,
+            attempted_users=attempted_users,
             solved_users=0,
-            total_submissions=1,
+            total_submissions=attempted_users,
             total_tries_before_solve=0,
             rating=rating,
         )
@@ -147,7 +149,14 @@ async def test_progress_solved_rows_are_newest_first_with_fields(session: AsyncS
     user = await _make_user(session)
     now = datetime.now(UTC)
     older = await _make_problem(session, user, title="Older Solved", rating=40)
-    newer = await _make_problem(session, user, title="Newer Solved", rating=80, arena_number=4321)
+    newer = await _make_problem(
+        session,
+        user,
+        title="Newer Solved",
+        rating=80,
+        arena_number=4321,
+        attempted_users=MIN_ATTEMPTS_FOR_DISPLAY,
+    )
     category = await _make_category(session, name="Dynamic programming")
     await _tag_problem(session, problem_id=newer, category_id=category)
     await _solve(session, user=user, problem_id=older, solved_at=now - timedelta(days=1))
@@ -167,7 +176,10 @@ async def test_progress_solved_rows_are_newest_first_with_fields(session: AsyncS
     assert [category.name for category in progress.solved.items[0].categories] == [
         "Dynamic programming",
     ]
-    assert progress.solved.items[0].rating == 8.0
+    assert progress.solved.items[0].difficulty.state == "measured"
+    assert progress.solved.items[0].difficulty.value == 8.0
+    assert progress.solved.items[1].difficulty.state == "unknown"
+    assert progress.solved.items[1].difficulty.value is None
     assert progress.solved.items[0].activity_at == now.replace(tzinfo=None)
 
 
@@ -194,7 +206,8 @@ async def test_progress_attempted_rows_are_newest_first_and_exclude_solved(
     )
 
     assert [row.title for row in progress.attempted.items] == ["Newer Attempt", "Older Attempt"]
-    assert progress.attempted.items[0].rating == 5.0
+    assert progress.attempted.items[0].difficulty.state == "unknown"
+    assert progress.attempted.items[0].difficulty.text == "—"
     assert progress.attempted.total == 2
 
 

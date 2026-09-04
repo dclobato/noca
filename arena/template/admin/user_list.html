@@ -1,12 +1,12 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_icon, render_location with context %}
 {% block title_suffix %}&mdash; User Management{% endblock %}
 {% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_users %}active{% endblock %}
@@ -20,7 +20,7 @@
                 </h1>
             </div>
             <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
-                {% with label="Search", input_type="text", value=search, placeholder="Name or email" %}
+                {% with label="Search", input_type="text", value=search, placeholder="Name, username or email" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
                 <div>
@@ -73,6 +73,7 @@
                             <th>2FA</th>
                             <th>Email</th>
                             <th>Consent</th>
+                            <th>Shield</th>
                             <th>Problems</th>
                         </tr>
                     </thead>
@@ -93,22 +94,16 @@
                                         {{ user.nome }}
                                     </a>
                                     {% if user.precisa_trocar_senha %}<span class="badge bg-warning text-dark ms-1">PW Reset</span>{% endif %}
+                                    {# The handle and the full address are shown unmasked because this is
+                                       the admin console: the age shield governs what *public* surfaces
+                                       publish, not what an operator may see. Both are the identifiers an
+                                       operator actually searches by -- a report names the handle, a
+                                       support request names the address. #}
+                                    <div class="small text-arena-muted arena-monospace text-break">{{ user.username }}</div>
+                                    <div class="small text-arena-muted text-break">{{ user.email_normalizado }}</div>
                                 </td>
                                 <td>{{ arena_role_labels[user.role] }}</td>
-                                <td class="text-nowrap">
-                                    {% if user.country_code %}
-                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + user.country_code.lower() + '.svg') }}"
-                                             class="arena-country-flag"
-                                             alt="">
-                                        {{ user.country_name }}
-                                        {% if user.subdivision_name %}
-                                            ,
-                                            {{ user.subdivision_name }}
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
+                                <td class="text-nowrap">{{ render_location(request, user) }}</td>
                                 <td class="text-nowrap">
                                     {% if user.ultimo_login %}
                                         {{ arena_format_datetime(user.ultimo_login, current_user) }}
@@ -149,6 +144,26 @@
                                         {% endif %}
                                     {% else %}
                                         <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {# Distinguishes the two shielded reasons, because they need
+                                       different action: a minor ages out on their own, while a missing
+                                       date of birth is a data gap an operator can close. #}
+                                    {% if user.is_age_shielded %}
+                                        {% if user.dta_nascimento %}
+                                            <span class="text-warning"
+                                                  title="Age-shielded — under 18, published under their username"
+                                                  aria-label="Age-shielded, under 18">{{ render_icon(icon="shield_person") }}</span>
+                                        {% else %}
+                                            <span class="text-danger"
+                                                  title="Age-shielded — no date of birth on record, treated as a minor"
+                                                  aria-label="Age-shielded, no date of birth on record">{{ render_icon(icon="shield_question") }}</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted"
+                                              title="Not age-shielded — 18 or over"
+                                              aria-label="Not age-shielded">—</span>
                                     {% endif %}
                                 </td>
                                 <td>

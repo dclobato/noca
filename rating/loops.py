@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from shared.services.arena_badges import compute_badge_awards
 from shared.services.arena_heatmap import compute_all_user_heatmaps
+from shared.services.arena_problem_stats import compute_all_problem_statistics
 from shared.services.arena_rating import (
     NextRatingUpdateCallback,
     _publish_next_rating_update,
@@ -33,7 +34,7 @@ from shared.services.arena_rating import (
     rate_all_problems,
     rate_all_users,
 )
-from shared.services.arena_stats import compute_all_problem_statistics, compute_all_user_statistics
+from shared.services.arena_stats import compute_all_user_statistics
 
 
 async def run_problem_rating_loop(

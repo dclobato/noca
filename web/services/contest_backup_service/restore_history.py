@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy import Table, insert
@@ -43,7 +42,6 @@ from shared.db_schema import (
     verdict_overrides as verdict_overrides_t,
 )
 
-from .announcement import announcement_flag_for_backup_row
 from .models import RestoreState, remap_optional
 from .serialization import build_insert_values
 
@@ -119,13 +117,12 @@ async def restore_clarifications(
     session: AsyncSession,
     clarifications: list[dict[str, Any]],
     state: RestoreState,
-    role_by_user_id: Mapping[str, Any],
 ) -> None:
     """Restore clarifications and all actor references.
 
-    ``is_announcement`` is passed explicitly rather than left to the column default:
-    :func:`build_insert_values` omits a column the archive does not carry, which would
-    silently demote every announcement in a version 1-3 archive to an ordinary question.
+    ``is_announcement`` comes straight from the archive: the only supported version
+    states it, and validation refused any archive that omits it, so there is nothing
+    left to infer from the author's recorded role.
     """
     for clarification in clarifications:
         await session.execute(
@@ -137,7 +134,6 @@ async def restore_clarifications(
                     overrides={
                         "id": str(uuid.uuid4()),
                         "team_id": state.user_map[clarification["team_id"]],
-                        "is_announcement": announcement_flag_for_backup_row(clarification, role_by_user_id),
                         "problem_id": remap_optional(state.problem_map, clarification.get("problem_id")),
                         "judge_id": remap_optional(state.user_map, clarification.get("judge_id")),
                         "hidden_by_judge_id": remap_optional(state.user_map, clarification.get("hidden_by_judge_id")),

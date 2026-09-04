@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,6 +30,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.db_datetime import utc_day
 from shared.db_schema.arena.arena_heatmap import arena_user_submission_heatmap
 from shared.db_schema.arena.arena_submissions import arena_submissions
 
@@ -64,10 +65,7 @@ async def compute_all_user_heatmaps(session: AsyncSession) -> int:
 
     counts: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
     for user_id, ts in rows:
-        # SQLite returns naive datetimes (implicitly UTC); PostgreSQL returns aware UTC.
-        aware_ts = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
-        day = aware_ts.astimezone(UTC).date()
-        counts[user_id][day] += 1
+        counts[user_id][utc_day(ts)] += 1
 
     if counts:
         await session.execute(

@@ -9,19 +9,19 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# bash is pre-installed in debian:bookworm-slim (version 5.2.15).
+# bash is pre-installed in debian:trixie-slim (version 5.2.37).
 #
-# Pinned family: debian:bookworm-slim (Debian 12)
+# Pinned family: debian:trixie-slim (Debian 13)
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin/isolate

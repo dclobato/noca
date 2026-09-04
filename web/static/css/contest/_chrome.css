@@ -349,13 +349,11 @@
     color: rgb(255 255 255 / 72%);
 }
 
-/* The theme control is icon-only: the glyph states the action and the accessible
-   name (rewritten by `theme-toggle.js` on every flip) carries it for assistive
-   technology. It borrows the account toggle's hover and focus treatment so the
-   two read as one cluster, and it holds a fixed square so the row loses the
-   username before it loses this control. The glyph is targeted through the
-   button because the script replaces the icon element on every toggle. */
-.noca-navbar-theme-toggle {
+/* Global icon actions borrow the account toggle's hover and focus treatment so
+   they read as one cluster. Each holds a fixed square so the row loses the
+   username before it loses a control. Their accessible names carry the action;
+   the Material Symbols glyphs are decorative. */
+.noca-navbar-icon-action {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -368,21 +366,23 @@
     background: transparent;
     color: rgb(255 255 255 / 78%);
     line-height: 1;
+    text-decoration: none;
 }
 
-.noca-navbar-theme-toggle:hover,
-.noca-navbar-theme-toggle:focus-visible {
+.noca-navbar-icon-action:hover,
+.noca-navbar-icon-action:focus-visible {
     border-color: rgb(255 255 255 / 24%);
     background-color: rgb(255 255 255 / 10%);
     color: #fff;
+    text-decoration: none;
 }
 
-.noca-navbar-theme-toggle:focus-visible {
+.noca-navbar-icon-action:focus-visible {
     outline: 2px solid var(--noca-brand-on-surface);
     outline-offset: 2px;
 }
 
-.noca-navbar-theme-toggle .material-symbols-outlined {
+.noca-navbar-icon-action .material-symbols-outlined {
     font-size: 1.25rem;
 }
 

@@ -48,6 +48,87 @@ table {
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
 }
 
+/* ── Scoreboard problem cell ────────────────────────────────────────────────
+   Shared by three surfaces that must not drift: the Web contest scoreboard
+   (web/template/contest/scoreboard.html), the animator live board, and the
+   reveal ceremony projector (both drawn by animator-render.js fillProblemCell).
+   The rule lived in two module stylesheets that copied each other by hand; it
+   belongs here exactly once.
+
+   min-height on a <td> is not reliably respected by every browser's table
+   layout algorithm, so every cell branch wraps its lines in this block-level
+   flex container instead. There is deliberately NO height floor: a cell is as
+   tall as its own one or two lines, and the row height is set by the team
+   column. The former 5rem floor made an entirely empty row 80px tall.
+
+   Sizes are relative (em, not rem) so each surface sets one base size and both
+   lines follow it -- the Web scoreboard reads at desktop table density while
+   the projector stays at its presentation body size. */
+.noca-problem-cell-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+    row-gap: 0.1em;
+}
+
+/* The cell's second line: attempt count plus penalty, or the pending marks.
+   The same relative step `.animator-team-secondary` already uses for the animator
+   team cell's own second line.
+
+   Muted rather than semantic red: on a board where the balloon colour is the
+   signal, a saturated red note competes with it for the eye and, worse, reads as
+   a colour that might BE some problem's balloon. The state is already carried by
+   the cell's tint and by the glyph itself. */
+.noca-cell-note {
+    font-size: 0.8em;
+    color: var(--noca-on-surface-variant);
+}
+
+/* Each problem's balloon colour reaches its cells as `--noca-cell-balloon`, set
+   by a small per-render <style> block keyed on column position (Jinja emits it
+   on the Web scoreboard, `renderProblemColors` on both animator surfaces). It
+   cannot be a class: `problems.color` is a free-form String(7) and the admin
+   form offers a native colour picker beside the 18-swatch palette, so the value
+   space is every hex there is. Both emitters validate the hex before it reaches
+   a stylesheet -- unlike the `/assets/balloon/<color>` route, which rejects a
+   bad colour with a 400, a stylesheet would happily execute one.
+
+   The leading edge carries that colour on a solved cell. `transparent` is the
+   fallback so a cell whose colour failed validation simply shows no bar. */
+.noca-cell-balloon-edge {
+    position: relative;
+}
+
+.noca-cell-balloon-edge::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 3px;
+    background-color: var(--noca-cell-balloon, transparent);
+}
+
+/* First-to-solve mark, rendered inline INSIDE the solve-minute line so it costs
+   no vertical space. A text glyph rather than the balloon route's star artwork:
+   at one line tall that SVG showed more white backing disc and outline than
+   colour, while a solid glyph is colour edge to edge at any size.
+
+   `currentColor` is the fallback, so a problem whose colour failed validation
+   still gets a visible star rather than an invisible one. The soft halo is what
+   keeps a white, silver or yellow balloon legible against the solved tint --
+   all three are in the suggested palette. It is a shadow rather than a stroke on
+   purpose: an outline would put back the linework the artwork was dropped for. */
+.noca-cell-first-mark {
+    display: inline-block;
+    margin-inline-end: 0.15em;
+    font-size: 1.15em;
+    line-height: 1;
+    color: var(--noca-cell-balloon, currentColor);
+    text-shadow: 0 0 2px color-mix(in srgb, var(--noca-on-surface) 45%, transparent);
+}
+
 /* ── Block quotations ────────────────────────────────────────────────────────
    Bootstrap's reset removes the browser's indentation from <blockquote>, while
    Markdown renderers emit the semantic element without Bootstrap's optional
@@ -77,26 +158,37 @@ code:not(pre code) {
 
 /* One selector for every rendered-Markdown surface. Containers carry
    `.noca-markdown` (bound and rendered by noca-markdown.js); `.editor-preview`
-   is EasyMDE's own element, which it recreates, so it is named alongside. */
-:where(.noca-markdown, .editor-preview) table:not(:first-child) {
+   is EasyMDE's own element, which it recreates, so it is named alongside.
+   `:is()` rather than `:where()`: EasyMDE's own stylesheet ships
+   `.editor-preview table td, .editor-preview table th { border: 1px solid #ddd }`
+   and every page that mounts the editor loads `easymde.min.css` after this file.
+   With a zero-specificity `:where()` host, that rule tied our table-cell rules on
+   specificity and won on source order, so the preview kept EasyMDE's borders and
+   `::: table-border off` had no visible effect there. Contributing the host's own
+   class breaks the tie for every rule in this block at once. */
+:is(.noca-markdown, .editor-preview) table:not(:first-child) {
     margin-top: var(--noca-space-lg);
 }
 
 /* Marked emits classless tables, so Bootstrap's `.table` spacing does not
    apply. Preserve a standard text gap before the next Markdown block. */
-:where(.noca-markdown, .editor-preview) table:not(:last-child) {
+:is(.noca-markdown, .editor-preview) table:not(:last-child) {
     margin-bottom: var(--noca-space-lg);
 }
 
 /* GFM tables carry no presentation classes. Give rendered and previewed
-   Markdown the same readable grid while retaining theme-aware borders. */
-:where(.noca-markdown, .editor-preview) table > :not(caption) > * > * {
+   Markdown the same readable grid while retaining theme-aware borders.
+   The row and cell types are named rather than left as `*` for the same
+   tie-breaking reason as the `:is()` host above: `* > *` contributes no
+   specificity, so `table > :not(caption) > * > *` counts exactly the two type
+   selectors EasyMDE's `.editor-preview table td` does. */
+:is(.noca-markdown, .editor-preview) table > :not(caption) > tr > :is(th, td) {
     padding: 0.5rem;
     border: 1px solid var(--bs-border-color);
 }
 
-:where(.noca-markdown, .editor-preview)
-    table.noca-markdown-table-borderless > :not(caption) > * > * {
+:is(.noca-markdown, .editor-preview)
+    table.noca-markdown-table-borderless > :not(caption) > tr > :is(th, td) {
     border: 0;
 }
 
@@ -104,21 +196,21 @@ code:not(pre code) {
    presentational attribute. Presentational hints lose to any author rule, and
    Bootstrap's Reboot sets `th { text-align: inherit }`, so header cells drop
    their alignment. Re-apply it as real CSS for both cell types. */
-:where(.noca-markdown, .editor-preview) :is(th, td)[align="left"] {
+:is(.noca-markdown, .editor-preview) :is(th, td)[align="left"] {
     text-align: left;
 }
 
-:where(.noca-markdown, .editor-preview) :is(th, td)[align="center"] {
+:is(.noca-markdown, .editor-preview) :is(th, td)[align="center"] {
     text-align: center;
 }
 
-:where(.noca-markdown, .editor-preview) :is(th, td)[align="right"] {
+:is(.noca-markdown, .editor-preview) :is(th, td)[align="right"] {
     text-align: right;
 }
 
 /* Give headings emitted inside rendered Markdown a clear break from the
    preceding block; the first heading in a container keeps no extra gap. */
-:where(.noca-markdown, .editor-preview)
+:is(.noca-markdown, .editor-preview)
     :is(h1, h2, h3, h4, h5, h6):not(:first-child) {
     margin-top: var(--noca-space-xlg);
 }
@@ -159,6 +251,31 @@ code:not(pre code) {
 .EasyMDEContainer .CodeMirror {
     font-family: var(--noca-font-mono);
     font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
+}
+
+/* The rule above cannot reach the text. CodeMirror puts every line in its own
+   `pre` and re-enables contextual alternates there
+   (`.CodeMirror pre.CodeMirror-line { font-variant-ligatures: contextual }`),
+   which is both more specific (0,2,1) and later in source order than anything
+   `common.css` can say about `.CodeMirror` alone. So `calt` was on for the
+   element that actually holds the characters, whatever the editor was told.
+
+   That is not cosmetic in a Markdown editor. Inter carries a case-sensitive
+   asterisk (`asterisk.case` -- larger, centred on cap height) and a `calt` rule
+   that swaps it in beside an uppercase letter. In `**Entrada**` the opening
+   delimiter precedes a capital and the closing one does not, so the two halves
+   of the same bold marker rendered as different glyphs at different heights:
+   the syntax appeared misaligned, in a surface whose whole job is to show
+   syntax literally. Prose gets the feature; markup must not.
+
+   Three classes beat CodeMirror's two, so this wins on specificity rather than
+   on load order -- which matters, because `easymde.min.css` is loaded by each
+   editor page *after* `common.css` and wins every tie (see CLAUDE.md). The
+   editor's font family is deliberately left alone: `font: inherit` from
+   `easymde.min.css` still governs it. */
+.EasyMDEContainer .CodeMirror pre.CodeMirror-line,
+.EasyMDEContainer .CodeMirror pre.CodeMirror-line-like {
     font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
 }
 
@@ -276,6 +393,15 @@ code:not(pre code) {
     .noca-row-highlight.noca-row-highlight-fade {
         transition: none !important;
     }
+}
+
+/* Persistent hash-target row (the announcement lists' "Back" flow): the row
+   named by the URL fragment stays marked for as long as it is the target, with
+   no script and no fade, so a reader returning from a detail page can find the
+   row they came from at leisure. The same subtle token as the fading highlight
+   keeps both themes consistent. */
+.noca-target-row:target > td {
+    background-color: var(--bs-warning-bg-subtle);
 }
 
 /* Preserve compact desktop tables while meeting the comfortable 44 px target
@@ -720,4 +846,31 @@ a.card.noca-validator-choice-card:focus-visible .noca-validator-choice-action .m
 
 .noca-tab-scroll .nav-link {
     white-space: nowrap;
+}
+
+/* Page-level notice raised by `noca-sse.js` when a live-update stream is refused
+   (the SSE connection lease answered 429). One element per page, appended to
+   <body>, so it needs no host container and floats clear of the layout. */
+.noca-sse-banner {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1080;
+    max-width: 24rem;
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* In-flow notice raised by `noca-form-draft.js` above a draft-protected form:
+   the restore offer, the storage warning, and the session-probe refusal. It sits
+   in the editor's notice slot, so it only needs the alert skin and its spacing. */
+.noca-form-draft-notice {
+    margin-bottom: 1rem;
+}
+
+.noca-form-draft-notice .noca-form-draft-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
 }

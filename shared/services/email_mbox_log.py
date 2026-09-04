@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,7 +25,7 @@ import os
 import stat
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from email.message import Message
 from pathlib import Path
 
@@ -121,6 +121,8 @@ def append_message(
     relay: str,
     recipients: list[str],
     when: datetime,
+    queued_at: float | None = None,
+    delivery_attempt: int | None = None,
 ) -> None:
     """Append a delivered message to the current locked, rotated mbox file.
 
@@ -134,6 +136,10 @@ def append_message(
         relay: SMTP relay endpoint the message was handed off to (``host:port``).
         recipients: Recipients accepted by the relay.
         when: UTC instant of delivery; drives rotation and the delivery date.
+        queued_at: POSIX instant the message was first queued for the mailer
+            worker, or ``None`` for a message that did not come from the queue.
+        delivery_attempt: 1-based attempt number that succeeded (``2`` means
+            the reaper requeued it once), or ``None`` when unknown.
     """
     try:
         _ensure_secure_dir(mbox_dir)
@@ -146,6 +152,14 @@ def append_message(
         msg["X-NOCA-SMTP-Relay"] = relay
         msg["X-NOCA-Delivery-Date"] = when.isoformat()
         msg["X-NOCA-Recipients"] = ", ".join(recipients)
+        # Queue provenance, only for messages that went through the mailer:
+        # a message without queue provenance carries none of these headers.
+        if queued_at is not None:
+            queued = datetime.fromtimestamp(queued_at, tz=UTC)
+            msg["X-NOCA-Queued-At"] = queued.isoformat()
+            msg["X-NOCA-Queue-Seconds"] = str(max(0, int((when - queued).total_seconds())))
+        if delivery_attempt is not None:
+            msg["X-NOCA-Delivery-Attempt"] = str(delivery_attempt)
 
         with _process_lock:
             box = mailbox.mbox(path)

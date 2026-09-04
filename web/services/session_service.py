@@ -22,6 +22,31 @@ from web.services.htmx_redirect_service import build_auth_redirect_exception
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again."
 
 
+def safe_contest_next_url(slug: str, next_url: str | None, *, default: str | None) -> str | None:
+    """Return ``next_url`` when it is a page inside contest ``slug``, else ``default``.
+
+    Same-origin only (a leading ``/``, never ``//`` or a backslash), inside
+    ``/c/{slug}/``, and never the login page itself, which would loop.
+
+    Args:
+        slug: The contest login slug the login belongs to.
+        next_url: The candidate destination, from a query or form value.
+        default: What to answer for a missing or unsafe candidate.
+
+    Returns:
+        A safe same-contest path, or ``default``.
+    """
+    if not next_url or not next_url.startswith("/") or next_url.startswith("//") or "\\" in next_url:
+        return default
+    prefix = f"/c/{slug}/"
+    if next_url != prefix.rstrip("/") and not next_url.startswith(prefix):
+        return default
+    path = next_url.split("?", 1)[0].rstrip("/")
+    if path == f"/c/{slug}/login":
+        return default
+    return next_url
+
+
 def get_validated_auth_token(request: Request) -> TokenVerificationResult | None:
     """Return the validated request token, applying any configured session cap."""
     cached = getattr(request.state, "validated_token", None)

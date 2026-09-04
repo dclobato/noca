@@ -21,6 +21,20 @@ from shared.services.health_rate_limit import (
     InMemoryHealthRateLimiter,
     enforce_health_rate_limit,
 )
+from shared.services.valkey_service.worker_presence import WorkerClass, list_workers
+
+
+async def _mailer_workers_online(request: Request) -> int | None:
+    """Count live mailer workers, or ``None`` when the presence registry is unreadable."""
+    runtime = getattr(request.app.state, "valkey_runtime", None)
+    if runtime is None or not hasattr(runtime, "hgetall"):
+        return None
+    try:
+        workers = await list_workers(runtime, WorkerClass.MAILER)
+    except Exception:  # noqa: BLE001 - a health probe must never raise
+        return None
+    return sum(1 for worker in workers if worker.online)
+
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -82,6 +96,8 @@ async def health(request: Request) -> JSONResponse:
         },
         "email_service": {
             "registered": hasattr(request.app.state, "email_service"),
+            "delivery": getattr(getattr(request.app.state, "email_service", None), "delivery_mode", None),
+            "mailer_workers_online": await _mailer_workers_online(request),
         },
         "templates": {
             "registered": hasattr(request.app.state, "arena_templates"),

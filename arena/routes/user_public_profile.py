@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -7,9 +7,11 @@
 """Arena user public-profile page and its JSON data endpoints.
 
 All four routes require a logged-in viewer (enforced by the global
-access-control gate).  Visibility of the target user is gated by the
-``public_profile`` and ``ranking_visible`` flags; ``ArenaRole.ARENA_ADMIN``
-viewers bypass the flag check for moderation.
+access-control gate).  Visibility of the target user is gated by
+``profile_visibility.can_view_public_profile()``: the ``public_profile`` and
+``ranking_visible`` flags plus the age shield, so an age-shielded owner's
+profile answers 404 even with a stale ``public_profile=True``.
+``ArenaRole.ARENA_ADMIN`` viewers bypass the check for moderation.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -23,15 +25,17 @@ from sqlalchemy.orm import selectinload
 
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
+from arena.services.profile_visibility import can_view_public_profile
 from arena.services.user_stats_service import get_user_statistics
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena.arena_heatmap import arena_user_submission_heatmap as _user_heatmap
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history as _user_rating_history
-from shared.enumerations import ARENA_BADGE_METADATA, ArenaRole
+from shared.enumerations import ARENA_BADGE_METADATA
 
-router = APIRouter(tags=["arena-users"])
+router = APIRouter(tags=["arena-users"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 _STATS_CACHE_CONTROL = "public, max-age=300"
 
@@ -51,9 +55,13 @@ def _can_view_public_profile(profile_user: ArenaUser, viewer: ArenaUser) -> bool
     Returns:
         bool: True if access should be granted.
     """
-    if viewer.role == ArenaRole.ARENA_ADMIN:
-        return True
-    return bool(profile_user.ativo and profile_user.public_profile and profile_user.ranking_visible)
+    return can_view_public_profile(
+        ativo=profile_user.ativo,
+        public_profile=profile_user.public_profile,
+        ranking_visible=profile_user.ranking_visible,
+        date_of_birth=profile_user.dta_nascimento,
+        viewer_role=viewer.role,
+    )
 
 
 def _require_public_profile(

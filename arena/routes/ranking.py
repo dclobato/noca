@@ -18,11 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services import ranking_service
 from arena.services.pagination_service import parse_page
 
-router = APIRouter(prefix="/ranking", tags=["arena-ranking"])
+router = APIRouter(prefix="/ranking", tags=["arena-ranking"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 _PER_PAGE = 50
 

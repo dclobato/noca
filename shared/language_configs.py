@@ -34,7 +34,7 @@ RUBY_PATH = "/usr/local/bin/ruby"
 PERL_PATH = "/usr/local/bin/perl"
 BASH_PATH = "/bin/bash"
 PHP_PATH = "/usr/local/bin/php"
-OCAMLOPT_PATH = "/usr/local/bin/ocamlopt"
+OCAMLOPT_PATH = "/usr/bin/ocamlopt"
 SCALA_CLASSES_DIR = f"{SANDBOX_DIR}/classes"
 SCALA_LIB_DIR = "/opt/scala3/lib"
 
@@ -89,7 +89,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=30.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="gcc version 12.2.0 (Debian 12.2.0-14+deb12u1)",
+            version="gcc version 14.2.0 (Debian 14.2.0-19)",
             stdout_flush_hint="`fflush(stdout);`",
         ),
         LanguageConfig(
@@ -115,7 +115,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=30.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="gcc version 12.2.0 (Debian 12.2.0-14+deb12u1)",
+            version="gcc version 14.2.0 (Debian 14.2.0-19)",
             stdout_flush_hint="`cout << flush;` or `cout << endl;`",
         ),
         LanguageConfig(
@@ -405,7 +405,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=60.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="The Glorious Glasgow Haskell Compilation System, version 9.0.2",
+            version="The Glorious Glasgow Haskell Compilation System, version 9.6.6",
             stdout_flush_hint="`hFlush stdout`",
         ),
         LanguageConfig(
@@ -464,7 +464,7 @@ def default_language_configs() -> list[LanguageConfig]:
             artifact_is_source=True,
             compile_timeout_s=15.0,
             profiling_repetitions_default=3,
-            version="SWI-Prolog version 9.0.4",
+            version="SWI-Prolog version 9.2.9",
             stdout_flush_hint="`flush_output.` or `flush_output(current_output).`",
         ),
         LanguageConfig(
@@ -490,7 +490,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=30.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="GNU Fortran (Debian 12.2.0-3) 12.2.0",
+            version="GNU Fortran (Debian 14.2.0-19) 14.2.0",
             stdout_flush_hint="`use iso_fortran_env, only: output_unit; flush(output_unit)`",
         ),
         LanguageConfig(
@@ -585,7 +585,7 @@ def default_language_configs() -> list[LanguageConfig]:
             artifact_is_source=True,
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
-            version="GNU bash, version 5.2.15(1)-release",
+            version="GNU bash, version 5.2.37(1)-release",
             stdout_flush_hint=(
                 "Bash builtins like `printf` and `echo` write directly; avoid buffered external commands."
             ),
@@ -672,8 +672,8 @@ def default_language_configs() -> list[LanguageConfig]:
             # ocamlopt (native) rather than ocamlc (bytecode): the result is an ordinary
             # ELF binary, so the run image carries no OCaml runtime and needs no sandbox
             # directory binds — the same model as Go and Rust.
-            # No `-O2`: that flag exists only in a flambda-configured compiler, and this
-            # one is a stock source build. Plain ocamlopt already emits optimized native code.
+            # No `-O2`: that flag exists only in a flambda-configured compiler, and Debian
+            # ships no flambda variant. Plain ocamlopt already emits optimized native code.
             compile_cmd=[
                 OCAMLOPT_PATH,
                 "-o",
@@ -687,7 +687,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=60.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="The OCaml native-code compiler, version 4.14.4",
+            version="The OCaml native-code compiler, version 5.3.0",
             stdout_flush_hint="`flush stdout`",
         ),
         LanguageConfig(

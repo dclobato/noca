@@ -98,6 +98,39 @@ function testContinuousOutageAndRecovery() {
   assert.strictEqual(timer.textContent, "00:00", "a later outage starts a fresh duration");
 }
 
+// An ended contest whose board is still frozen is NOT streaming: nothing is
+// published for a scoreboard release, so the board polls for it instead. The
+// badge has to say that rather than tell a room the contest is running.
+function testWaitingIsNotLiveAndNotDegraded() {
+  const container = fakeElement();
+  const label = fakeElement();
+  const timer = fakeElement();
+  const intervals = new Map();
+  let nextHandle = 0;
+  const status = connection.createConnectionStatus({
+    container: container,
+    label: label,
+    timer: timer,
+    now: () => 0,
+    setInterval: (fn) => {
+      nextHandle += 1;
+      intervals.set(nextHandle, fn);
+      return nextHandle;
+    },
+    clearInterval: (handle) => intervals.delete(handle),
+  });
+
+  status.setStatus("waiting");
+  assert.strictEqual(label.textContent, "Waiting for results");
+  assert.notStrictEqual(label.textContent, "Live", "an ended contest is not live");
+  assert.strictEqual(container.attributes["data-status"], "waiting");
+  // Not a degraded state: nothing is wrong, so no outage clock runs.
+  assert.strictEqual(intervals.size, 0, "waiting starts no outage timer");
+  assert.ok("hidden" in timer.attributes, "waiting shows no elapsed duration");
+  assert.strictEqual(status._state().startedAt, null);
+}
+
 testFormatting();
 testContinuousOutageAndRecovery();
+testWaitingIsNotLiveAndNotDegraded();
 console.log("animator connection-status contract: all assertions passed");

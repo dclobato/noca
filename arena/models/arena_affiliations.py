@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -35,6 +35,7 @@ class ArenaAffiliation(LocationMixin, ArenaBase):
         logo_base64: Optional logo image as base64 string.
         logo_mime: Optional logo MIME type.
         logo_thumbnail_base64: Optional logo thumbnail (64x64) as base64 string.
+        solved_problems: Total counted solves by ranking-visible members.
         created_at: Record creation timestamp.
         updated_at: Record update timestamp.
         users: Arena users currently linked to this affiliation.
@@ -51,6 +52,7 @@ class ArenaAffiliation(LocationMixin, ArenaBase):
     logo_mime: Mapped[str | None]
     logo_thumbnail_base64: Mapped[str | None]
     rating: Mapped[int | None]
+    solved_problems: Mapped[int]
     dta_rating_update: Mapped[datetime | None]
     exclude_from_ranking: Mapped[bool]
     created_at: Mapped[datetime]

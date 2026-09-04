@@ -89,6 +89,7 @@ class FullReportStudentRow:
     total_ac_count: int
     total_problem_count: int
     total_rate: float | None
+    avatar_revision: int
 
 
 @dataclass(frozen=True)
@@ -186,11 +187,11 @@ async def _problem_counts(session: AsyncSession, set_ids: list[str]) -> dict[str
     return {set_id: int(count) for set_id, count in rows.all()}
 
 
-async def _active_students(session: AsyncSession, class_id: str) -> list[tuple[str, str]]:
-    """Return ``(user_id, name)`` for every active member of the class, by name."""
+async def _active_students(session: AsyncSession, class_id: str) -> list[tuple[str, str, int]]:
+    """Return ``(user_id, name, avatar_revision)`` for every active member, by name."""
     active = _active_members_subquery().subquery()
     rows = await session.execute(
-        select(arena_users.c.id, arena_users.c.nome)
+        select(arena_users.c.id, arena_users.c.nome, arena_users.c.avatar_revision)
         .select_from(active.join(arena_users, arena_users.c.id == active.c.user_id))
         .where(
             active.c.class_id == class_id,
@@ -198,7 +199,7 @@ async def _active_students(session: AsyncSession, class_id: str) -> list[tuple[s
         )
         .order_by(arena_users.c.nome.asc())
     )
-    return [(row.id, row.nome) for row in rows.all()]
+    return [(row.id, row.nome, row.avatar_revision) for row in rows.all()]
 
 
 async def _accepted_problem_counts(
@@ -272,7 +273,7 @@ async def build_class_full_report(
     total_problem_count = sum(column.problem_count for column in columns)
 
     rows: list[FullReportStudentRow] = []
-    for user_id, user_name in students:
+    for user_id, user_name, avatar_revision in students:
         cells = tuple(_build_cell(accepted.get((user_id, column.set_id), 0), column) for column in columns)
         total_ac_count = sum(cell.ac_count for cell in cells)
         rows.append(
@@ -283,6 +284,7 @@ async def build_class_full_report(
                 total_ac_count=total_ac_count,
                 total_problem_count=total_problem_count,
                 total_rate=_rate(total_ac_count, total_problem_count),
+                avatar_revision=avatar_revision,
             )
         )
     student_rows = tuple(rows)

@@ -22,7 +22,8 @@ is configured, the archive is built **once** per contest and reused:
 - a per-slug ``anyio.Lock`` serializes concurrent builds, so the first burst
   of requests results in exactly one build (per process only — a multi-replica
   deployment may still run one build per replica on a contest's first hit; safe
-  because publishing is atomic, just wasteful; see ``docs/BACKLOG.md``).
+  because publishing is atomic, just wasteful; tracked as an open ``web``
+  issue in Gitea).
 
 There is deliberately no invalidation bookkeeping: the route re-checks the
 release gate on every request, so un-releasing a contest stops serving the

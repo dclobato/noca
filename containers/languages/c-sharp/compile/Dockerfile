@@ -10,8 +10,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:ea8bde36c11b6e7eec2656d0e59101d446
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends tar \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends tar \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from animator.routes.public import router as public_router
 from animator.services.contest_feed_service import build_snapshot_response, load_enabled_contest
+from animator.services.feed_cache import AnimatorFeedCache
 from tests.animator._feed_seed import (
     make_contest,
     make_site,
@@ -37,6 +38,7 @@ pytestmark = pytest.mark.asyncio
 
 def _build_app(engine: AsyncEngine) -> FastAPI:
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.include_router(public_router)
     return app

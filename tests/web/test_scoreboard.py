@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 """
 tests/test_scoreboard.py
 
@@ -476,21 +482,21 @@ def test_timestamp_minutes_first_60s_returns_zero() -> None:
     assert _compute_timestamp_minutes(start, start + timedelta(seconds=59)) == 0
 
 
-def test_timestamp_minutes_rounding() -> None:
-    """<=30 s remainder → floor; >30 s → ceiling."""
+def test_timestamp_minutes_truncates() -> None:
+    """Whole minutes are truncated, never rounded to the nearest minute."""
     from datetime import UTC, datetime, timedelta
 
     start = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
     # Exactly 1 minute → 1
     assert _compute_timestamp_minutes(start, start + timedelta(minutes=1)) == 1
-    # 1 min 30 s → floor → 1
+    # 1 min 30 s → 1
     assert _compute_timestamp_minutes(start, start + timedelta(seconds=90)) == 1
-    # 1 min 31 s → ceil → 2
-    assert _compute_timestamp_minutes(start, start + timedelta(seconds=91)) == 2
+    # 1 min 31 s → still 1; rounding up here was the ICPC deviation
+    assert _compute_timestamp_minutes(start, start + timedelta(seconds=91)) == 1
+    # 1 min 59 s → 1
+    assert _compute_timestamp_minutes(start, start + timedelta(seconds=119)) == 1
     # 5 min 0 s → 5
     assert _compute_timestamp_minutes(start, start + timedelta(minutes=5)) == 5
-    # 5 min 30 s → 5 (floor)
-    assert _compute_timestamp_minutes(start, start + timedelta(seconds=330)) == 5
-    # 5 min 31 s → 6 (ceil)
-    assert _compute_timestamp_minutes(start, start + timedelta(seconds=331)) == 6
+    # 5 min 31 s → 5
+    assert _compute_timestamp_minutes(start, start + timedelta(seconds=331)) == 5

@@ -73,8 +73,10 @@
                 <button type="button" class="arena-symbol" data-help-symbol="T">T</button>
                 submissions getting there. The difficulty
                 <button type="button" class="arena-symbol" data-help-symbol="d">d</button>
-                is computed from those three counts and nothing else — not from who solved it, not from when, and not from
-                anyone's opinion of how hard it ought to be.
+                is computed from those three counts — not from who solved it and not from when. The author may add a
+                <em>starting estimate</em> when writing the problem, but that only sets where the number begins:
+                every attempt moves it toward what the counts say, and once enough people have tried it the
+                estimate has no say at all.
             </p>
         </section>
         <div class="arena-help-shell">
@@ -86,6 +88,13 @@
                         Difficulty runs from <strong>0.1</strong> (very easy) to <strong>10.0</strong> (very hard). It rises when
                         few people solve a problem and when solvers need many tries. A new problem with almost no attempts sits
                         near the middle of the scale on purpose, and moves out as evidence arrives.
+                    </p>
+                    <p>
+                        Until at least <strong>{{ min_attempts_for_display }} people</strong> have attempted a problem, that
+                        number is not published: the problem list shows a dash instead, and hovering it says
+                        <em>Not enough data yet</em>. At that point the value is still mostly the starting assumption,
+                        so showing it as 5.0 would read as "medium" when it really means "unknown". The number is still
+                        computed and stored every cycle — it just is not shown until the evidence behind it is real.
                     </p>
                     <p>
                         Once a problem has been attempted enough times, the scale deliberately pushes it toward one end or the
@@ -108,9 +117,47 @@
                             <h3 class="arena-help-subheading">Step 1 — Bayesian solve rate</h3>
                             <p>
                                 Let $a$ = unique users who attempted the problem, $s$ = unique users who solved it,
-                                $\alpha = {{ alpha | int }}$ (prior weight), and $p_0 = {{ prior_solve_rate }}$ (prior solve rate):
+                                $\alpha = {{ alpha | int }}$ (prior weight), and $p_0$ the prior solve rate:
                             </p>
                             <div class="arena-help-formula">$$\hat{p} = \frac{s + \alpha \, p_0}{a + \alpha}$$</div>
+                            <p>
+                                With no author estimate, $p_0 = {{ prior_solve_rate }}$ and a fresh problem sits at the middle of
+                                the scale. When the author declared an expected difficulty $d_0$, $p_0$ is instead the solve
+                                rate at which this whole pipeline returns exactly $d_0$ for a problem with $a = 0$ — Steps 3 to
+                                5 run backwards, with the tries term at its own prior and the pivot at the neutral centre $m_0$:
+                            </p>
+                            <div class="arena-help-formula">
+                                $$c_0 = \frac{d_{0,\text{int}} - 1}{99}, \qquad
+                                r_0 = \sigma\!\bigl(\operatorname{logit} c_0 + \operatorname{logit} m_0\bigr), \qquad
+                                p_0 = 1 - \frac{r_0 - w_t \, \ln t_0 / \ln T_{\max}}{w_p}$$
+                            </div>
+                            <p class="arena-help-note">
+                                $p_0$ is clamped to $[{{ prior_solve_rate_min }}, {{ prior_solve_rate_max }}]$ so it stays a
+                                valid solve rate at the very ends of the scale. The prior <em>weight</em> $\alpha$ does not
+                                change, so evidence overrides an author's estimate at exactly the rate it overrides the flat
+                                prior — and the estimate enters only through $p_0$, never through the pivot in Step&nbsp;4.
+                            </p>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <caption class="small">The five anchors an author can choose, and the prior each one sets.</caption>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Anchor</th>
+                                            <th scope="col">Starts at $d_0$</th>
+                                            <th scope="col">Prior $p_0$</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for anchor in expected_difficulty_anchors %}
+                                            <tr>
+                                                <td>{{ anchor.label }}</td>
+                                                <td>{{ "%.1f"|format(anchor.display_value) }}</td>
+                                                <td>{{ "%.2f"|format(anchor.prior_solve_rate) }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
                             <h3 class="arena-help-subheading">Step 2 — Bayesian average tries</h3>
                             <p>
                                 Let $T$ = total submission attempts by solvers before their first accepted solution,
@@ -166,6 +213,47 @@
                                 $$d_{\text{int}} = \operatorname{round}\!\left(\max\!\left(1,\;\min\!\left(100,\;1 + 99\,c\right)\right)\right)$$
                             </div>
                             <div class="arena-help-formula">$$d = d_{\text{int}} / 10$$</div>
+                            <p class="arena-help-note">
+                                $d$ is stored for every problem on every cycle, and it is what the points formula below
+                                uses. It is <em>displayed</em> only once $a \ge {{ min_attempts_for_display }}$; below that
+                                the surfaces show a dash.
+                            </p>
+                            <h3 class="arena-help-subheading">What the problem list shows</h3>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Shown</th>
+                                            <th scope="col">Meaning</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>
+                                                <span class="arena-difficulty-value arena-difficulty-value--measured">7.0</span>
+                                            </td>
+                                            <td>Measured — at least {{ min_attempts_for_display }} people attempted the problem.</td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <span class="arena-difficulty-value arena-difficulty-value--estimated">7.0?</span>
+                                            </td>
+                                            <td>
+                                                The author's estimate — fewer than {{ min_attempts_for_display }} attempters so far.
+                                                Hovering it (or a screen reader) says <em>Estimated difficulty 7.0 out of 10 (Challenging)</em>.
+                                                Once the threshold is reached the measured value replaces it and the estimate is no
+                                                longer shown anywhere but the problem editor.
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <span class="arena-difficulty-value arena-difficulty-value--unknown text-muted">—</span>
+                                            </td>
+                                            <td>Not enough data yet — fewer than {{ min_attempts_for_display }} attempters and no author estimate.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </details>
                 </section>
@@ -173,12 +261,16 @@
                 <section class="arena-help-section" id="distribution">
                     <h2 class="arena-help-heading">What the catalogue looks like right now</h2>
                     <p>
-                        A snapshot of how every problem's difficulty is currently distributed, recomputed at the end of each
-                        difficulty cycle. This is live data, not an illustration.
+                        A snapshot of how every <strong>measured</strong> problem's difficulty is currently distributed —
+                        problems with at least {{ min_attempts_for_display }} attempters — recomputed at the end of each
+                        difficulty cycle. This is live data, not an illustration. Problems below the threshold are left
+                        out: they all sit at the centre by construction, and counting them would turn the chart into a
+                        single spike that says nothing about the catalogue.
                     </p>
                     {% with chart_id="difficulty-distribution-chart", data_url=request.url_for("arena_help_difficulty_distribution") %}
                         {% include "_partials/difficulty_distribution_chart.html" %}
                     {% endwith %}
+                    <p class="arena-help-note" data-difficulty-unmeasured></p>
                 </section>
                 {# ── User rating ── #}
                 <section class="arena-help-section" id="rating">

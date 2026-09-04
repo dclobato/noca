@@ -1,0 +1,60 @@
+{# Password-confirmation modal for the admin Google unlink.
+
+   Kept in its own partial rather than inline: user_profile.html is already far past the
+   AGENTS.md size bound, and this control needs the same re-confirmation its privileged
+   siblings use because it strips a credential from someone else's account.
+
+   Unlike the self-service unlink, this one is allowed when Google is the account's only
+   way in -- so it must say what that means: the user can only get back in by setting a
+   password through the reset flow, and the notification email tells them how. #}
+{% from "_macros.html" import render_icon with context %}
+<div class="modal fade"
+     id="confirmUnlinkGoogleModal"
+     tabindex="-1"
+     aria-labelledby="confirmUnlinkGoogleLabel"
+     aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmUnlinkGoogleLabel">Unlink Google account</h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <form method="post"
+                  action="{{ request.url_for('arena_admin_user_unlink_google', user_id=target_user.id) }}">
+                {{ back_fields() }}
+                <div class="modal-body">
+                    <p>
+                        Unlink the Google account
+                        {% if google_identity.google_email %}<strong>{{ google_identity.google_email }}</strong>{% endif %}
+                        from <strong>{{ target_user.nome }}</strong>? The user will be signed out and
+                        notified by email.
+                    </p>
+                    {% if not target_user.has_usable_password %}
+                        <div class="alert alert-warning small" role="alert">
+                            {{ render_icon(icon="warning") }}
+                            This account has no password: Google is currently its only way in. After
+                            unlinking, the user can only sign in again by setting a password through
+                            “Forgot password?”. The notification email tells them how.
+                        </div>
+                    {% endif %}
+                    <label class="form-label" for="confirm-pw-unlink-google">Your password</label>
+                    <input type="password"
+                           class="form-control"
+                           id="confirm-pw-unlink-google"
+                           name="confirm_password"
+                           autocomplete="current-password"
+                           required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">Unlink Google</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,7 +20,15 @@ from sqlalchemy.orm import selectinload
 from shared.enumerations import JudgmentStatus, RoleEnum, TaskType
 from shared.services.lock_service import LockClient, force_release_lock
 from shared.timing import compute_timestamp_seconds
-from web.models import Contest, ProblemLimitChangeBatch, Submission, SubmissionJudgment, UberAdmin, User
+from web.models import (
+    Contest,
+    ProblemLimitChangeBatch,
+    ProblemLimitChangeBatchSubmission,
+    Submission,
+    SubmissionJudgment,
+    UberAdmin,
+    User,
+)
 from web.models._base import _utcnow
 from web.models.contest import Task
 from web.services.contest_service import ensure_contest_admin_or_uberadmin
@@ -102,14 +110,28 @@ async def queue_limit_change_batch_rejudges(
     *,
     language_id: str | None = None,
 ) -> list[SubmissionJudgment]:
-    """Queue rejudges for pending rows in a persisted problem-limit-change batch."""
+    """Queue rejudges for pending rows in a persisted problem-limit-change batch.
+
+    The batch rows are re-read ``FOR UPDATE`` rather than trusted from the
+    loaded relationship: two concurrent requests would otherwise both see the
+    same rows as ``PENDING`` and both create a judgment for each. The lock
+    serializes them, and the loser re-reads rows that are already ``QUEUED``.
+    """
     ensure_contest_admin_or_uberadmin(actor)
     if batch.contest_id != contest.id:
         raise HTTPException(status_code=404)
 
+    locked_rows = (
+        await session.execute(
+            select(ProblemLimitChangeBatchSubmission)
+            .where(ProblemLimitChangeBatchSubmission.batch_id == batch.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars()
     pending_rows = [
         row
-        for row in batch.submissions
+        for row in locked_rows
         if row.rejudge_status == "PENDING" and (language_id is None or row.language_id == language_id)
     ]
     if not pending_rows:
@@ -120,6 +142,7 @@ async def queue_limit_change_batch_rejudges(
         select(Submission)
         .where(Submission.id.in_(submission_ids))
         .options(selectinload(Submission.judgments), selectinload(Submission.problem))
+        .execution_options(populate_existing=True)
     )
     submissions = {submission.id: submission for submission in result.scalars().all()}
 

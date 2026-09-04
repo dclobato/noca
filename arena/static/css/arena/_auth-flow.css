@@ -24,6 +24,17 @@
         color-mix(in srgb, var(--arena-on-surface) 14%, transparent);
 }
 
+/* Prose variant. The consent pages carry explanatory text and a chronology
+   rather than a stack of six inputs, so the card takes more of the split and the
+   shell is a little wider; login's ratio leaves this content at a ~40ch measure. */
+.arena-auth-flow-page--prose {
+    max-width: 1100px;
+}
+
+.arena-auth-flow-page--prose .arena-auth-flow-shell {
+    grid-template-columns: minmax(16rem, 0.72fr) minmax(0, 1.28fr);
+}
+
 .arena-auth-flow-welcome {
     position: relative;
     min-height: 38rem;
@@ -83,6 +94,13 @@
     filter: drop-shadow(
         0 1.25rem 1.5rem color-mix(in srgb, var(--arena-on-surface) 24%, transparent)
     );
+}
+
+.arena-auth-flow-mascot.arena-auth-flow-mascot--throttled {
+    right: 3rem;
+    bottom: -1.25rem;
+    width: min(19rem, 80%);
+    transform: none;
 }
 
 .arena-auth-flow-card {
@@ -171,35 +189,68 @@ html[data-bs-theme='dark'] .arena-auth-flow-title-row .material-symbols-outlined
     text-align: center;
 }
 
+/* Separator between the password form and the alternative sign-in door. The rule
+   is drawn with a flex pseudo-element pair rather than a border so the "or" sits
+   on the line rather than above it. */
+.arena-auth-flow-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-auth-flow-divider::before,
+.arena-auth-flow-divider::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--arena-outline-variant);
+}
+
+.arena-auth-google-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+}
+
+.arena-auth-google-button img {
+    flex: 0 0 auto;
+}
+
 .arena-auth-flow-security-alert {
     margin-top: 1.5rem;
 }
 
-.arena-profile-completion-list {
-    display: grid;
-    gap: 0.75rem;
-    margin: 0 0 2rem;
-    padding: 0;
-    color: var(--arena-on-surface);
-    list-style: none;
-}
-
-.arena-profile-completion-list li {
+/* States whose identity is worth restating: which Google account authorized this
+   step, which account a waiting page is about. Quiet by design -- a line of text
+   and the existing mark, not the loud security-alert band above, which reads as a
+   warning and would misstate a routine confirmation. */
+.arena-auth-identity-strip {
     display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    line-height: 1.5;
+    align-items: center;
+    gap: 0.625rem;
+    margin-bottom: 1.5rem;
+    border-radius: var(--arena-radius);
+    padding: 0.625rem 0.875rem;
+    background-color: var(--arena-surface-container);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    line-height: 1.4;
 }
 
-.arena-profile-completion-list li::before {
-    flex: 0 0 0.5rem;
-    width: 0.5rem;
-    height: 0.5rem;
-    margin-top: 0.5rem;
-    border-radius: 50%;
-    background-color: var(--arena-primary-container);
-    content: '';
+.arena-auth-identity-strip img {
+    flex: 0 0 auto;
 }
+
+.arena-auth-identity-strip strong {
+    color: var(--arena-on-surface);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
 
 @media (max-width: 767.98px) {
     .arena-auth-flow-shell {
@@ -227,6 +278,12 @@ html[data-bs-theme='dark'] .arena-auth-flow-title-row .material-symbols-outlined
         transform: none;
     }
 
+    .arena-auth-flow-mascot.arena-auth-flow-mascot--throttled {
+        right: 1.5rem;
+        bottom: -0.5rem;
+        width: 9.5rem;
+    }
+
     .arena-auth-flow-card {
         padding: 2rem;
     }
@@ -246,6 +303,12 @@ html[data-bs-theme='dark'] .arena-auth-flow-title-row .material-symbols-outlined
         right: -2.5rem;
         bottom: -4rem;
         width: 13rem;
+    }
+
+    .arena-auth-flow-mascot.arena-auth-flow-mascot--throttled {
+        right: 1rem;
+        bottom: -0.5rem;
+        width: 9rem;
     }
 
     .arena-auth-flow-card {

@@ -172,6 +172,7 @@ def test_state_declares_only_identity_and_the_step_trail() -> None:
         "step_log",
         "focused_team_id",
         "command_receipts",
+        "dataset_generation",
     }
 
 

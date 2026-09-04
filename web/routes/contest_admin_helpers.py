@@ -53,6 +53,10 @@ def _end_contest_now(contest: Contest, *, now: datetime) -> None:
     Returns:
         None.
     """
+    if contest.start_time.tzinfo is None and now.tzinfo is not None:
+        # Rows read back naive (SQLite, or a driver without tz) compare against a naive clock,
+        # exactly as ``Contest.is_running`` does through ``_match_datetime_kind``.
+        now = now.replace(tzinfo=None)
     new_duration = _compute_end_now_duration_minutes(contest.start_time, now)
     contest.duration_minutes = new_duration
     contest.stop_updating_scoreboard = min(contest.stop_updating_scoreboard, new_duration)

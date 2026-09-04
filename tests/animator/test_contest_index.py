@@ -17,6 +17,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import animator.main as animator_main
+from animator.services.feed_cache import AnimatorFeedCache
 from tests.animator._feed_seed import make_contest, make_site, make_user
 from web.models.users import UberAdmin
 
@@ -28,6 +29,7 @@ _SHARED_DIR = _ANIMATOR_DIR.parent / "shared"
 
 def _wire_app(session: AsyncSession) -> None:
     """Attach the test database and production-shaped templates."""
+    animator_main.app.state.feed_cache = AnimatorFeedCache()
     animator_main.app.state.db_session = async_sessionmaker(
         session.bind,
         expire_on_commit=False,

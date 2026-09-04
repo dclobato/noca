@@ -80,9 +80,10 @@
       var problemLabel = btn.getAttribute('data-problem-label') || '';
       var problemTitle = btn.getAttribute('data-problem-title') || '';
       var problemColor = btn.getAttribute('data-problem-color') || '';
-      var sourceUrl    = btn.getAttribute('data-source-url')    || '';
-      var finishUrl    = btn.getAttribute('data-finish-url')    || '';
-      var releaseUrl   = btn.getAttribute('data-release-url')   || '';
+      var sourceUrl    = btn.getAttribute('data-source-url')     || '';
+      var printoutUrl  = btn.getAttribute('data-printout-url')   || '';
+      var finishUrl    = btn.getAttribute('data-finish-url')     || '';
+      var releaseUrl   = btn.getAttribute('data-release-url')    || '';
 
       var body   = document.getElementById('task-modal-body');
       var footer = document.getElementById('task-modal-footer');
@@ -111,8 +112,12 @@
           '<div>' + _esc(teamName) + '</div>' +
           locationHtml +
           '<div class="mt-3 mb-1"><span class="fw-semibold text-muted small">Source code</span></div>' +
-          '<a href="' + _esc(sourceUrl) + '" class="btn btn-outline-secondary btn-sm" target="_blank">' +
-          materialIcon('download', 'me-1') + 'Download source</a>';
+          '<div class="d-flex flex-wrap gap-2">' +
+          '<a href="' + _esc(printoutUrl) + '" class="btn btn-primary btn-sm" target="_blank" rel="noopener">' +
+          materialIcon('print', 'me-1') + 'Open printout</a>' +
+          '<a href="' + _esc(sourceUrl) + '" class="btn btn-outline-secondary btn-sm">' +
+          materialIcon('download', 'me-1') + 'Download raw source</a>' +
+          '</div>';
 
       } else if (taskType === 'BALLOON' || taskType === 'FIRST_BALLOON') {
         // Strip leading '#' from hex color for the asset URL

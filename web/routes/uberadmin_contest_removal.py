@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,11 +12,14 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.problem_export_cache import export_cache_dir
 from shared.services.valkey_service import ContestValkeyPurgeError
 from web.config import settings
+from web.database import get_db
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
 from web.services.contest_removal_files import (
@@ -29,7 +32,7 @@ from web.services.contest_removal_service import (
     ContestRemovalNotFoundError,
     remove_inactive_contest,
 )
-from web.services.password_service import password_matches
+from web.services.password_confirm_throttle import confirm_password, render_lockout
 
 router = APIRouter(prefix="/uberadmin", tags=["uberadmin"])
 logger = logging.getLogger(__name__)
@@ -42,27 +45,46 @@ async def remove_contest(
     flash: FlashDep,
     password: Annotated[str, Form()] = "",
     uberadmin: UberAdmin = Depends(get_uberadmin),
-) -> RedirectResponse:
-    """Reconfirm the actor and permanently remove one inactive contest."""
-    redirect = RedirectResponse(
-        url=str(request.url_for("uberadmin_inactive_contests")),
-        status_code=303,
-    )
-    if not password_matches(uberadmin, password):
-        flash("Password confirmation is incorrect. No data was removed.", FlashCategory.DANGER)
-        return redirect
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Reconfirm the actor and permanently remove one inactive contest.
+
+    The reconfirmation runs inside the session scope so its security-event row
+    is persisted before any removal work, and a locked actor is refused before
+    the password is even checked.
+    """
+    back_url = str(request.url_for("uberadmin_inactive_contests"))
+    redirect = RedirectResponse(url=back_url, status_code=303)
 
     try:
-        async with request.app.state.db_session() as session:
-            result = await remove_inactive_contest(
-                session,
-                contest_id=contest_id,
-                actor_uberadmin_id=uberadmin.id,
-                actor_uberadmin_label=uberadmin.username,
-                valkey_runtime=request.app.state.valkey_runtime,
-                statement_dir=settings.PROBLEM_STATEMENT_DIR,
-                testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+        confirmation = await confirm_password(
+            request, session, actor=uberadmin, password=password, action="contest_remove"
+        )
+        if confirmation.locked:
+            return render_lockout(
+                request,
+                retry_after_seconds=confirmation.retry_after_seconds,
+                back_url=back_url,
+                back_label="Back to inactive contests",
             )
+        if not confirmation.ok:
+            flash("Password confirmation is incorrect. No data was removed.", FlashCategory.DANGER)
+            return redirect
+
+        result = await remove_inactive_contest(
+            session,
+            contest_id=contest_id,
+            actor_uberadmin_id=uberadmin.id,
+            actor_uberadmin_label=uberadmin.username,
+            valkey_runtime=request.app.state.valkey_runtime,
+            statement_dir=settings.PROBLEM_STATEMENT_DIR,
+            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+            export_cache_dir=(
+                None
+                if settings.PUBLIC_PROBLEM_PACK_PATH is None
+                else export_cache_dir(settings.PUBLIC_PROBLEM_PACK_PATH)
+            ),
+        )
     except ContestRemovalNotFoundError:
         flash("Contest not found. No data was removed.", FlashCategory.DANGER)
     except ContestRemovalActiveError:

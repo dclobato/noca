@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
+import arena.routes.problems as arena_routes_problems
 from arena.config import settings as arena_settings
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
@@ -161,3 +162,184 @@ async def test_public_export_leaves_no_temporary_file_behind(session: AsyncSessi
 
     assert response.status_code == 200
     assert set(Path(tempfile.gettempdir()).glob(f"{STAGING_PREFIX}export-*")) == before
+
+
+# ── The on-disk cache (#204) ──────────────────────────────────────────────────
+
+_BUILD = "arena.routes.problems.admin_problem_io_service.export_problem_package"
+_BUILD_SAMPLES = "arena.routes.problems.problem_tc_export_service.build_sample_testcases_zip"
+
+
+def _configure_cache(monkeypatch: pytest.MonkeyPatch, cache_root: Path | None) -> None:
+    from shared.enumerations import Environment
+
+    monkeypatch.setattr(arena_settings, "PUBLIC_PROBLEM_PACK_PATH", cache_root)
+    monkeypatch.setattr(arena_settings, "ENVIRONMENT", Environment.DEVELOPMENT)
+
+
+def _set_export_budget(monkeypatch: pytest.MonkeyPatch, *, max_requests: int = 10, enabled: bool = True) -> None:
+    from arena.dependencies import problem_export_rate_limit as limiter
+
+    monkeypatch.setattr(limiter.settings, "PROBLEM_EXPORT_RATE_LIMIT_ENABLED", enabled)
+    monkeypatch.setattr(limiter.settings, "PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS", max_requests)
+    monkeypatch.setattr(limiter.settings, "PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS", 600)
+
+
+async def _bump(session: AsyncSession, problem: object) -> None:
+    """Bump the counter the way an editor action does, then make the shared session see it.
+
+    The route reads the generation off the ORM instance its query returns. In
+    production that is a fresh per-request session; this harness hands every
+    request the test session, whose identity map still holds the pre-bump value,
+    so the instance is refreshed the way a new session would load it.
+    """
+    from shared.services.public_export_generation import bump_public_export_generation
+
+    await bump_public_export_generation(session, "arena", problem.id)  # type: ignore[attr-defined]
+    await session.commit()
+    await session.refresh(problem, attribute_names=["public_export_generation"])
+
+
+@pytest.mark.asyncio
+async def test_a_second_export_is_served_from_cache_without_rebuilding(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The whole point: repetition costs a cache read, not a package build."""
+    from unittest.mock import patch
+
+    from shared.services.problem_export_cache import cached_export_path, export_cache_dir
+
+    _configure_cache(monkeypatch, tmp_path)
+    _set_export_budget(monkeypatch)
+    user = await _create_user(session)
+    problem = await _make_problem(session, user, enabled=True)
+    app = _build_app(session, user)
+
+    real = arena_routes_problems.admin_problem_io_service.export_problem_package
+    with patch(_BUILD, side_effect=real) as build:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            first = await client.get(f"/problems/{problem.arena_number}/export")
+            second = await client.get(f"/problems/{problem.arena_number}/export")
+
+    assert (first.status_code, second.status_code) == (200, 200)
+    assert first.content == second.content
+    assert build.call_count == 1
+    assert cached_export_path(export_cache_dir(tmp_path), problem.id).is_file()
+
+
+@pytest.mark.asyncio
+async def test_a_bumped_generation_invalidates_the_cached_export(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    _configure_cache(monkeypatch, tmp_path)
+    _set_export_budget(monkeypatch)
+    user = await _create_user(session)
+    problem = await _make_problem(session, user, enabled=True)
+    app = _build_app(session, user)
+
+    real = arena_routes_problems.admin_problem_io_service.export_problem_package
+    with patch(_BUILD, side_effect=real) as build:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            await client.get(f"/problems/{problem.arena_number}/export")
+            await _bump(session, problem)
+            await client.get(f"/problems/{problem.arena_number}/export")
+
+    assert build.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_the_sample_zip_is_cached_under_its_own_key_and_shares_the_generation(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two artifacts, one counter: distinct files, both dropped by a single bump."""
+    from unittest.mock import patch
+
+    from shared.services.problem_export_cache import SAMPLE_CASES_SUFFIX, cached_export_path, export_cache_dir
+
+    _configure_cache(monkeypatch, tmp_path)
+    _set_export_budget(monkeypatch)
+    user = await _create_user(session)
+    problem = await _make_problem(session, user, enabled=True)
+    app = _build_app(session, user)
+    cache_dir = export_cache_dir(tmp_path)
+
+    real = arena_routes_problems.problem_tc_export_service.build_sample_testcases_zip
+    with patch(_BUILD_SAMPLES, side_effect=real) as build:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            first = await client.get(f"/problems/{problem.arena_number}/sample-testcases.zip")
+            again = await client.get(f"/problems/{problem.arena_number}/sample-testcases.zip")
+            await client.get(f"/problems/{problem.arena_number}/export")
+            await _bump(session, problem)
+            after = await client.get(f"/problems/{problem.arena_number}/sample-testcases.zip")
+
+    assert (first.status_code, again.status_code, after.status_code) == (200, 200, 200)
+    assert build.call_count == 2  # once cold, once after the bump; the second hit was a cache read
+    assert cached_export_path(cache_dir, problem.id, suffix=SAMPLE_CASES_SUFFIX).is_file()
+    assert cached_export_path(cache_dir, problem.id).is_file()
+    with zipfile.ZipFile(io.BytesIO(first.content)) as archive:
+        assert any(name.startswith("in/") for name in archive.namelist())
+
+
+@pytest.mark.asyncio
+async def test_the_export_budget_is_charged_even_on_cache_hits(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from arena.dependencies.problem_export_rate_limit import PROBLEM_EXPORT_DETAIL
+
+    _configure_cache(monkeypatch, tmp_path)
+    _set_export_budget(monkeypatch, max_requests=2)
+    user = await _create_user(session)
+    problem = await _make_problem(session, user, enabled=True)
+    app = _build_app(session, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        first = await client.get(f"/problems/{problem.arena_number}/export")
+        second = await client.get(f"/problems/{problem.arena_number}/sample-testcases.zip")
+        third = await client.get(f"/problems/{problem.arena_number}/export")
+
+    assert (first.status_code, second.status_code) == (200, 200)
+    # One budget covers both downloads: the two routes share the bucket.
+    assert third.status_code == 429
+    assert third.json() == {"detail": PROBLEM_EXPORT_DETAIL}
+    assert int(third.headers["Retry-After"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_production_without_a_cache_path_is_503_before_any_query(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every download is refused in that state, so nothing is looked up at all."""
+    from typing import Any
+
+    from sqlalchemy import event
+
+    from arena.routes.problems import UNCACHED_IN_PRODUCTION_DETAIL
+    from shared.enumerations import Environment
+
+    _set_export_budget(monkeypatch)
+    monkeypatch.setattr(arena_settings, "PUBLIC_PROBLEM_PACK_PATH", None)
+    monkeypatch.setattr(arena_settings, "ENVIRONMENT", Environment.PRODUCTION)
+    user = await _create_user(session)
+    problem = await _make_problem(session, user, enabled=True)
+    app = _build_app(session, user)
+
+    statements: list[str] = []
+
+    def _capture(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        statements.append(statement)
+
+    engine = session.bind.sync_engine  # type: ignore[union-attr]
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            export = await client.get(f"/problems/{problem.arena_number}/export")
+            samples = await client.get(f"/problems/{problem.arena_number}/sample-testcases.zip")
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert export.status_code == 503
+    assert export.json() == {"detail": UNCACHED_IN_PRODUCTION_DETAIL}
+    assert samples.status_code == 503
+    assert statements == []

@@ -24,6 +24,7 @@ from shared.enumerations import ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
 from shared.services.custom_validator import status_view
 from shared.services.editor_urls import editor_url
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.sample_interactions import (
     MAX_SAMPLE_INTERACTIONS,
     InteractionParseError,
@@ -179,7 +180,7 @@ async def update_problem_interaction(
     if found is None:
         flash("Sample interaction not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
-    _problem, interaction = found
+    problem, interaction = found
 
     try:
         parsed = parse_interaction_text(transcript)
@@ -197,6 +198,8 @@ async def update_problem_interaction(
         )
 
     await update_sample_interaction(interaction, transcript=parsed, explanation=explanation.strip() or None)
+    # Sample interactions are public package members.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
     flash(f"Sample interaction #{interaction.ordinal} updated.", FlashCategory.SUCCESS)
     return _redirect(editor_url(edit_url, anchor=f"si-{interaction.id}"))
@@ -228,6 +231,8 @@ async def move_problem_interaction(
     problem, interaction = found
 
     await move_sample_interaction(ctx.session, problem, interaction, new_ordinal)
+    # Interaction order is part of the public package.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
 
     rows = await load_sample_interactions(ctx.session, problem.id)

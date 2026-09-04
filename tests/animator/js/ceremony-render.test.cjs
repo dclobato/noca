@@ -89,6 +89,21 @@ function makeElement(tag) {
 
 const doc = { createElement: makeElement };
 
+// Find descendants by tag rather than by child position: the first-solve star is
+// nested inside the solve-minute line so it costs no row height, and a positional
+// index would pin that nesting rather than the thing under test.
+function findByTag(node, tag) {
+  const wanted = tag.toUpperCase();
+  const found = [];
+  (node.children || []).forEach((child) => {
+    if (child.tagName === wanted) {
+      found.push(child);
+    }
+    found.push(...findByTag(child, tag));
+  });
+  return found;
+}
+
 function team(overrides) {
   return Object.assign(
     {
@@ -129,7 +144,6 @@ function headerProblem(label, color) {
     color: color || "ff0000",
     problemId: "p-" + label.toLowerCase(),
     balloonBase: "/assets/balloon",
-    starBase: "/assets/star",
   };
 }
 
@@ -361,8 +375,9 @@ function testProblemCellStates() {
   assert.ok(pending.getAttribute("class").includes("ceremony-cell--pending"));
   assert.deepStrictEqual(
     pending.children[0].children.map((line) => line.textContent),
-    ["???", "−5", "(100')"],
-    "each unrevealed submission gets a question mark above attempts and penalty",
+    ["???", "−5 (100')"],
+    "each unrevealed submission gets a question mark above the attempts and the "
+      + "penalty they caused, which stay together on one line",
   );
   assert.ok(pending.textContent.includes("3 unrevealed submissions, 5 failed attempts"));
 
@@ -384,7 +399,13 @@ function testProblemCellStates() {
     headerProblem("A"),
   );
   assert.ok(first.getAttribute("class").includes("animator-cell--first"));
-  assert.strictEqual(first.children[0].children[0].getAttribute("src"), "/assets/star/ff0000");
+  const firstStars = findByTag(first, "span").filter(
+    (node) => (node.getAttribute("class") || "").includes("noca-cell-first-mark"),
+  );
+  assert.strictEqual(firstStars.length, 1, "a first solve carries exactly one star");
+  assert.strictEqual(firstStars[0].textContent, "\u2605", "the star is a glyph, not served artwork");
+  assert.strictEqual(firstStars[0].getAttribute("aria-hidden"), "true", "the star is decorative");
+  assert.strictEqual(findByTag(first, "img").length, 0, "no in-cell artwork is requested");
 
   const untried = render.renderProblemCell(doc, problem({}));
   assert.ok(untried.textContent.includes("no attempts"));

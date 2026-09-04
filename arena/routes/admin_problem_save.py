@@ -28,6 +28,7 @@ from arena.routes.admin_problem_common import (
 from arena.routes.admin_problem_form_views import (
     edit_form_extras,
     form_fields,
+    parse_expected_difficulty,
     problem_list_url,
     process_problem_image,
     render_problem_form,
@@ -45,11 +46,13 @@ from arena.services.statement_language_service import (
 )
 from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
+from shared.services.form_draft import confirm_form_draft, problem_definition_draft_key
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_definition_view import TAB_EDITORIAL, TAB_METADATA, TAB_STATEMENT
 from shared.services.problem_editor_save import (
     lock_problem_row,
 )
+from shared.services.public_export_generation import bump_public_export_generation
 
 router = APIRouter(prefix="/admin", tags=["arena-admin-problems"])
 
@@ -97,6 +100,7 @@ def _problem_error_field(message: str) -> str:
         "Output limit": "output_limit_in_bytes",
         "Markdown statement": "problem_statement",
         "Editorial": "editorial",
+        "Expected difficulty": "expected_difficulty",
     }
     return next((field for prefix, field in prefixes.items() if message.startswith(prefix)), "")
 
@@ -142,6 +146,7 @@ async def admin_problem_create(
     notes: str = Form(""),
     license: str = Form(""),
     statement_language: str = Form(""),
+    expected_difficulty: str = Form(""),
     language_confirmed: str = Form(""),
     active_tab: str = Form(""),
     next_url: str = Form(""),
@@ -200,6 +205,7 @@ async def admin_problem_create(
         notes=notes,
         license=license,
         statement_language=statement_language,
+        expected_difficulty=expected_difficulty,
     )
 
     async def render_error(
@@ -269,6 +275,15 @@ async def admin_problem_create(
             error_tab=TAB_EDITORIAL,
         )
 
+    try:
+        resolved_expected_difficulty = parse_expected_difficulty(expected_difficulty)
+    except ValueError as exc:
+        return await render_error(
+            errors=(str(exc),),
+            field_errors={"expected_difficulty": str(exc)},
+            error_tab=TAB_METADATA,
+        )
+
     # Creation collects the problem *definition* only. Test cases, the custom
     # validator and sample interactions are authored on the judgment-data pages,
     # which this route redirects to on success -- so a form field naming any of
@@ -305,6 +320,7 @@ async def admin_problem_create(
             license=license or None,
             category_ids=category_ids,
             statement_language=resolved_language,
+            expected_difficulty=resolved_expected_difficulty,
             validator_type=strategy,
         )
     except ValueError as exc:
@@ -321,6 +337,7 @@ async def admin_problem_create(
     # create writes nothing to the filesystem and needs no staged swap: there is no
     # second system for a failed commit to leave inconsistent.
     await session.commit()
+    confirm_form_draft(request, problem_definition_draft_key("arena", validator_type=strategy.value))
     flash(f"Problem #{problem.arena_number} created (disabled).", FlashCategory.SUCCESS)
     if safe_next:
         return RedirectResponse(url=safe_next, status_code=303)
@@ -366,6 +383,7 @@ async def admin_problem_update(
     notes: str = Form(""),
     license: str = Form(""),
     statement_language: str = Form(""),
+    expected_difficulty: str = Form(""),
     language_confirmed: str = Form(""),
     active_tab: str = Form(""),
     save_action: str = Form(""),
@@ -428,6 +446,7 @@ async def admin_problem_update(
         notes=notes,
         license=license,
         statement_language=statement_language,
+        expected_difficulty=expected_difficulty,
     )
 
     async def render_error(
@@ -506,6 +525,17 @@ async def admin_problem_update(
             error_tab=TAB_EDITORIAL,
         )
 
+    try:
+        resolved_expected_difficulty = parse_expected_difficulty(
+            expected_difficulty, current=problem.expected_difficulty
+        )
+    except ValueError as exc:
+        return await render_error(
+            errors=(str(exc),),
+            field_errors={"expected_difficulty": str(exc)},
+            error_tab=TAB_METADATA,
+        )
+
     image_b64: str | None = None
     image_mime: str | None = None
     if image and image.filename:
@@ -538,6 +568,7 @@ async def admin_problem_update(
             clear_image=clear_image,
             category_ids=category_ids,
             statement_language=resolved_language,
+            expected_difficulty=resolved_expected_difficulty,
         )
     except ValueError as exc:
         message = str(exc)
@@ -566,7 +597,11 @@ async def admin_problem_update(
 
     # Arena statements are Markdown in the database, so this save writes no file
     # at all: there is nothing to stage, and it commits directly.
+    # The definition editor commits without a swap, so the public export counter
+    # must be bumped here or a title/statement edit would leave a stale package cached.
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
+    confirm_form_draft(request, problem_definition_draft_key("arena", problem_id=problem.id))
     publication_state = "enabled" if problem.enabled else "disabled"
     flash(
         f"Problem #{problem.arena_number} updated and {publication_state}.",

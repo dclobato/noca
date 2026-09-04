@@ -54,6 +54,11 @@ def test_team_media_modal_contract() -> None:
     _run_node_contract("team-media-modal.test.cjs")
 
 
+def test_ceremony_media_cue_contract() -> None:
+    """The projector's response to an operator's remote team-media cue."""
+    _run_node_contract("ceremony-media-cue.test.cjs")
+
+
 def test_control_contract() -> None:
     """Bearer-only credential handling and the ambiguous-outcome command lock."""
     _run_node_contract("control.test.cjs")

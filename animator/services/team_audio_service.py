@@ -30,6 +30,10 @@ Three decisions are deliberate:
   ordinary case and logs at ``debug``; a clip that is present but unusable is a
   data problem an operator should see, and logs at ``warning``.
 
+The clip is read only on a cache miss, and only its own column: the route
+answers a matching ``If-None-Match`` from the metadata alone, and a team whose
+metadata says no clip is stored resolves to ``None`` without a query.
+
 Unlike the photo path this module does **not** decode the media. Decoding audio
 would require a native library for no benefit: a browser that cannot play a
 signature-valid clip surfaces that through the ``<audio>`` element's ``error``
@@ -43,10 +47,14 @@ import logging
 from base64 import b64decode
 from dataclasses import dataclass
 
-from animator.models.query_records import TeamMediaRecord
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from animator.models.query_records import TeamMediaMetadata
+from shared.db_schema import users_media
 from shared.services.audio_signature import AudioSignatureError, detect_audio_mime
 
-__all__ = ["TeamAudio", "select_team_audio"]
+__all__ = ["TeamAudio", "load_audio_payload", "resolve_team_audio"]
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +73,30 @@ class TeamAudio:
     mime: str
 
 
-def select_team_audio(media: TeamMediaRecord) -> TeamAudio | None:
+async def load_audio_payload(session: AsyncSession, team_id: str) -> str | None:
+    """Load only ``audio_base64`` for a team the metadata query already scoped."""
+    stmt = select(users_media.c.audio_base64).where(users_media.c.user_id == team_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def resolve_team_audio(session: AsyncSession, media: TeamMediaMetadata) -> TeamAudio | None:
     """Resolve the team's playable audio clip, or ``None`` when there is none.
 
     Args:
-        media: The team's stored media record.
+        session: Active database session.
+        media: The team's media metadata.
 
     Returns:
         The clip and its canonical MIME type, or ``None`` when the team has no
         clip or the stored payload cannot be vouched for. Callers translate
         ``None`` into ``404``; this function never raises for bad stored data.
     """
-    payload = media.audio_base64
-    if not payload:
+    if not media.has_audio:
         # The ordinary case for most teams: no clip was ever uploaded.
+        logger.debug("team %s has no stored audio clip", media.team_id)
+        return None
+    payload = await load_audio_payload(session, media.team_id)
+    if not payload:
         logger.debug("team %s has no stored audio clip", media.team_id)
         return None
 

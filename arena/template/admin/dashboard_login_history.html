@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon, render_avatar with context %}
+{% from "_macros.html" import render_icon, render_avatar, render_country_flag with context %}
 {% block title_suffix %}&mdash; Login History{% endblock %}
 {% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_dashboard_login_history %}active{% endblock %}
@@ -92,16 +92,14 @@
                                 <td>
                                     <a href="{{ request.url_for('arena_admin_user_profile', user_id=login.arena_user.id) }}">
                                         <div class="d-flex align-items-center gap-2">
-                                            {{ render_avatar(login.arena_user.id, request.url_for('arena_user_avatar_by_id', user_id=login.arena_user.id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+                                            {{ render_avatar(login.arena_user.id, request.url_for('arena_user_avatar_by_id', user_id=login.arena_user.id) ~ '?v=' ~ login.arena_user.avatar_revision, img_class="rounded-circle object-fit-cover flex-shrink-0") }}
                                             <span>{{ login.arena_user.nome }}</span>
                                         </div>
                                     </a>
                                 </td>
                                 <td>
                                     {% if login.country_name %}
-                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + login.country_code.lower() + '.svg') }}"
-                                             class="arena-country-flag"
-                                             alt="">
+                                        {{ render_country_flag(request, login.country_code) }}
                                         {{ login.detailed_location }}
                                     {% else %}
                                         <span class="text-muted">&mdash;</span>

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,7 +21,8 @@ from arena.models.arena_users import ArenaUser
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_rating_cycle_state
 from shared.db_schema.arena.arena_rating_cycle_state import RATING_CYCLE_STATE_ID
-from shared.enumerations import VERDICT_PRIORITY, Verdict
+from shared.enumerations import VERDICT_PRIORITY, ArenaExpectedDifficulty, Verdict
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
 from shared.services.arena_rating import (
     ALPHA,
     BASE_POINTS,
@@ -33,10 +34,13 @@ from shared.services.arena_rating import (
     MAX_RELEVANT_TRIES,
     PIVOT_BLEND_SCALE,
     PRIOR_SOLVE_RATE,
+    PRIOR_SOLVE_RATE_MAX,
+    PRIOR_SOLVE_RATE_MIN,
     PRIOR_TRIES,
     W_SOLVE_RATE,
     W_TRIES,
     _points_for_difficulty,
+    prior_solve_rate_for_difficulty,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,6 +182,19 @@ async def arena_help_rating(
                 "contrast_gain_max": CONTRAST_GAIN_MAX,
                 "contrast_gain_scale": CONTRAST_GAIN_SCALE,
                 "pivot_blend_scale": PIVOT_BLEND_SCALE,
+                "min_attempts_for_display": MIN_ATTEMPTS_FOR_DISPLAY,
+                "prior_solve_rate_min": PRIOR_SOLVE_RATE_MIN,
+                "prior_solve_rate_max": PRIOR_SOLVE_RATE_MAX,
+                # Computed here from the same function the worker uses, so the
+                # table can never drift from the code.
+                "expected_difficulty_anchors": [
+                    {
+                        "label": level.label,
+                        "display_value": level.display_value,
+                        "prior_solve_rate": prior_solve_rate_for_difficulty(level.value),
+                    }
+                    for level in ArenaExpectedDifficulty
+                ],
             },
         )
     )
@@ -208,7 +225,15 @@ async def arena_help_difficulty_distribution(
         )
     ).first()
     if row is None or row.data is None:
-        return JSONResponse({"counts": [], "total_problems": 0, "computed_at": None})
+        return JSONResponse(
+            {
+                "counts": [],
+                "total_problems": 0,
+                "unmeasured_problems": 0,
+                "min_attempts": MIN_ATTEMPTS_FOR_DISPLAY,
+                "computed_at": None,
+            }
+        )
     payload = dict(row.data)
     payload["computed_at"] = row.computed_at.isoformat() if row.computed_at else None
     return JSONResponse(payload)

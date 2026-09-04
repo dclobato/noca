@@ -177,7 +177,7 @@
                                             class="arena-class-full-report-student-cell"
                                             data-label="Student">
                                             <span class="arena-class-full-report-student-identity">
-                                                {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+                                                {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) ~ '?v=' ~ row.avatar_revision, img_class="rounded-circle object-fit-cover flex-shrink-0") }}
                                                 <span>{{ row.user_name }}</span>
                                             </span>
                                         </th>

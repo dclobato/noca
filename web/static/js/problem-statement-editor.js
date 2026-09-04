@@ -14,6 +14,12 @@
  * selected, its content is loaded into the editor and the file input is cleared.
  * The "Replace with empty Markdown" button (shown only for existing-PDF edit mode)
  * clears the file input, enables the editor empty, and sets statement_source to "md".
+ *
+ * A restored browser draft (`noca-form-draft.js`) writes the textareas directly,
+ * so both visible editors are refreshed from them on `noca:form-draft-restored`.
+ * A non-empty restored statement while the editor is disabled (an existing PDF)
+ * is what the author typed after "Replace with empty Markdown", so that same
+ * transition is replayed first -- otherwise the Save would discard the text.
  */
 (function () {
   'use strict';
@@ -95,16 +101,31 @@
       });
     }
 
+    function switchToMarkdown(text) {
+      if (fileInput) fileInput.value = '';
+      editor.setValue(text);
+      setSource('md');
+      editor.setEnabled(true);
+      // Hide the button — user is now in MD mode
+      if (replaceBtn) replaceBtn.classList.add('d-none');
+      editor.notifyChanged();
+    }
+
     // "Replace with empty Markdown" button
     if (replaceBtn) {
-      replaceBtn.addEventListener('click', function () {
-        if (fileInput) fileInput.value = '';
-        editor.setValue('');
-        setSource('md');
-        editor.setEnabled(true);
-        // Hide the button — user is now in MD mode
-        replaceBtn.classList.add('d-none');
-        editor.notifyChanged();
+      replaceBtn.addEventListener('click', function () { switchToMarkdown(''); });
+    }
+
+    if (form) {
+      form.addEventListener('noca:form-draft-restored', function () {
+        var statement = document.getElementById('stmt-md-editor');
+        var editorial = document.getElementById('editorial-md-editor');
+        if (statement) {
+          var disabled = sourceInput && sourceInput.value !== 'md';
+          if (disabled && statement.value) switchToMarkdown(statement.value);
+          else editor.setValue(statement.value);
+        }
+        if (editorial && editorialEditor) editorialEditor.setValue(editorial.value);
       });
     }
 

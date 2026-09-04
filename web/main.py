@@ -39,6 +39,7 @@ from shared.services.multipart_file_size import (
     MultipartFileSizeRule,
 )
 from shared.services.network_utils import NetworkService
+from shared.services.problem_export_cache import export_cache_dir
 from shared.services.problem_image import (
     MAX_PROBLEM_IMAGE_BYTES,
     MAX_PROBLEM_IMAGE_HEIGHT,
@@ -48,7 +49,7 @@ from shared.services.problem_package import MAX_UPLOAD_BYTES
 from shared.services.problem_package.reconcile import reconcile_import_journals
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
-from shared.services.startup_wait import wait_for_db, wait_for_valkey
+from shared.services.startup_wait import wait_for_db, wait_for_mailer, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
 from shared.services.valkey_service import (
     WorkerClass,
@@ -65,6 +66,7 @@ from web.database import create_engine, create_session_factory
 from web.dependencies import enforce_web_default_auth
 from web.error_handlers import register_error_handlers
 from web.middleware.auth_token_refresh import AuthTokenRefreshMiddleware
+from web.routes.announcements import router as announcements_router
 from web.routes.assets import router as assets_router
 from web.routes.auth import router as login_logout_router
 from web.routes.contest_admin import router as contest_admin_router
@@ -103,6 +105,7 @@ from web.routes.contest_submissions import router as contest_submissions_router
 from web.routes.contest_submissions_files import router as contest_submissions_files_router
 from web.routes.contest_submissions_review import router as contest_submissions_review_router
 from web.routes.contest_tasks import router as contest_tasks_router
+from web.routes.contest_tasks_source import router as contest_tasks_source_router
 from web.routes.contest_tasks_staff import router as contest_tasks_staff_router
 from web.routes.generaluser_dashboard import router as generaluser_dashboard_router
 from web.routes.health import router as health_router
@@ -110,9 +113,11 @@ from web.routes.problem_set import router as problem_set_router
 from web.routes.profile import router as profile_router
 from web.routes.root import router as root_router
 from web.routes.session import router as session_router
+from web.routes.uberadmin_announcements import router as uberadmin_announcements_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_lockouts import router as uberadmin_lockouts_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.routes.uberadmin_users import router as uberadmin_users_router
 from web.routes.user_media import router as user_media_router
@@ -161,9 +166,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Problem test case directory: %s", config.PROBLEM_TESTCASE_DIR)
     if config.PUBLIC_PROBLEM_PACK_PATH is not None:
         config.PUBLIC_PROBLEM_PACK_PATH.mkdir(parents=True, exist_ok=True)
-        logger.info("Public problem-set cache directory: %s", config.PUBLIC_PROBLEM_PACK_PATH)
+        export_cache_dir(config.PUBLIC_PROBLEM_PACK_PATH).mkdir(parents=True, exist_ok=True)
+        logger.info("Public problem package cache directory: %s", config.PUBLIC_PROBLEM_PACK_PATH)
+    elif config.ENVIRONMENT == Environment.PRODUCTION:
+        # Refused here rather than warned about, because one of the two routes this
+        # backs is contestant-facing *during* a contest: without the cache it
+        # answers 503, and discovering that when a team clicks Download is far
+        # worse than failing the deploy that caused it.
+        raise RuntimeError(
+            "NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH must be set in production: it backs both the "
+            "post-contest problem-set archive cache and the per-problem export cache."
+        )
     else:
-        logger.info("Public problem-set cache disabled (NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH unset)")
+        logger.info("Public problem package caches disabled (NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH unset)")
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
     await wait_for_db(settings.db_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
@@ -180,6 +195,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
     await valkey_runtime.start()
     app.state.valkey_runtime = valkey_runtime
+    # Email is queued for the mailer worker and never sent from here, so a
+    # deployment without one must fail now rather than accept mail it will drop.
+    # Startup-only: individual sends never check mailer liveness.
+    await wait_for_mailer(valkey_runtime, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     logger.info("- Valkey runtime started")
     app.state.clarification_reaper_stop = asyncio.Event()
     app.state.clarification_reaper_task = None
@@ -223,17 +242,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("- ImageProcessingService started")
 
     email_config = EmailConfig.from_settings(settings)
-    app.state.email_service = EmailService(config=email_config, logger=logger)
-    logger.info(
-        "- EmailService started (provider=%s, send_email=%s)",
-        email_config.provider_type,
-        email_config.send_email,
-    )
-    logger.info(
-        "- Email mbox logging configured (enabled=%s, directory=%s)",
-        email_config.send_email and email_config.provider_type.casefold() == "smtp" and bool(email_config.mbox_log_dir),
-        email_config.mbox_log_dir or "N/A",
-    )
+    app.state.email_service = EmailService(config=email_config, logger=logger, valkey_runtime=valkey_runtime)
+    logger.info("- EmailService started (delivery=%s)", app.state.email_service.delivery_mode)
 
     templates = Jinja2Templates(directory=_WEB_DIR / "template")
     templates.env.loader = ChoiceLoader(
@@ -505,6 +515,11 @@ app.mount(
     RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
+app.mount(
+    "/static/shared-img",
+    StaticFiles(directory=_SHARED_DIR / "static" / "img"),
+    name="static_shared_img",
+)
 app.mount("/static/img", StaticFiles(directory=_WEB_DIR / "static" / "img"), name="static_img")
 app.mount("/static/vendor", StaticFiles(directory=_SHARED_DIR / "static" / "vendor"), name="static_vendor")
 app.mount("/static/webfonts", StaticFiles(directory=_SHARED_DIR / "static" / "webfonts"), name="static_webfonts")
@@ -515,15 +530,18 @@ app.include_router(assets_router)
 app.include_router(login_logout_router)
 app.include_router(root_router)
 app.include_router(problem_set_router)
+app.include_router(announcements_router)
 app.include_router(health_router)
 app.include_router(session_router)
 
 # ###################################################################
 # Dashboard routes
 app.include_router(uberadmin_dashboard_router)
+app.include_router(uberadmin_announcements_router)
 app.include_router(uberadmin_contest_backup_router)
 app.include_router(uberadmin_contest_removal_router)
 app.include_router(uberadmin_security_router)
+app.include_router(uberadmin_lockouts_router)
 app.include_router(uberadmin_users_router)
 app.include_router(generaluser_dashboard_router)
 
@@ -544,6 +562,7 @@ app.include_router(contest_submissions_review_router)
 app.include_router(contest_submissions_files_router)
 app.include_router(contest_tasks_router)
 app.include_router(contest_tasks_staff_router)
+app.include_router(contest_tasks_source_router)
 app.include_router(contest_reports_router)
 app.include_router(contest_solution_tests_router)
 app.include_router(contest_admin_problem_new_router)

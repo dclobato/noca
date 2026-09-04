@@ -402,6 +402,35 @@ async def test_contest_user_can_upload_preview_and_remove_audio(
 
 
 @pytest.mark.asyncio
+async def test_contest_user_avatar_answers_304_to_a_matching_etag(
+    session: AsyncSession, running_contest, team_user
+) -> None:
+    """A revalidation costs a header exchange, and keeps the fallback's private directive.
+
+    The user list issues one avatar request per row; a browser told to
+    revalidate must be able to hear "unchanged" without the image, or every
+    view of that list re-downloads every avatar (#199).
+    """
+    app, auth_service = _build_profile_app(session)
+    token = await _contest_user_token(auth_service, session, team_user.username, running_contest.id)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        first = await client.get(f"/user/{team_user.id}/avatar")
+        again = await client.get(f"/user/{team_user.id}/avatar", headers={"If-None-Match": first.headers["etag"]})
+        stale = await client.get(f"/user/{team_user.id}/avatar", headers={"If-None-Match": '"stale"'})
+
+    assert first.status_code == 200
+    assert first.headers["etag"].startswith('"')
+    assert again.status_code == 304
+    assert again.content == b""
+    assert again.headers["etag"] == first.headers["etag"]
+    # The generated fallback is private; a 304 must not relax that.
+    assert again.headers["cache-control"].startswith("private")
+    assert stale.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_contest_user_photo_uses_users_media_and_keeps_avatar_fallback(
     session: AsyncSession, running_contest, team_user
 ) -> None:
@@ -435,6 +464,39 @@ async def test_contest_user_photo_uses_users_media_and_keeps_avatar_fallback(
     await session.refresh(media)
     assert media.com_foto is False
     assert restored_fallback.headers["content-type"] == "image/svg+xml"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("media_path", "expected_status"),
+    [("avatar", 200), ("photo", 200), ("audio", 404)],
+)
+async def test_user_media_reads_reuse_the_authorization_session(
+    session: AsyncSession,
+    running_contest,
+    team_user,
+    media_path: str,
+    expected_status: int,
+) -> None:
+    """A media read must not check out a second session after authorization."""
+    app, auth_service = _build_profile_app(session)
+    token = await _contest_user_token(auth_service, session, team_user.username, running_contest.id)
+    session_factory = app.state.db_session
+    opened_sessions = 0
+
+    def counted_session_factory() -> AsyncSession:
+        """Record each request-scoped session opened by the test application."""
+        nonlocal opened_sessions
+        opened_sessions += 1
+        return session_factory()
+
+    app.state.db_session = counted_session_factory
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.get(f"/user/{team_user.id}/{media_path}")
+
+    assert response.status_code == expected_status
+    assert opened_sessions == 1
 
 
 @pytest.mark.asyncio

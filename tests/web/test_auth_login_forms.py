@@ -6,15 +6,23 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.auth_rate_limit import AuthThrottleCheck
+from shared.enumerations import RoleEnum
+from shared.services.auth_rate_limit import AuthThrottleCheck, hash_identifier
+from tests.conftest import _make_user
+from tests.shared._auth_fake_valkey import AuthFakeValkey
 from tests.web.test_inactive_contest_routes import _build_app
+from web.config import settings
+from web.models.contest import Contest
+from web.models.users import UberAdmin
 from web.routes import auth as auth_routes
+from web.services.lockout_admin_service import contest_login_identifier
 
 
 @pytest.mark.asyncio
@@ -173,3 +181,75 @@ async def test_contest_login_empty_credentials_render_flash(
     assert "Invalid username or password." in response.text
     assert '"detail"' not in response.text
     assert "Field required" not in response.text
+
+
+# --- contest-scoped throttle keys -----------------------------------------------
+
+
+def test_contest_login_identifier_strips_the_name_before_prefixing_the_contest() -> None:
+    """Whitespace must not survive into the key, or the resolver could never rebuild it.
+
+    ``normalize_identifier`` strips and casefolds the *whole* identifier, so
+    prefixing an unstripped name would keep its inner spaces and hash to
+    something no administrative unlock could reproduce.
+    """
+    padded = contest_login_identifier("contest-a", "  Team042 ")
+    plain = contest_login_identifier("contest-a", "team042")
+
+    assert padded == "contest-a:Team042"
+    assert hash_identifier(padded, secret=settings.JWT_SECRET_KEY) == hash_identifier(
+        plain, secret=settings.JWT_SECRET_KEY
+    )
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "\t\n"])
+def test_a_blank_contest_login_still_mints_no_account_bucket(raw: str) -> None:
+    """A blank name has no account; prefixing one would invent a bucket that has none."""
+    assert contest_login_identifier("contest-a", raw) is None
+
+
+@pytest.mark.asyncio
+async def test_a_lockout_in_one_contest_leaves_the_same_name_free_in_another(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+    running_contest: Contest,
+) -> None:
+    """The requirement: contest usernames are unique per contest, so locks must be too."""
+    other = Contest(
+        contest_name="Other Contest",
+        contest_url="http://other.example.com",
+        login_slug="other-contest",
+        start_time=datetime.now(UTC) - timedelta(minutes=30),
+        duration_minutes=120,
+        stop_answers_after=120,
+        stop_updating_scoreboard=120,
+        clarifications_timeout_minutes=10,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    session.add(other)
+    await session.flush()
+    _make_user(session, running_contest, uberadmin, "team042", "Team 42", RoleEnum.TEAM)
+    _make_user(session, other, uberadmin, "team042", "Team 42 again", RoleEnum.TEAM)
+    await session.commit()
+    app, _auth_service = _build_app(session)
+    app.state.valkey_runtime = AuthFakeValkey()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        for _ in range(settings.AUTH_RATE_LIMIT_ACCOUNT_MAX_FAILURES):
+            await client.post(
+                f"/c/{running_contest.login_slug}/login",
+                data={"identifier": "team042", "password": "wrong-password"},
+            )
+        locked = await client.post(
+            f"/c/{running_contest.login_slug}/login",
+            data={"identifier": "team042", "password": "TestPass1!"},
+        )
+        elsewhere = await client.post(
+            f"/c/{other.login_slug}/login",
+            data={"identifier": "team042", "password": "TestPass1!"},
+            follow_redirects=False,
+        )
+
+    assert locked.status_code == 429, "the contest that was attacked is locked"
+    assert elsewhere.status_code == 303, "the identically-named user in another contest signs in"
+    assert elsewhere.headers["location"] == f"/c/{other.login_slug}"

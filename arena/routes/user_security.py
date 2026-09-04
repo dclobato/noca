@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,6 +18,14 @@ from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
+from arena.routes.auth_throttle import (
+    PASSWORD_VERIFY_ACTION,
+    TOTP_CONFIRM_ACTION,
+    check_verification_throttle,
+    record_verification_failure,
+    reset_verification_throttle,
+    throttled_response,
+)
 from arena.services import backup2fa_service, user_2fa_service, user_security_notification_service
 from arena.services.session_service import build_current_next_url, build_login_redirect_response
 from arena.services.user_2fa_service import Autenticacao2FA
@@ -124,6 +132,10 @@ async def arena_2fa_confirm(
     Validates the setup session token, verifies the TOTP code, enables 2FA, and
     stores backup codes in the session for one-time display.
 
+    The six-digit code is an online guessing oracle, so attempts are throttled
+    per user id and client IP. Tripping the lockout also voids the tentative
+    secret, so a partially guessed code is worthless once the lock expires.
+
     Args:
         request: Current HTTP request.
         flash: Flash message dependency.
@@ -132,7 +144,8 @@ async def arena_2fa_confirm(
         full_code: TOTP code submitted by the user.
 
     Returns:
-        Response: Redirect to backup codes page on success, or setup page on failure.
+        Response: Redirect to backup codes page on success, setup page on
+        failure, or a ``429`` lockout page.
     """
     if current_user is None:
         return build_login_redirect_response(request, next_url=request.url_for("arena_2fa_setup").path)
@@ -145,6 +158,12 @@ async def arena_2fa_confirm(
         flash("Session expired. Please start the 2FA setup again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_2fa_setup")
 
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=TOTP_CONFIRM_ACTION, user=current_user
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_user_profile")
+
     secret = validation.secret or ""
     result = await user_2fa_service.confirmar_ativacao_2fa(
         current_user,
@@ -156,14 +175,31 @@ async def arena_2fa_confirm(
     )
 
     if result.status != Autenticacao2FA.ENABLED:
+        failure = await record_verification_failure(
+            request, session, identity, action=TOTP_CONFIRM_ACTION, user=current_user
+        )
+        if failure.locked:
+            await user_2fa_service.abortar_ativacao_2fa(current_user, session)
+            request.session.pop("activating_2fa_token", None)
+            await session.commit()
+            return throttled_response(
+                request,
+                flash,
+                failure.retry_after_seconds or settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS,
+                back_route="arena_user_profile",
+                message="Too many wrong codes. The 2FA setup was cancelled; start it again later.",
+            )
         flash("Invalid code. Please try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_2fa_setup")
 
+    await reset_verification_throttle(request, identity)
     request.session["new_backup_codes"] = result.backup_codes or []
     request.session.pop("activating_2fa_token", None)
     await session.commit()
 
-    if not user_security_notification_service.send_2fa_enabled_email(current_user, request.app.state.email_service):
+    if not await user_security_notification_service.send_2fa_enabled_email(
+        current_user, request.app.state.email_service
+    ):
         logger.warning("2FA-enabled notification email failed for user %s", current_user.id)
     flash("Two-factor authentication has been enabled.", FlashCategory.SUCCESS)
     return _redirect_to(request, "arena_backup_codes")
@@ -179,6 +215,9 @@ async def arena_2fa_disable(
 ) -> Response:
     """Disable 2FA for the current user after verifying their password.
 
+    The password check shares the ``password_verify`` throttle bucket with
+    ``POST /auth/change-password``, keyed by user id and client IP.
+
     Args:
         request: Current HTTP request.
         flash: Flash message dependency.
@@ -187,14 +226,22 @@ async def arena_2fa_disable(
         password: User's account password for confirmation.
 
     Returns:
-        Response: Redirect to profile page.
+        Response: Redirect to profile page, or a ``429`` lockout page.
     """
     if current_user is None:
         return build_login_redirect_response(request, next_url=request.url_for("arena_user_profile").path)
 
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=current_user
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_user_profile")
+
     if not current_user.check_password(password):
+        await record_verification_failure(request, session, identity, action=PASSWORD_VERIFY_ACTION, user=current_user)
         flash("Incorrect password.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_user_profile")
+    await reset_verification_throttle(request, identity)
 
     if not current_user.usa_2fa:
         flash("2FA is not enabled.", FlashCategory.WARNING)
@@ -203,7 +250,7 @@ async def arena_2fa_disable(
     await user_2fa_service.desativar_2fa(current_user, session)
     await session.commit()
 
-    if not user_security_notification_service.send_2fa_disabled_self_email(
+    if not await user_security_notification_service.send_2fa_disabled_self_email(
         current_user, request.app.state.email_service
     ):
         logger.warning("2FA-disabled notification email failed for user %s", current_user.id)

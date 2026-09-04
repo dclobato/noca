@@ -26,6 +26,8 @@
          data-reset-url="{{ reset_url }}"
          data-jump-url="{{ jump_url }}"
          data-jump-pending-url="{{ jump_pending_url }}"
+         data-show-media-url="{{ show_media_url }}"
+         data-hide-media-url="{{ hide_media_url }}"
          data-lease-claim-url="{{ lease_claim_url }}"
          data-lease-heartbeat-url="{{ lease_heartbeat_url }}"
          data-lease-release-url="{{ lease_release_url }}"
@@ -65,6 +67,7 @@
                 <div class="d-flex flex-wrap align-items-center gap-2">
                     <span id="control-ownership-status" class="badge text-bg-secondary">Checking control</span>
                     <span id="control-ownership-detail">Verifying command authority for this panel.</span>
+                    <span id="control-projectors" class="control-projectors" hidden></span>
                 </div>
                 <div class="control-row mb-0">
                     <button type="button"
@@ -111,6 +114,17 @@
                         id="control-step-ten"
                         class="btn btn-outline-primary btn-sm"
                         hidden>Step 10 &rarr;</button>
+            </div>
+            {# A presentation action, not a ceremony-progress one: it moves
+               nothing and reveals nothing. Kept on its own row, below the
+               progress controls, so a hand reaching for Step in a dark hall
+               never lands on it. #}
+            <div class="control-row control-row-presentation">
+                <button type="button"
+                        id="control-media"
+                        class="btn btn-outline-secondary btn-sm"
+                        hidden>Show media</button>
+                <span id="control-media-team" class="control-media-team"></span>
             </div>
             <div class="control-row" id="control-jump-row" hidden>
                 <label class="form-label" for="control-jump-team">Jump to team</label>
@@ -191,6 +205,13 @@
                         Reads the authoritative stored state without changing it. Use it when a command may have
                         completed but its response was lost.
                     </dd>
+                    <dt>Show media / Hide media</dt>
+                    <dd>
+                        Puts the focused team's photo and audio clip on every projector watching this ceremony, or
+                        takes it down again. It changes no ceremony state, so it is always safe to press twice, and
+                        the next Step, Back, or Jump takes the overlay down on its own. A projector that was
+                        disconnected at that moment never receives the cue &mdash; press again.
+                    </dd>
                 </dl>
             </section>
         </section>
@@ -258,6 +279,10 @@
 {% endblock %}
 {% block page_scripts %}
     <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
+    {# Loaded for `ceremonySignature` alone: the panel resets its Show/Hide label
+       on exactly the signal the projector closes its overlay on, and one
+       definition of "the ceremony moved" is what keeps the two from drifting. #}
+    <script src="{{ request.url_for('animator_static_js', path='ceremony-media-cue.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='control-lease.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='control-ownership.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='control.js') }}?v={{ app_version }}"></script>

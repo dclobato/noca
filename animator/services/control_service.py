@@ -36,7 +36,9 @@ Four properties this module is responsible for:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +54,9 @@ from animator.services.reveal_loader import (
 )
 from animator.services.reveal_session_store import RevealSessionStore
 from shared.reveal_schema import RevealCommand
+
+if TYPE_CHECKING:
+    from animator.services.feed_cache import AnimatorFeedCache
 
 __all__ = [
     "ActiveSessionError",
@@ -251,20 +256,28 @@ async def execute_command(
     team_id: str | None = None,
     restart: bool = False,
     idempotency_key: str | None = None,
+    cache: AnimatorFeedCache | None = None,
 ) -> CommandResult:
     """Apply one reveal command durably and return its safe projection.
 
-    The dataset is loaded before the lock (it is read-only contest data and does
-    not need serializing); the stored state is loaded, decided upon, saved, and
-    published entirely **inside** the lock.
+    The stored state is loaded, decided upon, saved, and published entirely
+    **inside** the lock, and the dataset is resolved there too, *after* the
+    state: a missing session and an active session hit by ``start`` without
+    ``restart`` are refused before a single dataset query runs, and every other
+    command reuses the dataset cached for the state's ``dataset_generation``
+    (a miss costs the four loads once per generation per process). Only a
+    fresh ``start`` or an explicit ``restart`` loads PostgreSQL unconditionally,
+    because that is the moment the frozen universe is rebuilt; the new state's
+    generation then seeds the cache for the commands that follow.
 
-    An explicit ``start`` + ``restart`` deliberately **skips the load**. The
-    rebuilt session does not depend on the old payload, and not reading it is
-    what makes restart the documented recovery from a corrupt, foreign-versioned,
-    or misfiled stored state — a load would raise ``RevealStorePayloadError``
-    before the restart could replace the very payload that is broken. It also
-    discards the receipt ring with the rest of the old state, so a key from
-    before the rebuild identifies nothing and its command applies normally.
+    An explicit ``start`` + ``restart`` deliberately **skips the state load**.
+    The rebuilt session does not depend on the old payload, and not reading it
+    is what makes restart the documented recovery from a corrupt,
+    foreign-versioned, or misfiled stored state — a load would raise
+    ``RevealStorePayloadError`` before the restart could replace the very
+    payload that is broken. It also discards the receipt ring with the rest of
+    the old state, so a key from before the rebuild identifies nothing and its
+    command applies normally.
 
     A retry recognized by its ``idempotency_key`` returns the original result
     without saving or publishing: the persisted state already *is* that command's
@@ -283,6 +296,8 @@ async def execute_command(
         idempotency_key: Caller-supplied key identifying this command attempt.
             When ``None``, the command is applied with no retry protection and
             leaves the receipt ring untouched.
+        cache: Optional per-process feed cache holding ceremony datasets.
+            Without one every command loads the dataset afresh.
 
     Returns:
         The projection of the state that was just persisted, or — for a
@@ -300,7 +315,6 @@ async def execute_command(
         reveal_session_store.RevealStoreError: For contention, unavailability,
             lost lock ownership, or a corrupt stored payload.
     """
-    dataset = await load_reveal_dataset(session, contest, site_id=site_id)
     rebuilding = command == "start" and restart
     async with store.mutate(contest, site_id, controller_id=controller_id, command=command) as handle:
         current = None if rebuilding else await handle.load()
@@ -310,9 +324,28 @@ async def execute_command(
             # true replay: the store's "no result" path performs neither the
             # fenced save nor the publish, so the ceremony does not move and
             # spectators are not nudged a second time.
+            dataset = await _dataset_for(session, contest, site_id=site_id, state=replayed, cache=cache)
             return CommandResult(reveal_engine.project(dataset, replayed), replayed=True)
 
+        if command == "start" and (current is None or restart):
+            # A new universe: read live rows, and remember them under the
+            # generation the new state will carry.
+            dataset = await load_reveal_dataset(session, contest, site_id=site_id)
+        else:
+            if current is None:
+                raise MissingSessionError(contest.id, site_id)
+            if command == "start" and current.phase != "idle":
+                raise ActiveSessionError(current.contest_id, current.site_id, current.phase)
+            dataset = await _dataset_for(session, contest, site_id=site_id, state=current, cache=cache)
+
         transition = _apply(dataset, current, command=command, team_id=team_id, restart=restart)
+        if cache is not None and transition.state.dataset_generation is not None:
+            await cache.reveal_dataset(
+                contest,
+                site_id=site_id,
+                generation=transition.state.dataset_generation,
+                build=_constant(dataset),
+            )
         if idempotency_key is not None:
             # Receipts feed no derived view, so the already-computed team views
             # and next cell stay valid; only the state they belong to changes.
@@ -330,6 +363,7 @@ async def load_projection(
     contest: ContestRecord,
     *,
     site_id: str | None,
+    cache: AnimatorFeedCache | None = None,
 ) -> RevealTransition:
     """Read one ceremony's current projection without mutating or locking it.
 
@@ -339,11 +373,16 @@ async def load_projection(
     with every derived field, and the copy that falls behind is the one the
     projector renders.
 
+    This is the spectator hot path (``/reveal/state`` after every nudge), so
+    with a ``cache`` it is one Valkey load plus a projection: the dataset is
+    reused for as long as the stored state's ``dataset_generation`` lives.
+
     Args:
         session: Active database session.
         contest: The animator-enabled contest being revealed.
         store: The durable reveal-session store.
         site_id: Scope resolved from the operator's credential.
+        cache: Optional per-process feed cache holding ceremony datasets.
 
     Returns:
         The stored state and the team views derived from it.
@@ -358,5 +397,38 @@ async def load_projection(
     state = await store.load(contest.id, site_id)
     if state is None:
         raise MissingSessionError(contest.id, site_id)
-    dataset = await load_reveal_dataset(session, contest, site_id=site_id)
+    dataset = await _dataset_for(session, contest, site_id=site_id, state=state, cache=cache)
     return reveal_engine.project(dataset, state)
+
+
+async def _dataset_for(
+    session: AsyncSession,
+    contest: ContestRecord,
+    *,
+    site_id: str | None,
+    state: RevealSessionState,
+    cache: AnimatorFeedCache | None,
+) -> RevealDataset:
+    """Resolve the dataset a stored state is projected over, cached by generation.
+
+    A state persisted before ``dataset_generation`` existed carries ``None`` and
+    bypasses the cache: it keeps working at the old per-request cost until the
+    operator rebuilds the ceremony.
+    """
+    if cache is None or state.dataset_generation is None:
+        return await load_reveal_dataset(session, contest, site_id=site_id)
+    return await cache.reveal_dataset(
+        contest,
+        site_id=site_id,
+        generation=state.dataset_generation,
+        build=lambda: load_reveal_dataset(session, contest, site_id=site_id),
+    )
+
+
+def _constant(dataset: RevealDataset) -> Callable[[], Awaitable[RevealDataset]]:
+    """Wrap an already-loaded dataset as a cache ``build`` that never queries."""
+
+    async def build() -> RevealDataset:
+        return dataset
+
+    return build

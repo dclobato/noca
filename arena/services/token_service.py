@@ -42,6 +42,14 @@ _TWO_FA_SESSION_TIMEOUT = 90
 _PASSWORD_CHANGE_TIMEOUT = 300
 _EMAIL_VALIDATION_TIMEOUT = 86_400  # 24 hours
 _RESET_PASSWORD_TIMEOUT = 3_600  # 1 hour
+# 10 years. Deliberately long: LGPD art. 8 §5 grants the guardian revocation *at any
+# time*, and there is no flow that re-sends a revocation link, so a token that expired
+# while the child was still a minor would turn a legal right into a support ticket. The
+# longest window it must cover is 13 -> 18, just under five years; the overshoot keeps
+# leap-day arithmetic out from under the guarantee. Expiry is not the security boundary
+# here: the route refuses the token once the child turns 18, and any consent transition
+# invalidates it earlier by bumping ``consent_generation``.
+_PARENTAL_REVOKE_TIMEOUT = 315_360_000
 
 
 class ArenaTokenAction(StrEnum):
@@ -51,6 +59,10 @@ class ArenaTokenAction(StrEnum):
         LOGIN: Standard authenticated session token.
         VALIDATE_EMAIL: Short-lived token for email address confirmation.
         PARENTAL_CONSENT: Short-lived token for parent/legal guardian consent.
+        PARENTAL_CONSENT_REVOKE: Long-lived token letting the parent/legal guardian
+            withdraw a consent they granted. Carries ``sub`` (the child's user id) and
+            a ``gen`` extra claim bound to the account's ``consent_generation`` at
+            minting time, so exactly one such link is live at a time.
         RESET_PASSWORD: Short-lived token for password reset via email link.
         PENDING_2FA: Intermediate token issued after password check while
             waiting for the user to supply their TOTP or backup code.
@@ -64,6 +76,7 @@ class ArenaTokenAction(StrEnum):
     LOGIN = "login"
     VALIDATE_EMAIL = "validate_email"
     PARENTAL_CONSENT = "parental_consent"
+    PARENTAL_CONSENT_REVOKE = "parental_consent_revoke"
     RESET_PASSWORD = "reset_password"
     PENDING_2FA = "pending_2fa"
     ACTIVATING_2FA = "activating_2fa"

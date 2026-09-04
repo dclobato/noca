@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -53,9 +53,8 @@ def display_minutes_from_seconds(timestamp_seconds: int | None) -> int | None:
 def compute_timestamp_minutes(contest_start: datetime, event_time: datetime) -> int:
     """Return an ICPC-style minute offset from contest start to *event_time*.
 
-    Rules:
-    - Events within the first 60 seconds → 0
-    - Otherwise: remainder ≤ 30 s → floor; > 30 s → ceiling (round to nearest minute)
+    The offset is **truncated** to whole minutes, which is the ICPC rule: a
+    solve at 60 min 45 s scores 60 penalty minutes, not 61.
 
     Args:
         contest_start: Contest start datetime. Timezone info must match *event_time*.
@@ -64,18 +63,23 @@ def compute_timestamp_minutes(contest_start: datetime, event_time: datetime) -> 
     Returns:
         Non-negative integer minute offset.
     """
-    total_seconds = compute_timestamp_seconds(contest_start, event_time)
-    if total_seconds < 60:
-        return max(0, total_seconds // 60)
-    minutes, remainder = divmod(total_seconds, 60)
-    return minutes if remainder <= 30 else minutes + 1
+    return compute_timestamp_seconds(contest_start, event_time) // 60
 
 
 def icpc_minutes_from_seconds(timestamp_seconds: int | None) -> int | None:
-    """Convert a second offset to the ICPC minute representation."""
+    """Convert a second offset to the ICPC minute representation.
+
+    The offset is **truncated**, never rounded: a solve at 60 min 45 s scores 60
+    penalty minutes. This is the scoring path, so the distinction is not
+    cosmetic -- rounding shifted the penalty of roughly half of all solves by a
+    minute and could reorder standings.
+
+    Args:
+        timestamp_seconds: Contest-relative second offset, or ``None``.
+
+    Returns:
+        Whole minutes, or ``None`` when the offset is ``None``.
+    """
     if timestamp_seconds is None:
         return None
-    if timestamp_seconds < 60:
-        return max(0, timestamp_seconds // 60)
-    minutes, remainder = divmod(timestamp_seconds, 60)
-    return minutes if remainder <= 30 else minutes + 1
+    return max(0, timestamp_seconds) // 60

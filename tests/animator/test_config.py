@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from pydantic import ValidationError
 
 from animator.config import Settings
 from shared.enumerations import Environment
@@ -205,3 +206,72 @@ def test_worker_presence_ranges_are_validated(monkeypatch: pytest.MonkeyPatch, i
             NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS=interval,
             NOCA_ANIMATOR_WORKER_PRESENCE_TTL_SECONDS=ttl,
         )
+
+
+def test_feed_cache_and_public_rate_limit_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _make_settings(monkeypatch)
+
+    assert settings.SNAPSHOT_CACHE_SECONDS == 5
+    assert settings.SNAPSHOT_CACHE_ENDED_SECONDS == 60
+    assert settings.META_CACHE_SECONDS == 30
+    assert settings.REVEAL_DATASET_CACHE_SECONDS == 300
+    assert settings.PUBLIC_RATE_LIMIT_ENABLED is True
+    assert settings.PUBLIC_RATE_LIMIT_MAX_REQUESTS == 300
+    assert settings.PUBLIC_RATE_LIMIT_WINDOW_SECONDS == 60
+    assert settings.PUBLIC_RATE_LIMIT_TRUSTED_CIDRS == "127.0.0.0/8,::1/128"
+
+
+def test_feed_cache_and_public_rate_limit_env_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _make_settings(
+        monkeypatch,
+        NOCA_ANIMATOR_SNAPSHOT_CACHE_SECONDS="2",
+        NOCA_ANIMATOR_SNAPSHOT_CACHE_ENDED_SECONDS="120",
+        NOCA_ANIMATOR_META_CACHE_SECONDS="10",
+        NOCA_ANIMATOR_REVEAL_DATASET_CACHE_SECONDS="600",
+        NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_ENABLED="false",
+        NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_MAX_REQUESTS="50",
+        NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_WINDOW_SECONDS="30",
+        NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS=" 10.0.0.0/8 , ::1/128 ",
+    )
+
+    assert settings.SNAPSHOT_CACHE_SECONDS == 2
+    assert settings.SNAPSHOT_CACHE_ENDED_SECONDS == 120
+    assert settings.META_CACHE_SECONDS == 10
+    assert settings.REVEAL_DATASET_CACHE_SECONDS == 600
+    assert settings.PUBLIC_RATE_LIMIT_ENABLED is False
+    assert settings.PUBLIC_RATE_LIMIT_MAX_REQUESTS == 50
+    assert settings.PUBLIC_RATE_LIMIT_WINDOW_SECONDS == 30
+    assert settings.PUBLIC_RATE_LIMIT_TRUSTED_CIDRS == "10.0.0.0/8,::1/128"
+
+
+def test_public_rate_limit_trusted_cidrs_are_validated_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS"):
+        _make_settings(monkeypatch, NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS="not-a-cidr")
+    with pytest.raises(ValueError, match="NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS"):
+        _make_settings(monkeypatch, NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS="not-a-cidr")
+
+
+def test_control_lockout_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _make_settings(monkeypatch)
+    assert settings.CONTROL_LOCKOUT_ENABLED is True
+    assert settings.CONTROL_LOCKOUT_FAILURES == 10
+    assert settings.CONTROL_LOCKOUT_SECONDS == 300
+
+
+def test_control_lockout_env_names_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _make_settings(
+        monkeypatch,
+        NOCA_ANIMATOR_CONTROL_LOCKOUT_ENABLED="false",
+        NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES="3",
+        NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS="60",
+    )
+    assert settings.CONTROL_LOCKOUT_ENABLED is False
+    assert settings.CONTROL_LOCKOUT_FAILURES == 3
+    assert settings.CONTROL_LOCKOUT_SECONDS == 60
+
+
+@pytest.mark.parametrize("name", ["NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES", "NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS"])
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_control_lockout_values_must_be_positive(monkeypatch: pytest.MonkeyPatch, name: str, value: str) -> None:
+    with pytest.raises(ValidationError):
+        _make_settings(monkeypatch, **{name: value})

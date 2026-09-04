@@ -31,7 +31,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
@@ -40,8 +40,12 @@ from animator.dependencies import (
     DetachedEnabledContest,
     DetachedPublicScope,
     EnabledContest,
+    FeedCache,
+    ProjectorPresenceDep,
     PublicScopeDep,
     RevealStore,
+    enforce_public_rate_limit,
+    enforce_sse_connection_caps,
 )
 from animator.models.responses import (
     RevealProjectionResponse,
@@ -58,10 +62,12 @@ from animator.services.reveal_session_store import (
     RevealStoreUnavailableError,
 )
 from animator.services.reveal_stream_service import (
+    EVENT_REVEAL_MEDIA_CUE,
     EVENT_REVEAL_READY,
     EVENT_REVEAL_STATE_CHANGED,
     iter_ready_then_events,
 )
+from shared.reveal_schema import RevealMediaCueEvent
 from shared.services.valkey_service import ValkeyRuntime
 
 logger = logging.getLogger(__name__)
@@ -97,7 +103,6 @@ async def ceremony_page(request: Request, contest: EnabledContest, scope: Public
             "photo_base": media_base_url(request, "animator_team_photo", contest.login_slug),
             "audio_base": media_base_url(request, "animator_team_audio", contest.login_slug),
             "balloon_base": str(request.url_for("animator_balloon", color="_")).rsplit("/", 1)[0],
-            "star_base": str(request.url_for("animator_star", color="_")).rsplit("/", 1)[0],
             "medal_base": str(request.url_for("animator_medal", band="_")).rsplit("/", 1)[0],
         },
     )
@@ -108,17 +113,25 @@ def _scoped_url(request: Request, name: str, slug: str, scope: PublicScope) -> s
     return str(request.url_for(name, slug=slug).include_query_params(scope=scope.canonical))
 
 
-@router.get("/reveal/state", name="animator_reveal_state", response_model=RevealPublicStateResponse)
+@router.get(
+    "/reveal/state",
+    name="animator_reveal_state",
+    response_model=RevealPublicStateResponse,
+    dependencies=[Depends(enforce_public_rate_limit)],
+)
 async def reveal_state(
     contest: EnabledContest,
     scope: PublicScopeDep,
     db: DbSession,
     store: RevealStore,
+    cache: FeedCache,
 ) -> RevealPublicStateResponse:
     """Return the latest safe projection for one ceremony scope.
 
     Delegates to the control API's own read path, so spectators and the operator
-    see one projection built by one implementation.
+    see one projection built by one implementation. The ceremony dataset comes
+    from the per-process feed cache, so a nudge that makes every spectator
+    refetch costs one Valkey load and a projection per request, not a reload.
 
     Returns:
         The envelope: ``has_session=false`` with a ``null`` projection when no
@@ -137,7 +150,7 @@ async def reveal_state(
         site_name=scope.site_name,
     )
     try:
-        projection = await control_service.load_projection(db, store, contest, site_id=scope.site_id)
+        projection = await control_service.load_projection(db, store, contest, site_id=scope.site_id, cache=cache)
     except MissingSessionError:
         # Not an error: a spectator may legitimately arrive before the operator
         # opens the ceremony. The envelope already describes that state.
@@ -173,11 +186,17 @@ async def reveal_state(
     )
 
 
-@router.get("/reveal/events", response_class=EventSourceResponse, name="animator_reveal_events")
+@router.get(
+    "/reveal/events",
+    response_class=EventSourceResponse,
+    name="animator_reveal_events",
+    dependencies=[Depends(enforce_sse_connection_caps)],
+)
 async def reveal_events(
     request: Request,
     contest: DetachedEnabledContest,
     scope: DetachedPublicScope,
+    presence: ProjectorPresenceDep,
 ) -> AsyncIterator[ServerSentEvent]:
     """Stream ceremony-changed nudges for one scope until the client disconnects.
 
@@ -189,10 +208,26 @@ async def reveal_events(
     its not-yet-existing subscription, and pub/sub has no replay; reconciling on
     ``reveal_ready`` closes the gap on every connection *and* every reconnect.
 
-    Each later event is an **invalidation signal**, not a projection: it names
-    the command, phase, and counts for logging and cheap filtering, and the
-    client answers it by refetching ``/reveal/state``. That is what makes a
-    missed nudge harmless — the store stays authoritative.
+    Each later ``reveal_state_changed`` event is an **invalidation signal**, not
+    a projection: it names the command, phase, and counts for logging and cheap
+    filtering, and the client answers it by refetching ``/reveal/state``. That is
+    what makes a missed nudge harmless — the store stays authoritative.
+
+    The stream also carries ``reveal_media_cue``, the operator's transient
+    request to raise or lower a team's media overlay. It is a **separate event
+    name on purpose**: a nudge means "refetch", while a cue changes no state and
+    must trigger no fetch at all. It is best-effort and never replayed — a
+    projector that was disconnected simply never sees it, and the operator
+    presses the button again.
+
+    ``enforce_sse_connection_caps`` runs first, before the contest gate: the
+    process-wide ``NOCA_ANIMATOR_MAX_SSE_CLIENTS`` ceiling answers ``503`` and the
+    per-IP ``animator:sse`` lease answers ``429``, both released on disconnect.
+
+    While it is open the stream counts as one projector of its scope
+    (:class:`animator.services.projector_presence.ProjectorPresence`), which is
+    what the controller-lease responses report back to the operator. That is a
+    gauge, not a gate: a Valkey failure there never refuses or ends the stream.
 
     Both the contest and the scope resolve through their *detached* dependencies,
     so this long-lived connection holds no pooled PostgreSQL connection, and both
@@ -204,15 +239,22 @@ async def reveal_events(
         request: Current request, used to reach ``app.state.valkey_runtime``.
         contest: The resolved enabled contest (detached from any session).
         scope: The resolved ceremony scope (detached from any session).
+        presence: The projector gauge this stream registers with.
 
     Yields:
-        One ``reveal_ready`` event, then one typed SSE event per nudge.
+        One ``reveal_ready`` event, then one typed SSE event per published frame.
     """
     runtime: ValkeyRuntime = request.app.state.valkey_runtime
-    async with aclosing(iter_ready_then_events(runtime, contest.id, scope.canonical)) as events:
+    async with (
+        presence.attend(contest.id, scope.canonical),
+        aclosing(iter_ready_then_events(runtime, contest.id, scope.canonical)) as events,
+    ):
         async for event in events:
             if event is None:
                 yield ServerSentEvent(event=EVENT_REVEAL_READY, data=RevealReadyPayload())
+                continue
+            if isinstance(event, RevealMediaCueEvent):
+                yield ServerSentEvent(event=EVENT_REVEAL_MEDIA_CUE, data=event)
                 continue
             yield ServerSentEvent(event=EVENT_REVEAL_STATE_CHANGED, data=event)
 

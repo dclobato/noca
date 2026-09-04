@@ -9,19 +9,21 @@
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
+from healthmonitor.dependencies import enforce_public_rate_limit
 from healthmonitor.services.presence_probe import (
     ServiceState,
     read_service_statuses,
     unknown_service_statuses,
 )
 from healthmonitor.services.service_registry import MONITORED_SERVICES
+from healthmonitor.services.uptime_cache import UptimeHistoryCache
 from healthmonitor.services.uptime_stats import read_service_heatmaps
 
-router = APIRouter(tags=["dashboard"])
+router = APIRouter(tags=["dashboard"], dependencies=[Depends(enforce_public_rate_limit)])
 logger = logging.getLogger(__name__)
 
 
@@ -85,15 +87,9 @@ async def uptime_dashboard_refresh(request: Request) -> Response:
     )
 
 
-@router.get("/uptime.json", name="healthmon_uptime_data")
-async def uptime_dashboard_data(request: Request) -> UptimeDashboardPayload:
-    """Return the per-service uptime history consumed by the ECharts heatmaps."""
-    try:
-        heatmaps = await read_service_heatmaps(request.app.state.valkey_runtime, MONITORED_SERVICES)
-    except Exception as error:
-        logger.exception("Uptime history read failed")
-        raise HTTPException(status_code=503, detail="Uptime history is temporarily unavailable") from error
-
+async def _build_uptime_payload(request: Request) -> UptimeDashboardPayload:
+    """Read every service's heatmap in one pipelined round trip and shape the payload."""
+    heatmaps = await read_service_heatmaps(request.app.state.valkey_runtime, MONITORED_SERVICES)
     return UptimeDashboardPayload(
         checked_at=datetime.now(UTC),
         services=[
@@ -113,3 +109,21 @@ async def uptime_dashboard_data(request: Request) -> UptimeDashboardPayload:
             for service in MONITORED_SERVICES
         ],
     )
+
+
+@router.get("/uptime.json", name="healthmon_uptime_data")
+async def uptime_dashboard_data(request: Request, response: Response) -> UptimeDashboardPayload:
+    """Return the per-service uptime history consumed by the ECharts heatmaps.
+
+    The payload is served from the per-process cache for one probe interval;
+    the ``Cache-Control`` header carries the seconds left so browsers align
+    their own revalidation with the server-side window.
+    """
+    cache: UptimeHistoryCache[UptimeDashboardPayload] = request.app.state.uptime_cache
+    try:
+        payload, max_age = await cache.get(lambda: _build_uptime_payload(request))
+    except Exception as error:
+        logger.exception("Uptime history read failed")
+        raise HTTPException(status_code=503, detail="Uptime history is temporarily unavailable") from error
+    response.headers["Cache-Control"] = f"public, max-age={max_age}"
+    return payload

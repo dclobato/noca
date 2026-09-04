@@ -75,7 +75,10 @@ the whole worker.
   them up to `NOCA_AI_MAX_REQUEUE_COUNT`.
 - **Reconciler loop**: finds submissions that are flagged for AI review in
   PostgreSQL but no longer have Valkey queue state, then re-enqueues them after
-  `NOCA_AI_RECONCILER_GRACE_SECONDS`.
+  `NOCA_AI_RECONCILER_GRACE_SECONDS`. It is the **only** recovery path for a
+  job lost after the request route's commit: the Arena route deliberately
+  never re-enqueues a flagged submission (that would push duplicate, free jobs),
+  so recovery latency is bounded by the grace window plus one sweep interval.
 - **Batch poller loop**: polls active OpenAI batch jobs, stores completed
   output, expires stale local batches, and refreshes turnaround statistics.
 - **Batch flusher loop**: collects `staged` batch rows every

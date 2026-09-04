@@ -34,6 +34,13 @@ end
 return 0
 """
 
+_VERIFY_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return 1
+end
+return 0
+"""
+
 _RELEASE_SCRIPT = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     redis.call('DEL', KEYS[1])
@@ -128,6 +135,36 @@ class ControllerLeaseService:
         if _integer(result, "heartbeat") == 0:
             raise ControllerLeaseLostError("controller lease ownership was lost")
         return ControllerLeaseResult("renewed", self._ttl_seconds)
+
+    async def verify_ownership(self, contest_id: str, scope: str, controller_id: str) -> None:
+        """Confirm ``controller_id`` still owns the scope, changing nothing.
+
+        Unlike :func:`acquire_controller_mutation_lock` this takes **no mutation
+        lock**, which is the whole point: it authorizes an action that persists
+        nothing, so it must never contend with a real command. A ``step`` in
+        flight and a media cue can safely happen at the same instant, and making
+        the cue queue behind the step would only mean a projector overlay
+        appearing late for no gain.
+
+        It also deliberately does not extend the lease. Renewal is the
+        heartbeat's job; a cue that quietly kept a lease alive would let an
+        operator hold a ceremony they are no longer driving.
+
+        Args:
+            contest_id: Contest the ceremony belongs to.
+            scope: Canonical ceremony scope (a site id, or ``"global"``).
+            controller_id: The caller's opaque controller identity.
+
+        Raises:
+            ControllerLeaseLostError: If another controller owns the scope, or
+                the lease expired.
+            ControllerLeaseUnavailableError: If Valkey could not decide, in
+                which case the caller must fail closed.
+        """
+        key = reveal_controller_key(contest_id, scope)
+        result = await self._client.eval(_VERIFY_SCRIPT, 1, key, controller_id)
+        if _integer(result, "ownership check") == 0:
+            raise ControllerLeaseLostError("controller lease ownership was lost")
 
     async def release(self, contest_id: str, scope: str, controller_id: str) -> ControllerLeaseResult:
         """Delete a lease only while ``controller_id`` remains its owner."""

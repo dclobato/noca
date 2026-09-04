@@ -19,52 +19,52 @@ The source of truth is:
 
 | Language ID | Source file | Compile image | Run image | What teams can use |
 | --- | --- | --- | --- | --- |
-| `gcc-c17` | `source.c` | `debian:bookworm-slim` + `gcc` + `libc6-dev` | `debian:bookworm-slim` | C17, GCC from Debian bookworm, glibc / C standard library, math library via `-lm` |
-| `gcc-cpp23` | `source.cpp` | `debian:bookworm-slim` + `g++` + `libc6-dev` | `debian:bookworm-slim` + `libstdc++6` | C++23 with GCC from Debian bookworm / libstdc++ standard library |
-| `python3` | `source.py` | `python:3.14-slim-bookworm` | `python:3.14-slim-bookworm` | Python 3.14 standard library only |
+| `gcc-c17` | `source.c` | `debian:trixie-slim` + `gcc` + `libc6-dev` | `debian:trixie-slim` | C17, GCC from Debian trixie, glibc / C standard library, math library via `-lm` |
+| `gcc-cpp23` | `source.cpp` | `debian:trixie-slim` + `g++` + `libc6-dev` | `debian:trixie-slim` + `libstdc++6` | C++23 with GCC from Debian trixie / libstdc++ standard library |
+| `python3` | `source.py` | `python:3.14-slim-trixie` | `python:3.14-slim-trixie` | Python 3.14 standard library only |
 | `java` | `Main.java` | `eclipse-temurin:25.0.3+9-jdk` | `eclipse-temurin:25.0.3+9-jre` | Java 25 standard library only |
-| `javascript` | `source.js` | `node:24-bookworm-slim` | `node:24-bookworm-slim` | Node.js 24 built-in modules only |
+| `javascript` | `source.js` | `node:24-trixie-slim` | `node:24-trixie-slim` | Node.js 24 built-in modules only |
 | `kotlin` | `Main.kt` | `eclipse-temurin:25.0.3+9-jdk` + `kotlin-compiler-2.3.0` (GitHub release) | `eclipse-temurin:25.0.3+9-jre` | Kotlin 2.3.0 / JVM standard library packaged into the produced jar |
-| `fpc-pascal` | `source.pas` | `debian:bookworm-slim` + `fp-compiler=3.2.2+dfsg-20` | `debian:bookworm-slim` | Free Pascal 3.2.2 compiler/runtime |
-| `go` | `source.go` | `golang:1.26.2-bookworm` | `debian:bookworm-slim` | Go 1.26 standard library only, single-file builds |
-| `rust` | `source.rs` | `rust:1.96.1-bookworm` | `debian:bookworm-slim` + `libgcc-s1` | Rust 1.96 standard library only, single-file `rustc` builds |
+| `fpc-pascal` | `source.pas` | `debian:trixie-slim` + `fp-compiler=3.2.2+dfsg-46` | `debian:trixie-slim` | Free Pascal 3.2.2 compiler/runtime |
+| `go` | `source.go` | `golang:1.26.2-trixie` | `debian:trixie-slim` | Go 1.26 standard library only, single-file builds |
+| `rust` | `source.rs` | `rust:1.96.1-trixie` | `debian:trixie-slim` + `libgcc-s1` | Rust 1.96 standard library only, single-file `rustc` builds |
 | `c-sharp` | `source.cs` | `dotnet/sdk:10.0.301` | `dotnet/runtime:10.0.9` | .NET 10 base class library only |
-| `haskell` | `source.hs` | `debian:bookworm-slim` + `ghc=9.0.2-4` | `debian:bookworm-slim` + `libgmp10` + `libffi8` | GHC 9.0.2, Haskell standard library (`base`, `Data.List`, `Data.Map`, etc.) |
-| `lua` | `source.lua` | `debian:bookworm-slim` + `lua-5.5.0` (source build) | `debian:bookworm-slim` + `lua-5.5.0` (source build) | Lua 5.5 standard library only |
-| `prolog` | `source.pl` | `debian:bookworm-slim` + `swi-prolog-nox=9.0.4+dfsg-2` | `debian:bookworm-slim` + `swi-prolog-nox=9.0.4+dfsg-2` | SWI-Prolog 9.0.4 standard library; entry point via `:- initialization(main, main).` |
-| `fortran` | `source.f90` | `debian:bookworm-slim` + `gfortran=4:12.2.0-3` | `debian:bookworm-slim` + `libgfortran5` + `libquadmath0` + `libgcc-s1` | Fortran 2018 free-form, gfortran 12.2.0 |
-| `swift` | `source.swift` | `swift:6.3.2` + Static Linux SDK (musl) | `debian:bookworm-slim` | Swift 6.3 standard library only, single-file builds; statically linked binary |
-| `ruby` | `source.rb` | `ruby:4.0-slim-bookworm` | `ruby:4.0-slim-bookworm` | Ruby 4.0 standard library only |
-| `bash` | `source.sh` | `debian:bookworm-slim` | `debian:bookworm-slim` | Bash 5.2 built-ins and standard POSIX utilities included in the base image |
-| `perl` | `source.pl` | `perl:5.42.2-slim-bookworm` | `perl:5.42.2-slim-bookworm` | Perl 5.42.2 core modules only |
+| `haskell` | `source.hs` | `debian:trixie-slim` + `ghc=9.6.6-4` | `debian:trixie-slim` + `libgmp10` + `libffi8` + `libnuma1` | GHC 9.6.6, Haskell standard library (`base`, `Data.List`, `Data.Map`, etc.) |
+| `lua` | `source.lua` | `debian:trixie-slim` + `lua-5.5.0` (source build) | `debian:trixie-slim` + `lua-5.5.0` (source build) | Lua 5.5 standard library only |
+| `prolog` | `source.pl` | `debian:trixie-slim` + `swi-prolog-nox` 9.2.9+dfsg-1 | `debian:trixie-slim` + `swi-prolog-nox` 9.2.9+dfsg-1 | SWI-Prolog 9.2.9 standard library; entry point via `:- initialization(main, main).` |
+| `fortran` | `source.f90` | `debian:trixie-slim` + `gfortran=4:14.2.0-1` | `debian:trixie-slim` + `libgfortran5` + `libquadmath0` + `libgcc-s1` | Fortran 2018 free-form, gfortran 14.2.0 |
+| `swift` | `source.swift` | `swift:6.3.2` + Static Linux SDK (musl) | `debian:trixie-slim` | Swift 6.3 standard library only, single-file builds; statically linked binary |
+| `ruby` | `source.rb` | `ruby:4.0-slim-trixie` | `ruby:4.0-slim-trixie` | Ruby 4.0 standard library only |
+| `bash` | `source.sh` | `debian:trixie-slim` | `debian:trixie-slim` | Bash 5.2 built-ins and standard POSIX utilities included in the base image |
+| `perl` | `source.pl` | `perl:5.42.2-slim-trixie` | `perl:5.42.2-slim-trixie` | Perl 5.42.2 core modules only |
 | `scala` | `Main.scala` | `eclipse-temurin:25.0.3+9-jdk` + `scala3-3.3.8` (GitHub release) | `eclipse-temurin:25.0.3+9-jre` | Scala 3.3.8 LTS / Scala + JVM standard library sealed into the produced jar |
-| `ocaml` | `source.ml` | `debian:bookworm-slim` + `ocaml-4.14.4` (source build) | `debian:bookworm-slim` | OCaml 4.14.4 standard library only, native (`ocamlopt`) builds |
-| `php` | `source.php` | `php:8.5.8-cli-bookworm` | `php:8.5.8-cli-bookworm` | PHP 8.5.8 standard library and bundled extensions only |
+| `ocaml` | `source.ml` | `debian:trixie-slim` + `ocaml-nox=5.3.0-3` | `debian:trixie-slim` | OCaml 5.3.0 standard library only, native (`ocamlopt`) builds |
+| `php` | `source.php` | `php:8.5.8-cli-trixie` | `php:8.5.8-cli-trixie` | PHP 8.5.8 standard library and bundled extensions only |
 
 ## Pinned Image Families
 
 | Image tag | Version family |
 | --- | --- |
-| `debian:bookworm-slim` | Debian 12 (bookworm) |
-| `ruby:4.0-slim-bookworm` | Ruby 4.0 on Debian bookworm slim |
-| `perl:5.42.2-slim-bookworm` | Perl 5.42.2 on Debian bookworm slim |
-| `python:3.14-slim-bookworm` | Python 3.14 on Debian bookworm slim |
-| `node:24-bookworm-slim` | Node.js 24 on Debian bookworm slim |
-| `golang:1.26.2-bookworm` | Go 1.26 on Debian bookworm |
-| `rust:1.96.1-bookworm` | Rust 1.96 on Debian bookworm |
+| `debian:trixie-slim` | Debian 13 (trixie) |
+| `ruby:4.0-slim-trixie` | Ruby 4.0 on Debian trixie slim |
+| `perl:5.42.2-slim-trixie` | Perl 5.42.2 on Debian trixie slim |
+| `python:3.14-slim-trixie` | Python 3.14 on Debian trixie slim |
+| `node:24-trixie-slim` | Node.js 24 on Debian trixie slim |
+| `golang:1.26.2-trixie` | Go 1.26 on Debian trixie |
+| `rust:1.96.1-trixie` | Rust 1.96 on Debian trixie |
 | `eclipse-temurin:25-jdk` | Temurin JDK 25 |
 | `eclipse-temurin:25-jre` | Temurin JRE 25 |
 | `mcr.microsoft.com/dotnet/sdk:10.0` | .NET SDK 10 |
 | `mcr.microsoft.com/dotnet/runtime:10.0` | .NET Runtime 10 |
-| `ghc=9.0.2-4` (Debian bookworm) | GHC 9.0.2 |
+| `ghc=9.6.6-4` (Debian trixie) | GHC 9.6.6 |
 | `lua-5.5.0` (source build from lua.org) | Lua 5.5.0 |
-| `swi-prolog-nox=9.0.4+dfsg-2` (Debian bookworm) | SWI-Prolog 9.0.4 |
-| `gfortran=4:12.2.0-3` (Debian bookworm) | gfortran 12.2.0 |
+| `swi-prolog-nox` 9.2.9+dfsg-1 (Debian trixie) | SWI-Prolog 9.2.9 |
+| `gfortran=4:14.2.0-1` (Debian trixie) | gfortran 14.2.0 |
 | `swift:6.3.2` | Swift 6.3.2 official Linux toolchain |
 | `swift-6.3.2-RELEASE_static-linux-0.1.0` | Swift Static Linux SDK (musl) |
 | `scala3-3.3.8` (GitHub release from scala/scala3) | Scala 3.3.8 LTS |
-| `ocaml-4.14.4` (source build from the ocaml/ocaml tag) | OCaml 4.14.4 |
-| `php:8.5.8-cli-bookworm` | PHP 8.5.8 CLI on Debian bookworm |
+| `ocaml-nox=5.3.0-3` (Debian trixie) | OCaml 5.3.0 |
+| `php:8.5.8-cli-trixie` | PHP 8.5.8 CLI on Debian trixie |
 
 ## Why Alpine Was Removed
 
@@ -81,9 +81,9 @@ uniform, and simplifies the worker's runtime bind logic.
 
 - Compile command:
   - `gcc -std=c17 -O2 -lm -o /sandbox/solution /sandbox/source.c`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
-  - GCC from Debian bookworm
+  - GCC 14.2.0 from Debian trixie
   - glibc headers and runtime
   - standard C library headers
   - math library via `-lm`
@@ -100,10 +100,10 @@ uniform, and simplifies the worker's runtime bind logic.
   - `g++ -std=c++23 -O2 -o /sandbox/solution /sandbox/source.cpp`
 - Run command:
   - `/sandbox/solution`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
-  - GCC from Debian bookworm (`g++`)
-  - libstdc++ from Debian bookworm
+  - GCC 14.2.0 from Debian trixie (`g++`)
+  - libstdc++ from Debian trixie
   - glibc headers and runtime
   - standard C and C++ library headers
 - Not available:
@@ -116,7 +116,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/local/bin/python3 -m py_compile /sandbox/source.py`
 - Run command:
   - `/usr/local/bin/python3 -u /sandbox/source.py`
-- Base image: `python:3.14-slim-bookworm`
+- Base image: `python:3.14-slim-trixie`
 - Available:
   - Python 3.14 standard library
 - Not available:
@@ -143,7 +143,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `node --check /sandbox/source.js`
 - Run command:
   - `/usr/local/bin/node /sandbox/source.js`
-- Base image: `node:24-bookworm-slim`
+- Base image: `node:24-trixie-slim`
 - Available:
   - Node.js 24 built-in modules such as `fs`, `path`, `crypto`, `util`, `stream`
 - Not available:
@@ -174,7 +174,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `fpc -O2 -o/sandbox/solution /sandbox/source.pas`
 - Run command:
   - `/sandbox/solution`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
   - Free Pascal 3.2.2 compiler/runtime
 - Not available:
@@ -188,8 +188,8 @@ uniform, and simplifies the worker's runtime bind logic.
 - Run command:
   - `/sandbox/solution`
 - Base images:
-  - compile: `golang:1.26.2-bookworm`
-  - run: `debian:bookworm-slim`
+  - compile: `golang:1.26.2-trixie`
+  - run: `debian:trixie-slim`
 - Available:
   - Go 1.26 compiler and standard library at compile time
   - static binaries by default because `CGO_ENABLED=0`
@@ -205,8 +205,8 @@ uniform, and simplifies the worker's runtime bind logic.
 - Run command:
   - `/sandbox/solution`
 - Base images:
-  - compile: `rust:1.96.1-bookworm`
-  - run: `debian:bookworm-slim`
+  - compile: `rust:1.96.1-trixie`
+  - run: `debian:trixie-slim`
 - Available:
   - Rust 1.96 compiler and standard library at compile time
   - Rust 2024 edition
@@ -247,9 +247,9 @@ uniform, and simplifies the worker's runtime bind logic.
   - `ghc -O2 -o /sandbox/solution /sandbox/source.hs`
 - Run command:
   - `/sandbox/solution`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
-  - GHC 9.0.2 from Debian bookworm
+  - GHC 9.6.6 from Debian trixie
   - `libgmp10` and `libffi8` runtime libraries
   - GHC base libraries (`Prelude`, `Data.List`, `Data.Map`, `Data.Set`, `System.IO`, etc.)
 - Not available:
@@ -262,9 +262,9 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/local/bin/luac -p /sandbox/source.lua`
 - Run command:
   - `/usr/local/bin/lua /sandbox/source.lua`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Pinned: `lua-5.5.0` built from the official lua.org source tarball with
-  `make linux` (Debian bookworm's `lua5.4` apt package tops out at 5.4.4). The
+  `make linux` (Debian trixie's `lua5.4` apt package tops out at 5.4.7). The
   build only needs `libc`/`libm`, both already present in the base image; the
   build toolchain itself is confined to a throwaway multi-stage builder and
   does not ship in either the compile or run image.
@@ -279,9 +279,9 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/bin/swipl -q --on-error=status -g halt -t halt /sandbox/source.pl`
 - Run command:
   - `/usr/bin/swipl -q -O /sandbox/source.pl`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
-  - SWI-Prolog 9.0.4 standard library
+  - SWI-Prolog 9.2.9 standard library
 - Not available:
   - SWI-Prolog GUI libraries (`xpce`)
   - third-party pack downloads
@@ -294,9 +294,9 @@ uniform, and simplifies the worker's runtime bind logic.
   - `gfortran -O2 -std=f2018 -o /sandbox/solution /sandbox/source.f90`
 - Run command:
   - `/sandbox/solution`
-- Base image: `debian:bookworm-slim`
+- Base image: `debian:trixie-slim`
 - Available:
-  - gfortran 12.2.0 from Debian bookworm
+  - gfortran 14.2.0 from Debian trixie
   - `libgfortran5`, `libquadmath0`, `libgcc-s1` runtime libraries
   - Fortran 2018 standard (`-std=f2018`), free-form source (`source.f90`)
 - Not available:
@@ -311,7 +311,7 @@ uniform, and simplifies the worker's runtime bind logic.
   accept it, hence the package wrapper.)
 - Run command:
   - `/sandbox/solution`
-- Base image: compile `swift:6.3.2` with the Static Linux SDK (musl); run `debian:bookworm-slim`
+- Base image: compile `swift:6.3.2` with the Static Linux SDK (musl); run `debian:trixie-slim`
 - Available:
   - Swift 6.3 compiler, standard library, and Foundation at compile time
   - statically linked (musl) binary, so the run image carries no Swift runtime and the
@@ -325,7 +325,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/local/bin/ruby -c /sandbox/source.rb`
 - Run command:
   - `/usr/local/bin/ruby /sandbox/source.rb`
-- Base image: `ruby:4.0-slim-bookworm` for both compile and run
+- Base image: `ruby:4.0-slim-trixie` for both compile and run
 - Available:
   - Ruby 4.0 interpreter and standard library
 - Not available:
@@ -337,7 +337,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/bin/bash -n /sandbox/source.sh`
 - Run command:
   - `/bin/bash /sandbox/source.sh`
-- Base image: `debian:bookworm-slim` for both compile and run
+- Base image: `debian:trixie-slim` for both compile and run
 - Available:
   - Bash 5.2 built-ins
   - standard POSIX utilities included in the Debian slim base image
@@ -351,7 +351,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/local/bin/perl -c /sandbox/source.pl`
 - Run command:
   - `/usr/local/bin/perl /sandbox/source.pl`
-- Base image: `perl:5.42.2-slim-bookworm` for both compile and run
+- Base image: `perl:5.42.2-slim-trixie` for both compile and run
 - Available:
   - Perl 5.42.2 interpreter and core modules
 - Not available:
@@ -387,16 +387,17 @@ uniform, and simplifies the worker's runtime bind logic.
   - `ocamlopt -o /sandbox/solution /sandbox/source.ml`
 - Run command:
   - `/sandbox/solution`
-- Base images: compile `debian:bookworm-slim` + OCaml 4.14.4; run `debian:bookworm-slim`
-- Pinned: `ocaml-4.14.4` built from the official `ocaml/ocaml` GitHub tag with the stock
-  `./configure && make world.opt` (Debian bookworm's `ocaml` package tops out at 4.14.1).
-  The build toolchain stays in a throwaway builder stage, but the compile image still keeps
-  `gcc` and `binutils`: `ocamlopt` shells out to the assembler and linker at judge time.
+- Base images: compile `debian:trixie-slim` + OCaml 5.3.0; run `debian:trixie-slim`
+- Pinned: `ocaml-nox=5.3.0-3` from Debian trixie. This replaced a source build of 4.14.4
+  that existed only because bookworm's `ocaml` package is 4.13.1; bootstrapping the
+  compiler under QEMU on `linux/arm64` dominated the language-image workflow's runtime.
+  The compile image still keeps `gcc` and `binutils`: `ocamlopt` shells out to the
+  assembler and linker at judge time.
 - Native compilation (`ocamlopt`), not bytecode (`ocamlc`), so the artifact is an ordinary
   binary, the run image carries no OCaml runtime, and the sandbox needs no directory binds —
   the same model as Go and Rust.
 - Available:
-  - OCaml 4.14.4 native compiler and standard library (`List`, `Array`, `Hashtbl`, `Printf`,
+  - OCaml 5.3.0 native compiler and standard library (`List`, `Array`, `Hashtbl`, `Printf`,
     `Scanf`, etc.)
 - Not available:
   - opam, dune, or third-party packages
@@ -408,7 +409,7 @@ uniform, and simplifies the worker's runtime bind logic.
   - `/usr/local/bin/php -l /sandbox/source.php`
 - Run command:
   - `/usr/local/bin/php /sandbox/source.php`
-- Base image: `php:8.5.8-cli-bookworm` for both compile and run
+- Base image: `php:8.5.8-cli-trixie` for both compile and run
 - Available:
   - PHP 8.5.8 CLI interpreter, standard library, and the extensions bundled in the official image
 - Not available:

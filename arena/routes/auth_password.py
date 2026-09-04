@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,9 +30,15 @@ from arena.routes.auth_common import (
     _validated_login_session_started_at,
     _validated_login_uses_remember_me,
 )
+from arena.routes.auth_throttle import (
+    PASSWORD_VERIFY_ACTION,
+    check_verification_throttle,
+    record_verification_failure,
+    reset_verification_throttle,
+    throttled_response,
+)
 from arena.services import arena_auth_service, arena_password_service, user_security_notification_service, user_service
-from arena.services.session_service import post_login_redirect_url
-from arena.services.token_service import ArenaTokenAction
+from arena.services.session_service import safe_next_url
 from shared.services.auth_rate_limit import (
     build_auth_throttle_identity,
     check_auth_throttle,
@@ -91,7 +97,12 @@ async def arena_change_password_submit(
     new_password: str = Form(""),
     confirm_password: str = Form(""),
 ) -> Response:
-    """Process the password-change form (forced or voluntary mode)."""
+    """Process the password-change form (forced or voluntary mode).
+
+    The current-password check shares the ``password_verify`` throttle bucket
+    with ``POST /user/profile/2fa/disable``, keyed by user id and client IP, so
+    a hijacked session or stolen pending token cannot guess the password online.
+    """
     jwt_service = request.app.state.jwt_service
     raw_token: str = request.session.get("pending_pw_change_token", "")
 
@@ -111,9 +122,18 @@ async def arena_change_password_submit(
         flash("Session expired. Please log in again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
+    identity, retry_after = await check_verification_throttle(
+        request, session, action=PASSWORD_VERIFY_ACTION, user=usuario
+    )
+    if retry_after is not None:
+        return throttled_response(request, flash, retry_after, back_route="arena_change_password")
+
     if not usuario.check_password(current_password):
+        await record_verification_failure(request, session, identity, action=PASSWORD_VERIFY_ACTION, user=usuario)
         flash("Current password is incorrect.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_change_password")
+    # The secret verified: a policy error on the new password must not keep counting.
+    await reset_verification_throttle(request, identity)
 
     password_error = _validate_password_fields(new_password, confirm_password)
     if password_error is not None:
@@ -136,7 +156,9 @@ async def arena_change_password_submit(
             remember_me=remembered_session,
             session_started_at=session_started_at,
         )
-        if not user_security_notification_service.send_password_changed_email(usuario, request.app.state.email_service):
+        if not await user_security_notification_service.send_password_changed_email(
+            usuario, request.app.state.email_service
+        ):
             logger.warning("Password-changed notification email failed for user %s", usuario.id)
         flash("Password changed successfully.", FlashCategory.SUCCESS)
         logger.info("Voluntary password change for user %s", usuario.id)
@@ -158,29 +180,31 @@ async def arena_change_password_submit(
     )
     await session.commit()
 
-    if not user_security_notification_service.send_password_changed_email(usuario, request.app.state.email_service):
+    if not await user_security_notification_service.send_password_changed_email(
+        usuario, request.app.state.email_service
+    ):
         logger.warning("Password-changed notification email failed for user %s", usuario.id)
     logger.info("Forced password change completed for user %s", usuario.id)
     flash("Password changed successfully.", FlashCategory.SUCCESS)
-    response = RedirectResponse(url=post_login_redirect_url(usuario, next_url, request), status_code=303)
+    response = RedirectResponse(url=safe_next_url(next_url, request), status_code=303)
     _set_login_cookie(response, token=token_login, remember_me=remember_me)
     return response
 
 
 @router.get("/password-reset", response_class=HTMLResponse, name="arena_password_reset")
 async def arena_password_reset(request: Request, flash: FlashDep, token: str = "") -> Response:
-    """Render the password reset request form or the new-password form."""
+    """Render the password reset request form or the new-password form.
+
+    The token is deliberately **not** validated here. This route is anonymous
+    and unthrottled, so judging the token would answer "is this token valid,
+    and is it expired or forged?" for free and without limit -- while the
+    ``POST`` below performs the same check behind the ``password-reset``
+    throttle keyed on the token. Two verdict points, one of them free, makes
+    the throttled one pointless. The form is therefore rendered for any token
+    and the ``POST`` remains the single place a token is judged; a bad token
+    fails there, counted, with the same message this route used to show.
+    """
     templates = request.app.state.arena_templates
-    if token:
-        claims = request.app.state.jwt_service.validar(token)
-        if not claims.valid or claims.action != ArenaTokenAction.RESET_PASSWORD:
-            status = (
-                user_service.UserOperationStatus.TOKEN_EXPIRED
-                if getattr(claims, "reason", None) == "expired"
-                else user_service.UserOperationStatus.INVALID_TOKEN
-            )
-            flash(_token_failure_message(status), FlashCategory.DANGER)
-            return _redirect_to(request, "arena_login")
     return _html(
         templates.TemplateResponse(
             request,
@@ -227,7 +251,19 @@ async def arena_password_reset_submit(
             metadata={"action": "password-reset", "reason": throttle_check.reason},
         )
         await session.commit()
-        flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+        # The route serves two stages under one throttle, and only one of them
+        # has failures to report. Redeeming a token that is wrong or expired is
+        # a real failed attempt; *requesting* a link is the normal path, and it
+        # counts every time on purpose so the counter cannot reveal whether the
+        # address exists -- so telling that user their attempts failed both
+        # misdescribes what they did and argues against the enumeration defence
+        # the identical success message exists to provide.
+        flash(
+            "Too many failed attempts. Try again later."
+            if token
+            else "Too many reset requests for this address. Try again later.",
+            FlashCategory.DANGER,
+        )
         return _html(
             request.app.state.arena_templates.TemplateResponse(
                 request,

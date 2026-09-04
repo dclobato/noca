@@ -38,8 +38,11 @@ from web.services.solution_test_service import (
     get_solution_test_run,
     list_solution_test_runs_paginated,
 )
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
-router = APIRouter(prefix="/c/{slug}/solution-tests", tags=["contest_solution_tests"])
+router = APIRouter(
+    prefix="/c/{slug}/solution-tests", tags=["contest_solution_tests"], dependencies=[Depends(web_user_read_rate_limit)]
+)
 
 _ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE)
 

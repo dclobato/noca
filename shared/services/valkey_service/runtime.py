@@ -14,7 +14,7 @@ import contextlib
 import json
 import logging
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -29,12 +29,13 @@ from shared.queue_schema import (
     ContestQueueMetrics,
     CustomValidatorValidationJob,
     JudgeJob,
+    MailJob,
     ProfilingJob,
     SolutionTestJob,
     SubmissionEvent,
     VerdictEvent,
 )
-from shared.reveal_schema import RevealStateChangedEvent
+from shared.reveal_schema import RevelationEvent, parse_revelation_event
 from shared.services.valkey_service.constants import (
     ARENA_RESULTS_CHANNEL,
     QUEUE_RESULTS_CHANNEL,
@@ -48,14 +49,20 @@ from shared.services.valkey_service.contest_purge import (
     purge_contest_with_client,
 )
 from shared.services.valkey_service.errors import is_recoverable_valkey_error
+from shared.services.valkey_service.key_scan import delete_keys_with_client, scan_keys_with_client
 from shared.services.valkey_service.pool import create_valkey_pool
 from shared.services.valkey_service.revelation import (
+    fenced_publish_script,
     fenced_save_state_script,
     publish_revelation_with_client,
     revelation_channel,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class MailQueueUnavailableError(RuntimeError):
+    """Raised when a mail job could not be handed to Valkey (nothing was buffered)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +77,10 @@ class PendingCommand:
         "enqueue_arena_submission_job",
         "enqueue_arena_ai_review_job",
         "complete_arena_ai_review_job",
+        "complete_mail_job",
         "remove_from_inflight",
         "remove_from_ai_review_inflight",
+        "remove_from_mail_inflight",
         "publish_verdict",
         "publish_submission",
     ]
@@ -261,6 +270,57 @@ class ValkeyRuntime:
                 return
             raise
 
+    async def scan_keys(self, pattern: str) -> list[str] | None:
+        """Return every key matching ``pattern``, or ``None`` when Valkey cannot answer.
+
+        ``SCAN`` is O(keyspace); this is for rare administrative reads such as
+        an operator lifting a lockout, never for a request hot path. Unlike the
+        best-effort accessors above, "could not answer" is reported rather than
+        swallowed, because a caller that deletes what it found must not mistake
+        an outage for "nothing there".
+        """
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+        try:
+            keys = await scan_keys_with_client(client, pattern)
+            self._is_available = True
+            return keys
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey key scan '{pattern}' failed: {str(exc)}")
+                return None
+            raise
+
+    async def delete_keys_counted(self, keys: Sequence[str]) -> int | None:
+        """Delete ``keys`` and return how many existed, or ``None`` when Valkey cannot answer.
+
+        The counted, non-swallowing sibling of :meth:`delete`, for callers that
+        must report whether the deletion actually happened.
+        """
+        if not keys:
+            return 0
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+        try:
+            removed = await delete_keys_with_client(client, keys)
+            self._is_available = True
+            return removed
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey counted delete of {len(keys)} keys failed: {str(exc)}")
+                return None
+            raise
+
     async def hset(self, key: str, field: str, value: str) -> None:
         """Set one hash field. Best-effort; recoverable errors are swallowed."""
         client = self._client
@@ -290,6 +350,42 @@ class ValkeyRuntime:
                 logger.warning(f"Valkey hmget '{key}' failed: {str(exc)}")
                 return [None] * len(fields)
             raise
+
+    async def hmget_many(self, keys: list[str], fields: list[str]) -> list[list[str | None]] | None:
+        """Fetch the same hash fields from many keys in one pipeline round trip.
+
+        Unlike :meth:`hmget`, a recoverable failure returns ``None`` rather than
+        rows of ``None`` so a caller that caches the result can distinguish
+        "Valkey is unreachable" from "no hashes were written yet".
+
+        Args:
+            keys: Hash keys to read, in the order the rows are returned.
+            fields: Fields fetched from every key.
+
+        Returns:
+            One list per key with the stringified values (``None`` for a missing
+            field), or ``None`` when the client is missing, a recoverable error
+            occurred, or the reply does not match the request.
+        """
+        if not keys:
+            return []
+        client = self._client
+        if client is None:
+            return None
+        try:
+            pipe = client.pipeline(transaction=False)
+            for key in keys:
+                pipe.hmget(key, fields)
+            replies = cast(list[Any], await pipe.execute())
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                logger.warning(f"Valkey pipelined hmget over {len(keys)} keys failed: {str(exc)}")
+                return None
+            raise
+        if len(replies) != len(keys):
+            logger.warning(f"Valkey pipelined hmget returned {len(replies)} rows for {len(keys)} keys")
+            return None
+        return [[str(v) if v is not None else None for v in cast(list[Any], row)] for row in replies]
 
     async def hdel(self, key: str, *fields: str) -> None:
         """Delete one or more hash fields. Best-effort; recoverable errors are swallowed."""
@@ -470,6 +566,162 @@ class ValkeyRuntime:
             if is_recoverable_valkey_error(exc):
                 logger.warning(f"Valkey AI review queued-id scan failed: {str(exc)}")
                 return set()
+            raise
+
+    # ------------------------------------------------------------------
+    # Outbound email queue (mailer worker)
+    # ------------------------------------------------------------------
+
+    async def enqueue_mail_job(self, job: MailJob, *, ttl_seconds: int) -> None:
+        """Push one mail job now, or raise -- never buffer it.
+
+        Every other queue write is buffered in process memory during an outage
+        and replayed on reconnect, because its producer already committed a
+        database row the reconciler can recover from. A mail job has no such
+        row: the rendered message exists only here, and a buffered "success"
+        would be lost with the process while the caller reported it queued.
+        So the enqueue either lands in Valkey or fails loudly, and the caller
+        reports "not sent".
+
+        Raises:
+            MailQueueUnavailableError: Valkey is unreachable right now.
+        """
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            raise MailQueueUnavailableError("Valkey is unavailable; the mail job was not queued")
+        try:
+            await valkey_facade._enqueue_mail_job_with_client(client, job, ttl_seconds=ttl_seconds)
+            self._is_available = True
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey mail enqueue failed; reconnect scheduled: {str(exc)}")
+                raise MailQueueUnavailableError("Valkey is unavailable; the mail job was not queued") from exc
+            raise
+
+    async def requeue_stale_mail_job(self, job_id: str, *, max_requeue_count: int) -> str:
+        """Atomically requeue or drop one stale mail job; ``"unavailable"`` when Valkey is down."""
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return "unavailable"
+        try:
+            return await valkey_facade._requeue_stale_mail_job_with_client(
+                client, job_id, max_requeue_count=max_requeue_count
+            )
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey mail requeue failed for {job_id}; reconnect scheduled: {str(exc)}")
+                return "unavailable"
+            raise
+
+    async def dequeue_mail_job_id(self) -> str | None:
+        """Dequeue the next job_id from the mail pending queue."""
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+
+        try:
+            return await valkey_facade._dequeue_mail_job_id_with_client(client)
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey mail dequeue failed; reconnect scheduled: {str(exc)}")
+                return None
+            raise
+
+    async def remove_from_mail_inflight(self, job_id: str) -> None:
+        """Execute or buffer a remove-from-mail-inflight command."""
+        command = PendingCommand(operation="remove_from_mail_inflight", job_id=job_id)
+        try:
+            await self._execute_or_buffer(command)
+        except Exception as exc:
+            logger.error(f"Failed to remove mail job '{job_id}' from inflight list: {str(exc)}")
+
+    async def complete_mail_job(self, job_id: str) -> None:
+        """Execute or buffer terminal cleanup for a mail job."""
+        command = PendingCommand(operation="complete_mail_job", job_id=job_id)
+        try:
+            await self._execute_or_buffer(command)
+        except Exception as exc:
+            logger.error(f"Failed to complete mail job '{job_id}': {str(exc)}")
+
+    async def get_stale_mail_job_ids(self, stale_threshold_s: float) -> list[str]:
+        """Return mail job_ids inflight longer than ``stale_threshold_s``; empty when unavailable."""
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            return []
+        try:
+            return await valkey_facade._get_stale_mail_job_ids_with_client(client, stale_threshold_s)
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                logger.warning(f"Valkey stale mail job scan failed: {str(exc)}")
+                return []
+            raise
+
+    async def get_mail_job_hash(self, job_id: str) -> dict[str, str] | None:
+        """Return the mail job hash for ``job_id``, or None when expired or unavailable.
+
+        An outage answers ``None`` exactly like an expired hash, so it also
+        flips :attr:`is_available` and schedules a reconnect: the worker checks
+        that flag before treating ``None`` as "nothing to deliver".
+        """
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+        try:
+            result = await valkey_facade._get_mail_job_hash_with_client(client, job_id)
+            self._is_available = True
+            return result
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey mail job hash read failed for {job_id}; reconnect scheduled: {str(exc)}")
+                return None
+            raise
+
+    async def get_mail_queue_size(self) -> int | None:
+        """Return total mail jobs in pending + inflight queues. None on error."""
+        from shared.services import valkey_service as valkey_facade
+
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+
+        try:
+            count = await valkey_facade._get_mail_queue_size_with_client(client)
+            self._is_available = True
+            return count
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning(f"Valkey mail queue size read failed: {str(exc)}")
+                return None
             raise
 
     async def dequeue_job_id(self) -> str | None:
@@ -805,8 +1057,48 @@ class ValkeyRuntime:
             return None
         return int(cast(int, result))
 
-    async def publish_revelation(self, event: RevealStateChangedEvent) -> bool:
-        """Publish a reveal-changed nudge; report whether it reached Valkey.
+    async def fenced_publish_revelation(
+        self,
+        *,
+        controller_key: str,
+        token: str,
+        event: RevelationEvent,
+    ) -> int | None:
+        """Publish a revelation frame only while ``controller_key`` holds ``token``.
+
+        The ownership check and the ``PUBLISH`` are one Lua transaction. A caller
+        that verified ownership itself and then published in a second round trip
+        would leave a window in which the lease expires, or a takeover lands, yet
+        the former controller still reaches the projectors. Nothing is written,
+        so this is not a *fence* in the state-write sense -- there is no lost
+        update to prevent -- but it is the same guarantee applied to an action
+        whose only effect is the publication itself.
+
+        Args:
+            controller_key: The scope's controller-lease key.
+            token: The caller's opaque controller id.
+            event: The frame to broadcast.
+
+        Returns:
+            ``-1`` when ownership is not held, the subscriber count (``0``
+            included, an ordinary success) when it was published, and ``None``
+            when Valkey was unavailable -- deliberately distinct from ``-1``, so
+            an outage is never read as an ownership decision.
+        """
+        result = await self.eval(
+            fenced_publish_script(),
+            2,
+            controller_key,
+            revelation_channel(event.contest_id, event.scope),
+            token,
+            event.model_dump_json(),
+        )
+        if result is None:
+            return None
+        return int(cast(int, result))
+
+    async def publish_revelation(self, event: RevelationEvent) -> bool:
+        """Publish one revelation frame; report whether it reached Valkey.
 
         This is a best-effort, **unbuffered** publish. Unlike ``publish_verdict``
         it is deliberately not replayed through the pending-command buffer:
@@ -815,7 +1107,7 @@ class ValkeyRuntime:
         recover the true state by reloading it from the store.
 
         Args:
-            event: The invalidation nudge to broadcast.
+            event: The invalidation nudge or media cue to broadcast.
 
         Returns:
             ``True`` when the ``PUBLISH`` command reached Valkey — including when
@@ -841,12 +1133,14 @@ class ValkeyRuntime:
         scope: str,
         *,
         on_subscribed: Callable[[], None] | None = None,
-    ) -> AsyncGenerator[RevealStateChangedEvent]:
-        """Yield validated reveal-changed events for one scope until interrupted.
+    ) -> AsyncGenerator[RevelationEvent]:
+        """Yield validated revelation events for one scope until interrupted.
 
         Follows the verdict-channel pattern: each frame is validated inside a
         per-message guard, so a malformed or foreign-version payload is logged
-        and skipped rather than escaping to the caller. The channel is built from
+        and skipped rather than escaping to the caller. That guard is also what
+        lets a newer producer add a frame shape this reader does not know: an
+        unrecognized payload is dropped, never raised. The channel is built from
         validated components, so an invalid contest id or scope raises before any
         subscription is attempted.
 
@@ -863,7 +1157,7 @@ class ValkeyRuntime:
                 fails; callers must also observe generator termination.
 
         Yields:
-            Each parsed :class:`RevealStateChangedEvent`.
+            Each parsed :data:`~shared.reveal_schema.RevelationEvent`.
         """
         channel = revelation_channel(contest_id, scope)
         if self._client is None:
@@ -889,10 +1183,11 @@ class ValkeyRuntime:
             try:
                 async for message in pubsub.listen():
                     if message["type"] == "message":
-                        try:
-                            yield RevealStateChangedEvent.model_validate_json(message["data"])
-                        except Exception as exc:
-                            logger.warning("Failed to parse RevealStateChangedEvent from pub/sub: %s", exc)
+                        event = parse_revelation_event(message["data"])
+                        if event is None:
+                            logger.warning("Failed to parse revelation event from pub/sub; frame dropped")
+                            continue
+                        yield event
             except Exception as exc:
                 if is_recoverable_valkey_error(exc):
                     logger.debug("Revelation pub/sub stream interrupted; caller may reconnect: %s", exc)
@@ -1108,6 +1403,18 @@ class ValkeyRuntime:
             if command.job_id is None:
                 raise RuntimeError("complete_arena_ai_review_job pending command without job_id")
             await valkey_facade._complete_arena_ai_review_job_with_client(client, command.job_id)
+            return
+
+        if command.operation == "remove_from_mail_inflight":
+            if command.job_id is None:
+                raise RuntimeError("remove_from_mail_inflight pending command without job_id")
+            await valkey_facade._remove_from_mail_inflight_with_client(client, command.job_id)
+            return
+
+        if command.operation == "complete_mail_job":
+            if command.job_id is None:
+                raise RuntimeError("complete_mail_job pending command without job_id")
+            await valkey_facade._complete_mail_job_with_client(client, command.job_id)
             return
 
         if command.operation == "publish_verdict":

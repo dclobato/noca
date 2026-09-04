@@ -15,6 +15,7 @@
 @import url('./contest/_gateway.css');
 @import url('./contest/_forms.css');
 @import url('./contest/_code.css');
+@import url('./contest/_task-printout.css');
 @import url('./contest/_layout.css');
 @import url('./contest/_scoreboard.css');
 @import url('./contest/_balloons.css');

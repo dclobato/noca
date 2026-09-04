@@ -9,10 +9,13 @@ Este documento descreve padrões de UI e boilerplates reutilizáveis usados no p
 - [Linhas de tabela clicáveis](#linhas-de-tabela-clicáveis)
 - [Card de ação no dashboard (POST)](#card-de-ação-no-dashboard-post)
 - [Coluna de Tabela Ordenável (sort_by)](#coluna-de-tabela-ordenável-sort_by)
+- [Combobox de sugestões (nunca `<datalist>`)](#combobox-de-sugestões-nunca-datalist)
 - [Autocomplete com Estado Pendente](#autocomplete-com-estado-pendente)
 - [Destaque de Linha após CRUD](#destaque-de-linha-após-crud)
+- [Placar: densidade e célula de problema](#placar-densidade-e-célula-de-problema)
 - [Upload de Imagem com Cropper](#upload-de-imagem-com-cropper)
 - [Ícones do Material Symbols e acessibilidade](#ícones-do-material-symbols-e-acessibilidade)
+- [Shell das páginas de autenticação do Arena](#shell-das-páginas-de-autenticação-do-arena)
 
 ---
 
@@ -538,6 +541,86 @@ cada módulo tem tokens de cor próprios):
 
 ---
 
+## Combobox de sugestões (nunca `<datalist>`)
+
+Campos de texto livre com sugestões vindas do servidor (Source, Author e License
+do formulário de problema da Arena) **não** podem usar `<datalist>`. O navegador
+aplica o próprio filtro de substring sobre as `option` recebidas, então uma
+resposta que casou fora de ordem — `cutigi carlos` encontrando
+`Jorge Francisco Cutigi (IFSP, São Carlos)` — era descartada antes de aparecer, e
+o campo parecia não ter sugestão alguma. A ordenação do servidor deve ser o único
+filtro.
+
+O padrão é renderizar a própria listbox, como o seletor de categorias já fazia.
+O comportamento é de um único controlador compartilhado,
+`arena/static/js/arena-combo-listbox.js` (`createComboListbox`), que é dono do
+estado ARIA, da navegação por teclado, dos anúncios na live region, do debounce,
+do cancelamento e da renderização das opções. Cada chamador informa apenas o que
+muda — `search()`, `renderOption()`, `onSelect()` e as mensagens. Hoje são dois:
+o seletor de categorias (`admin-problem-form.js`) e as sugestões de
+Source/Author/License (`arena-suggest-combobox.js`).
+
+**Fechar cancela.** `close()` limpa o timer do debounce e aborta a requisição em
+voo. Sem isso, uma resposta que chega depois de um blur ou de um `Escape`
+reabre a listbox que o usuário acabou de dispensar. O contrato assíncrono é
+verificado em `tests/arena/js/combo-listbox.test.cjs` (executado por
+`tests/arena/test_combo_listbox_js.py`).
+
+As classes ficam em `arena/static/css/arena/_admin.css` e são compartilhadas
+pelos dois:
+
+- `.arena-combo` — o container posicionado (`position: relative`)
+- `.arena-combo-dropdown` (+ `.open`) — a listbox absoluta
+- `.arena-combo-dropdown-item` (+ `.is-active`) e `.arena-combo-dropdown-empty`
+
+Marcação mínima (o comportamento vem de
+`arena/static/js/arena-suggest-combobox.js`, que liga qualquer
+`input[data-suggestions-url][data-suggestions-field]`):
+
+```jinja2
+<div class="arena-combo">
+    <input type="text"
+           class="form-control"
+           id="source"
+           name="source"
+           autocomplete="off"
+           role="combobox"
+           aria-autocomplete="list"
+           aria-expanded="false"
+           aria-controls="source-suggestions"
+           aria-activedescendant=""
+           data-suggestions-url="{{ request.url_for('arena_admin_problem_suggestions') }}"
+           data-suggestions-field="source">
+    <div class="arena-combo-dropdown"
+         id="source-suggestions"
+         role="listbox"
+         aria-label="Source suggestions"></div>
+    <div class="visually-hidden"
+         data-suggest-status
+         role="status"
+         aria-live="polite"
+         aria-atomic="true"></div>
+</div>
+```
+
+Regras:
+
+- Cada termo precisa de 3 letras ou dígitos, espelhando o servidor: abaixo
+  disso nenhum ramo da busca é indexável e o endpoint recusa a consulta em vez
+  de varrer a tabela. O campo mostra a dica ("Type at least 3 letters or digits
+  per word.") em vez de uma lista vazia, que o autor leria como "não há nada".
+- Debounce de 250 ms e `AbortController` por campo.
+- Opções são criadas com `textContent` (nunca `innerHTML`).
+- O cliente **não** filtra: a ordenação do servidor é exibida como veio.
+- Escolher uma opção dispara `input` e `change` para que a validação do
+  formulário e o guarda de alterações não salvas enxerguem o valor.
+- `Enter` só é interceptado enquanto há opção destacada; caso contrário o
+  formulário ainda é submetido.
+- O controlador compartilhado precisa ser carregado antes de seus chamadores no
+  template.
+
+---
+
 ## Autocomplete com Estado Pendente
 
 ### Visão Geral
@@ -833,6 +916,18 @@ Regras de UX das páginas de julgamento:
   validador também ficam em uma região de status.
 - No editor de definição, validação nativa ou do servidor abre o painel que contém o
   primeiro erro, associa texto persistente ao campo e leva o foco até ele.
+- O formulário de definição carrega `data-noca-draft="{{ view.draft_key }}"`
+  (`noca-form-draft.js`): um rascunho do formulário fica no navegador, restrito à
+  conta que o escreveu, e um Save que esbarra em sessão expirada não perde o texto.
+  Os avisos do módulo -- oferta de restauração (`alert-warning`, com **Restore
+  draft**, **Discard draft** e **Not now**), falha de armazenamento e resultado da
+  sondagem de sessão antes do Save (`alert-danger` para sessão expirada,
+  `alert-warning` com **Save anyway** quando não deu para verificar) -- entram no
+  mesmo slot de avisos do shell (`data-noca-draft-slot`), abaixo da barra de ações.
+  Restaurar é sempre uma escolha do autor, nunca automático; arquivos (ilustração,
+  PDF do enunciado) não fazem parte do rascunho e o aviso diz isso. Inputs ocultos
+  de estado de navegação levam `data-noca-draft-ignore`. Ver
+  `docs/SHARED_SERVICES.md`.
 - No Arena, Metadata divide campos em **Identity and attribution**, **Execution limits** e
   **Publication details**. Campos raros de notas e licença ficam em disclosure explícito,
   aberto automaticamente quando já possui algum valor.
@@ -1744,6 +1839,157 @@ se o template está usando `?v={{ current_user.dta_foto or '0' }}`.
 
 ---
 
+## Placar: densidade e célula de problema
+
+Três superfícies desenham a **mesma** célula de placar: o placar do Contest
+(`web/template/contest/scoreboard.html`), o placar ao vivo do animator e o
+projetor da cerimônia de revelação (ambos via `fillProblemCell` em
+`animator/static/js/animator-render.js`). A regra existia duplicada em dois
+stylesheets de módulo que se copiavam à mão; hoje ela vive uma única vez em
+`shared/static/css/common.css`.
+
+### A célula tem no máximo duas linhas
+
+`.noca-problem-cell-inner` **não tem piso de altura**. O antigo
+`min-height: 5rem` deixava 80px de altura até numa linha de células vazias, e
+esse custo era pago 40+ vezes por placar. A altura da linha passa a ser definida
+pela coluna de time, que é a única sempre com duas linhas.
+
+- Linha 1 de um AC: o minuto da solução.
+- Linha 2 (`.noca-cell-note`, `0.8em`): as tentativas e a penalidade que elas
+  custaram.
+
+**Tentativas e penalidade nunca se separam em duas linhas.** Elas descrevem as
+mesmas falhas, e separá-las fazia a mesma informação mudar de forma no momento
+da revelação (`+2 (40')` numa linha depois de `−5` e `(100')` em duas). No
+animator quem monta essa linha é `formatAttemptLine()` em `cell-format.js`; o
+Jinja do Contest é uma terceira renderização do mesmo texto, em outra linguagem,
+e `tests/fixtures/scoreboard_cell_cases.json` prende as três aos mesmos casos.
+
+### O balão fica no cabeçalho da coluna, nunca na célula
+
+Repetir o balão em cada célula é o que exigia o piso de 5rem. A coluna já é
+identificada pelo balão do cabeçalho, com a letra do problema dentro da arte.
+
+- **`.animator-balloon` é exclusiva do cabeçalho.** Ela fixa `height: 2.4rem`, e
+  como carrega depois de `common.css` venceria por ordem de origem se fosse
+  aplicada à estrela dentro da célula.
+- Só o **primeiro AC** leva marca na célula: `.noca-cell-first-mark`, um glifo
+  `★` desenhado *dentro* da linha do minuto, portanto sem custo de altura. É um
+  glifo e não a arte de `/assets/star`: com uma linha de altura, aquele SVG
+  mostrava mais disco branco e contorno do que cor. É decorativo
+  (`aria-hidden`), porque o texto visualmente oculto já é o anúncio acessível.
+
+### A cor do balão chega às células por `--noca-cell-balloon`
+
+Não pode ser classe: `problems.color` é `String(7)` livre e o formulário de
+administração oferece um seletor de cor nativo ao lado da paleta de 18, então o
+espaço de valores é todo hex existente. A cor chega por **um bloco `<style>` por
+render, indexado pela posição da coluna** — o Jinja emite o do Contest dentro de
+`#scoreboard-live` (sobrevive ao swap HTMX); `renderProblemColors()` cria e
+preenche o do animator a partir do JS, porque os dois templates do animator
+exigem que o HTML servido não traga nada inline.
+
+**Os dois emissores validam o hex antes de ele chegar à folha de estilo.** A rota
+`/assets/balloon/<color>` responde 400 a um valor inválido; uma folha de estilo
+executaria o que recebesse. Coluna cujo valor não valida simplesmente fica sem
+cor (e o cabeçalho mostra a letra em vez de pedir uma imagem quebrada).
+
+Consomem `--noca-cell-balloon`: a barra de 3px em `.noca-cell-balloon-edge`, o
+glifo da estrela, o contorno de primeiro AC e o tint da célula com AC.
+
+### Estado da célula
+
+O tint de um AC é a **cor do balão do problema**, não um verde semântico: o que
+a célula informa é *qual balão* aquele time ganhou, e só a cor diz qual. Tentado
+e pendente não têm balão a nomear, então ali a cor é a semântica — mas mantida
+bem abaixo do tint de AC (8% contra a superfície), porque numa saturação maior
+elas passam a ser lidas como se fossem elas próprias cores de balão, que é
+exatamente o que um tint de estado nunca pode fazer neste placar.
+
+Pelo mesmo motivo o **texto da célula é neutro**: `--noca-on-surface` na linha
+principal e `--noca-on-surface-variant` em `.noca-cell-note`. Nada de
+`text-success` / `text-danger` / `text-warning-emphasis` — o glifo (`−3`, `?`) e
+o tint já nomeiam o estado, e vermelho saturado disputa a atenção com a única
+cor que deveria ser forte no placar.
+
+`.noca-problem-cell--first` não define fundo — só contorno e a estrela — e por
+isso empilha sobre `--solved` sem regra combinada.
+
+**Especificidade importa aqui.** O Bootstrap pinta o fundo da célula em
+`.table > :not(caption) > * > *`, especificidade (0,1,1); uma classe sozinha é
+(0,1,0) e perde sempre, então o tint do Contest é escrito como
+`.noca-scoreboard-table td.noca-problem-cell--solved`.
+
+O destaque da própria equipe (`.noca-own-team-row > td`) é um
+**`background-image`**, não um `background-color`. Duas cores de fundo no mesmo
+`<td>` resolvem para um vencedor, não se misturam; como camadas distintas elas
+compõem de verdade, e a linha que mais interessa ao participante continua sendo
+aquela em que dá para ver o estado de cada problema.
+
+### Largura: `table-layout: fixed` com **todas** as colunas dimensionadas
+
+Assim o navegador distribui a sobra entre as colunas numa tela larga e só
+transborda (para `.table-responsive` / `.animator-board-scroll`) quando o placar
+realmente não cabe. Deixar **uma** coluna sem largura faz ela colapsar para zero
+quando as demais esgotam a tabela — por isso a coluna de time também é
+dimensionada.
+
+Não reutilize `.noca-fixed-table`: ela acompanha `overflow-wrap: anywhere`, que
+quebraria `+2 (40')` no meio do token dentro de uma coluna de 4rem.
+
+O scroll horizontal é **adiado, não eliminado**. Eliminá-lo exigiria remover a
+linha de penalidade ou esconder números atrás de `title=`, inalcançável no
+toque.
+
+### A faixa/pílula de congelado diz o quanto está oculto
+
+A única pergunta que um placar congelado levanta é "quanto eu *não* estou
+vendo?". A faixa do Contest (`.noca-scoreboard-status-band--frozen`) e a pílula
+do animator respondem isso direto — `Scoreboard Frozen · last 35 min hidden` —
+em vez de deixar o leitor subtrair um horário de congelamento de um cronômetro.
+
+A janela é medida **até agora** enquanto a prova corre e **até o fim** depois que
+ela acaba, porque são quantidades diferentes: um placar congelado há 35 minutos
+esconde 35 minutos, não a hora inteira que o regulamento reservou. Isso também
+faz o número depender de `end_time` só depois do fim, quando o fim já não pode
+mudar. Janela desconhecida, absurda ou menor que um minuto: mostra só o estado,
+sem número — um número errado ali é lido como autoritativo.
+
+O texto vem de `format_hidden_window()` (`web/services/assorted_utils.py`) e de
+`formatHiddenWindow()` (`animator/static/js/animator-render.js`). São gêmeos em
+linguagens diferentes; mudar um obriga a mudar o outro.
+
+### Movimento e medalhas
+
+- `--animator-row-motion-duration` / `--animator-row-motion-easing` são
+  declarados por superfície (`.animator-root`, `.ceremony-root`). A curva é um
+  ease-in-out simétrico: a linha sai devagar, cobre a distância no meio do
+  percurso e assenta. Uma curva acelerada no início esconde justamente o momento
+  em que a plateia percebe que a equipe está subindo.
+- `--animator-medal-watermark-size` é **maior que a linha de propósito**. A
+  marca d'água é recortada nos quatro lados pelo `overflow: hidden` da célula de
+  time, e esse transbordo é o efeito, não um efeito colateral. Compactar a linha
+  **não** deve encolhê-la para caber: um valor que coubesse pararia de
+  transbordar na vertical e perderia a leitura de marca d'água.
+
+### Dados no projetor não descem abaixo de `--noca-type-body`
+
+`.animator-cell` não define `font-size`. `DESIGN.md` documenta
+`--noca-type-body` como o menor tamanho que uma plateia lê à distância, então a
+linha é compactada removendo arte, piso de altura e padding excedente — nunca
+diagramando o dado menor. Onde a coluna fica curta, ela é **alargada**. O placar
+do Contest é uma superfície operacional de desktop e usa `0.875rem`.
+
+### Assimetria conhecida entre as superfícies
+
+O Contest desenha **um** `?` para uma célula pendente; `ProblemResult.is_pending`
+é booleano e só os feeds do animator carregam `pending_frozen_count`. Não
+acrescente esse campo ao projeto do Contest: a visão congelada omite essa
+contagem de propósito.
+
+---
+
 ## Identidade visual compartilhada (tokens e tema)
 
 A identidade visual dos módulos web (Contest) e arena (Arena) é unificada por uma
@@ -1865,3 +2111,48 @@ O nome público da marca vem de `NOCA_WEB_BRAND_NAME` / `NOCA_ARENA_BRAND_NAME`
 (ver `docs/CONFIG.md`), injetado nos templates como o global `brand_name` e nos
 e-mails do Arena por `arena/services/email_rendering.py`. Use `{{ brand_name }}`
 em vez de escrever "NOCA Arena"/"NOCA Contest" literalmente.
+
+---
+
+## Shell das páginas de autenticação do Arena
+
+**Toda** página sob `arena/template/auth/` usa o mesmo shell de duas colunas
+(`_auth-flow.css`): um painel de boas-vindas colorido à esquerda e o cartão de
+conteúdo à direita.
+
+```jinja
+<div class="container arena-auth-flow-page my-auto">
+    <div class="arena-auth-flow-shell">
+        <aside class="arena-auth-flow-welcome">
+            <div class="arena-auth-flow-welcome-copy">
+                <p class="arena-auth-flow-welcome-title">Frase curta.</p>
+                <p class="arena-auth-flow-welcome-text">Uma linha de contexto.</p>
+            </div>
+            <img class="arena-auth-flow-mascot"
+                 src="{{ request.url_for('arena_static_img', path='welcome.webp') }}"
+                 alt="">
+        </aside>
+        <main class="arena-auth-card arena-auth-flow-card">
+            <div class="arena-auth-flow-heading">
+                <h1 class="arena-auth-title">Título da página</h1>
+                <p class="arena-auth-subtitle">Subtítulo.</p>
+            </div>
+            ...
+        </main>
+    </div>
+</div>
+```
+
+Regras:
+
+- O cabeçalho centralizado antigo (`arena-auth-logo` + tagline "Competitive
+  Judge" + rótulo "ARENA") **não existe mais**: as três classes foram removidas de
+  `_auth.css` justamente porque sobreviveram em poucas páginas e faziam essas telas
+  parecerem outro produto. Não reintroduza esse cabeçalho.
+- O título da página é o `<h1>` dentro de `.arena-auth-flow-heading`, nunca a marca.
+- O mascote é opcional e **tonal**: páginas que pedem uma decisão séria (retirar
+  consentimento parental) o omitem, e o painel fica como campo de cor.
+- Páginas com texto corrido em vez de formulário acrescentam
+  `arena-auth-flow-page--prose`, que alarga o shell e dá mais espaço ao cartão; sem
+  isso a medida de leitura fica em torno de 40 caracteres.
+- O rodapé de links do cartão é `.arena-auth-flow-footer`.

@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -40,6 +42,56 @@ async def get_contest_problems(session: AsyncSession, contest: Contest) -> list[
         .order_by(Problem.ordinal, Problem.id)
     )
     return list(result.scalars().all())
+
+
+@dataclass(frozen=True, slots=True)
+class ContestProblemRef:
+    """The little a download route needs before it knows what to serve.
+
+    Resolving a problem label costs one indexed query over four scalar columns
+    here, instead of the whole eager graph :func:`get_contest_problems` loads for
+    every problem in the contest. The statement route needs nothing more at all,
+    and the export route needs more only when its cache misses and it has to
+    build the package.
+    """
+
+    id: str
+    ordinal: int
+    title: str
+    public_export_generation: int
+
+
+async def get_contest_problem_refs(session: AsyncSession, contest: Contest) -> list[ContestProblemRef]:
+    """Load the contest's problems as label-resolution references, by ordinal.
+
+    Args:
+        session: Open database session.
+        contest: The contest whose problems to list.
+
+    Returns:
+        One reference per problem, ordered exactly as
+        :func:`get_contest_problems` orders them, so a label resolves to the same
+        problem through either path.
+    """
+    result = await session.execute(
+        select(
+            Problem.id,
+            Problem.ordinal,
+            Problem.title,
+            Problem.public_export_generation,
+        )
+        .where(Problem.contest_id == contest.id)
+        .order_by(Problem.ordinal, Problem.id)
+    )
+    return [
+        ContestProblemRef(
+            id=row.id,
+            ordinal=row.ordinal,
+            title=row.title,
+            public_export_generation=row.public_export_generation,
+        )
+        for row in result
+    ]
 
 
 async def get_problem_in_contest(session: AsyncSession, contest: Contest, problem_id: str) -> Problem | None:

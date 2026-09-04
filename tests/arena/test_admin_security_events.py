@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,6 +17,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.database import get_db
 from shared.db_schema import security_events
 from shared.services.security_events import record_security_event
 from shared.services.security_events_export import CSV_HEADER
@@ -191,6 +192,29 @@ async def test_security_events_csv_exports_all_rows_ignoring_filters(session: As
     exported = {row[2] for row in rows[1:]}
     assert {"arena_csv_event_0", "arena_csv_event_1", "arena_csv_event_2", "ai_csv_event"} <= exported
     assert "web_csv_event" not in exported
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_opens_exactly_one_session(session: AsyncSession) -> None:
+    """The stream reads through the dependency's session; it must not open a second (#198)."""
+    app = _build_app(session)
+    session_factory = app.state.arena_db_session
+    opened = 0
+
+    def counted_session_factory() -> AsyncSession:
+        nonlocal opened
+        opened += 1
+        return session_factory()
+
+    app.state.arena_db_session = counted_session_factory
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/security-events.csv")
+
+    assert response.status_code == 200
+    # The dependency's session comes from the factory unless the harness injects
+    # it through an override; either way, a second count is a nested session.
+    assert opened == (0 if get_db in app.dependency_overrides else 1)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,18 +9,25 @@
 Owned by the rating worker's badge-assignment loop. :func:`compute_badge_awards`
 evaluates the relevant Accepted submissions and writes rows into the append-only
 ``arena_user_badges`` ledger. Every operation is idempotent (unique
-``(user_id, badge)`` constraint, order-independent streak recompute, award-only
-CLEAN_CODE), so reprocessing an AC is harmless. The incremental pass is a
-performance optimization bounded by a watermark; correctness is owned by the
-periodic full-reconcile pass that re-evaluates all AC history.
+``(user_id, badge)`` constraint, order-independent streak recompute), so
+reprocessing an AC is harmless. The incremental pass is a performance
+optimization bounded by a watermark; correctness is owned by the periodic
+full-reconcile pass that re-evaluates all AC history.
 
-Data access lives in ``arena_badge_data`` and the aggregate/dynamic rules
-(streaks, CLEAN_CODE, FULL_CLEAR) in ``arena_badge_rules``. See
+The ledger is append-only for every badge but CLEAN_CODE, which records a
+*rank* rather than an event and so must also be revoked as faster solvers
+arrive. That reconciliation runs on the full pass only, since ranking a
+problem's population requires having loaded all of it.
+
+Data access lives in ``arena_badge_data``, the aggregate rules (streaks,
+problem counts, FULL_CLEAR) in ``arena_badge_rules``, and the dynamic
+CLEAN_CODE rule in ``arena_badge_rules_cleancode``. See
 ``docs/SHARED_SERVICES.md`` and ``docs/ARCHITECTURE.md`` for the model.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytz
@@ -40,21 +47,19 @@ from shared.services.arena_badge_data import (
     save_state,
     timezone_name,
 )
-from shared.services.arena_badge_rules import (
-    award_clean_code,
-    award_full_clear,
-    award_problem_counts,
-    award_streaks,
-)
+from shared.services.arena_badge_rules import award_full_clear, award_problem_counts, award_streaks
 from shared.services.arena_badge_rules_catalogue import (
     award_first_solver,
     award_languages,
     award_rock_cracker,
 )
+from shared.services.arena_badge_rules_cleancode import reconcile_clean_code
 from shared.services.arena_badge_rules_sequences import award_lococoder, award_this_is_the_way
 from shared.services.arena_badge_rules_sets import award_almost_late, award_first_to_hand_in
 
 __all__ = ["award_badge", "compute_badge_awards"]
+
+_LOGGER = logging.getLogger(__name__)
 
 _NEVER_GIVE_UP_WA = 5
 _NIGHT_START_HOUR = 0
@@ -104,7 +109,6 @@ async def compute_badge_awards(
         owned = await load_owned_badges(session, {e.user_id for e in events})
         awarded += await _award_per_ac(session, events, history, owned)
         awarded += await award_full_clear(session, events, owned)
-        awarded += await award_clean_code(session, {e.problem_id for e in events})
         awarded += await award_streaks(session, events)
         awarded += await award_problem_counts(session, events)
         awarded += await award_languages(session, events)
@@ -115,6 +119,17 @@ async def compute_badge_awards(
         awarded += await award_this_is_the_way(session, events)
     if non_ac_events:
         awarded += await award_lococoder(session, non_ac_events)
+    if full_reconcile:
+        # CLEAN_CODE ranks each problem's whole solver population and revokes, so it
+        # runs only here, where the pass has loaded all of it. See
+        # shared/services/arena_badge_rules_cleancode.py.
+        clean_awarded, clean_revoked = await reconcile_clean_code(session)
+        awarded += clean_awarded
+        _LOGGER.info(
+            "CLEAN_CODE reconciled: %d awarded, %d revoked",
+            clean_awarded,
+            clean_revoked,
+        )
 
     batch_max = max(
         [e.finished_at for e in events] + [e.finished_at for e in non_ac_events],

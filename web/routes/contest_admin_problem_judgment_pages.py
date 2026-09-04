@@ -32,6 +32,7 @@ from shared.services.interaction_pending_ops import (
     submitted_interaction_rows,
 )
 from shared.services.problem_editor_save import lock_problem_row
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_problem_helpers import _html, _is_edit_allowed, _redirect
@@ -166,6 +167,9 @@ async def problem_judgment_interactions_save(
                 errored,
                 "Correct the highlighted interaction and save again.",
             )
+    # After the loop: a rejected item rolls the transaction back above, which
+    # would discard a bump made before it.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
 
     flash(f"{len(pending)} sample interaction(s) added.", FlashCategory.SUCCESS)
@@ -224,6 +228,8 @@ async def problem_judgment_interaction_delete(
         flash("Sample interaction not found.", FlashCategory.DANGER)
         return _redirect(page_url)
     await remove_sample_interaction_and_resequence(ctx.session, problem, interaction)
+    # Sample interactions are public package members.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
 
     flash("Sample interaction removed.", FlashCategory.SUCCESS)

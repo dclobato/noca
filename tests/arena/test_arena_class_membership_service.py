@@ -465,3 +465,44 @@ async def test_decide_already_decided_rejected(session: AsyncSession) -> None:
             approve=True,
             on_date=TODAY,
         )
+
+
+@pytest.mark.asyncio
+async def test_denied_student_must_wait_before_requesting_again(session: AsyncSession, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Every request emails the teacher, so a denied student cannot re-request in a loop."""
+    from datetime import UTC, datetime
+
+    from arena.config import settings
+    from arena.models.arena_classes import ArenaClassRegistrationRequest
+
+    monkeypatch.setattr(settings, "CLASS_REGISTRATION_RETRY_SECONDS", 3600)
+    judge, class_id = await _make_class(session)
+    student = await _make_user(session, role=ArenaRole.ARENA_USER)
+    first = await request_registration(session, user_id=student.id, class_id=class_id)
+    await decide_registration(
+        session,
+        actor_id=judge.id,
+        actor_role=ArenaRole.ARENA_JUDGE,
+        request_id=first.id,
+        approve=False,
+        on_date=TODAY,
+    )
+
+    with pytest.raises(ArenaClassValidationError, match="denied recently"):
+        await request_registration(session, user_id=student.id, class_id=class_id)
+
+    # The wait is measured from the denial: an old one no longer blocks.
+    denied = await session.get(ArenaClassRegistrationRequest, first.id)
+    assert denied is not None
+    denied.decided_at = datetime.now(UTC) - timedelta(hours=2)
+    await session.flush()
+    second = await request_registration(session, user_id=student.id, class_id=class_id)
+    assert second.status == ArenaClassRegistrationStatus.PENDING.value
+
+    # And the knob's 0 disables the wait entirely.
+    await decide_registration(
+        session, actor_id=judge.id, actor_role=ArenaRole.ARENA_JUDGE, request_id=second.id, approve=False, on_date=TODAY
+    )
+    monkeypatch.setattr(settings, "CLASS_REGISTRATION_RETRY_SECONDS", 0)
+    third = await request_registration(session, user_id=student.id, class_id=class_id)
+    assert third.status == ArenaClassRegistrationStatus.PENDING.value

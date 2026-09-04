@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -460,19 +460,23 @@ async def class_request_registration(
             source_ref=reg_request.id,
         )
         await session.commit()
-        arena_class_email_service.send_class_registration_request_email(
-            teacher_email=class_detail.teacher_email,
-            teacher_name=class_detail.teacher_name,
-            student_name=user_or_redirect.nome,
-            class_name=class_detail.name,
-            members_url=members_url,
-            email_service=request.app.state.email_service,
-        )
     except (ArenaClassNotFoundError, ArenaClassValidationError) as exc:
         await session.rollback()
         flash(str(exc), FlashCategory.WARNING)
         open_url = str(request.url_for("arena_classes_open"))
         return _redirect_with_hash(open_url, f"class-{class_id}")
+    # Best-effort and after the commit: a delivery failure must neither roll back
+    # a request that now exists nor mis-flash it as refused. The requesting
+    # student is the actor whose email budget this charges.
+    await arena_class_email_service.send_class_registration_request_email(
+        teacher_email=class_detail.teacher_email,
+        teacher_name=class_detail.teacher_name,
+        student_name=user_or_redirect.nome,
+        class_name=class_detail.name,
+        members_url=members_url,
+        email_service=request.app.state.email_service,
+        actor_key=f"user:{user_or_redirect.id}",
+    )
     flash("Registration request sent.", FlashCategory.SUCCESS)
     registered_url = str(request.url_for("arena_classes_registered"))
     return _redirect_with_hash(registered_url, f"class-{class_id}")

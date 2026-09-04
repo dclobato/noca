@@ -9,22 +9,22 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned base: debian:bookworm-slim
-# Pinned: lua-5.5.0 (source build from lua.org; Debian bookworm's lua5.4 apt
-# package tops out at 5.4.4, so 5.5.0 is built with `make linux` in a throwaway
+# Pinned base: debian:trixie-slim
+# Pinned: lua-5.5.0 (source build from lua.org; Debian trixie's lua5.4 apt
+# package tops out at 5.4.7, so 5.5.0 is built with `make linux` in a throwaway
 # builder stage and only the resulting binaries are copied into this image —
 # no build toolchain ships in the long-lived pool container).
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a AS lua-builder
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS lua-builder
 
 ARG LUA_VERSION=5.5.0
 ARG LUA_SHA256=57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl ca-certificates \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends build-essential curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fSL "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" -o /tmp/lua.tar.gz \
     && echo "${LUA_SHA256}  /tmp/lua.tar.gz" | sha256sum -c - \
@@ -33,12 +33,12 @@ RUN apt-get update \
     && make -C /tmp/lua-src linux -j"$(nproc)" \
     && make -C /tmp/lua-src install INSTALL_TOP=/usr/local
 
-FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin/isolate

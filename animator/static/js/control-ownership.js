@@ -51,10 +51,43 @@
     },
   };
 
+  // The projector readout: how many `/reveal/events` streams the server counts
+  // in this scope, reported on every successful lease operation. `undefined`
+  // means the server has not reported (nothing is rendered); `null` means it
+  // could not tell, which is shown as such -- an outage must never look like an
+  // empty hall.
+  function projectorCopy(count) {
+    if (count === null) {
+      return { text: "Projector count unavailable", modifier: "is-unknown" };
+    }
+    if (count === 0) {
+      return { text: "No projectors connected", modifier: "is-empty" };
+    }
+    return { text: count + (count === 1 ? " projector" : " projectors") + " connected", modifier: "" };
+  }
+
   function createOwnershipController(deps) {
     var state = "pending";
     var takeoverPending = false;
     var retryPending = false;
+    var projectorCount;
+
+    function renderProjectors() {
+      var el = deps.elements && deps.elements.projectors;
+      if (!el) {
+        return;
+      }
+      if (state !== "active" || projectorCount === undefined) {
+        el.hidden = true;
+        el.textContent = "";
+        el.className = "control-projectors";
+        return;
+      }
+      var copy = projectorCopy(projectorCount);
+      el.textContent = copy.text;
+      el.className = "control-projectors" + (copy.modifier ? " " + copy.modifier : "");
+      el.hidden = false;
+    }
 
     function render(nextState) {
       state = nextState;
@@ -68,15 +101,24 @@
         deps.elements.takeover.disabled = takeoverPending;
         deps.elements.retry.disabled = retryPending;
       }
+      renderProjectors();
       deps.setCommandsEnabled(state === "active");
       if (deps.onState) {
         deps.onState(state);
       }
     }
 
-    function handleLeaseState(nextState) {
+    function handleLeaseState(nextState, detail) {
       takeoverPending = false;
       retryPending = false;
+      // Only a lease payload carries the count; an error detail never does, and
+      // a state without one (pending, released) forgets the last reading rather
+      // than showing a stale number under a badge that no longer means control.
+      if (nextState === "active" && detail && Object.prototype.hasOwnProperty.call(detail, "projector_count")) {
+        projectorCount = detail.projector_count;
+      } else if (nextState !== "active") {
+        projectorCount = undefined;
+      }
       render(nextState);
     }
 
@@ -126,11 +168,15 @@
       state: function () {
         return state;
       },
+      projectorCount: function () {
+        return projectorCount;
+      },
     };
   }
 
   return {
     COPY: COPY,
+    projectorCopy: projectorCopy,
     createOwnershipController: createOwnershipController,
   };
 });

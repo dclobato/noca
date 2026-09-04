@@ -33,8 +33,9 @@ from web.services.submission_service import (
     list_submissions,
     normalize_submission_sort,
 )
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
-router = APIRouter(prefix="/c/{slug}/runs", tags=["contest_runs"])
+router = APIRouter(prefix="/c/{slug}/runs", tags=["contest_runs"], dependencies=[Depends(web_user_read_rate_limit)])
 
 
 @router.get("/", response_class=HTMLResponse, name="contest_runs")

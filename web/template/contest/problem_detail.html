@@ -35,7 +35,9 @@
                      alt="Problem {{ label }} balloon">
                 <div>
                     <h1 class="h3 mb-1">{{ problem.title }}</h1>
-                    <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+                    {% if problem.author %}
+                        <p class="text-muted mb-0">{{ render_icon(icon="person", classes="me-1") }}By {{ problem.author }}</p>
+                    {% endif %}
                 </div>
             </div>
             <div class="d-flex gap-2">

@@ -1,0 +1,112 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Terms of Service{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_terms %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="row justify-content-center">
+            <div class="col-12 col-xl-9">
+                <div class="arena-card mb-3">
+                    <h1 class="arena-card-title mb-3">
+                        {{ render_icon(icon="gavel") }}
+                        Terms of Service
+                    </h1>
+                    <p class="text-muted mb-4">
+                        After publishing new Terms of Service or a new Privacy Policy, require Arena users to
+                        accept the current documents before they continue.
+                    </p>
+                    <dl class="row gy-3 mb-0 border-top border-bottom py-3">
+                        <div class="col-6 col-lg-3">
+                            <dt class="text-muted small text-uppercase">Affected now</dt>
+                            <dd class="fs-4 fw-semibold mb-0">
+                                {{ affected }}
+                            </dd>
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <dt class="text-muted small text-uppercase">Arena users</dt>
+                            <dd class="fs-4 fw-semibold mb-0">
+                                {{ stats.total_users }}
+                            </dd>
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <dt class="text-muted small text-uppercase">Already awaiting</dt>
+                            <dd class="fs-4 fw-semibold mb-0">
+                                {{ stats.pending }}
+                            </dd>
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <dt class="text-muted small text-uppercase">Latest acceptance</dt>
+                            <dd class="fw-semibold mb-0">
+                                {% if stats.last_accepted_at %}
+                                    {{ stats.last_accepted_at.strftime("%Y-%m-%d %H:%M") }} UTC
+                                {% else %}
+                                    None recorded
+                                {% endif %}
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+                {% if affected %}
+                    <section class="arena-card border-danger"
+                             aria-labelledby="terms-reset-heading">
+                        <h2 class="h5 text-danger mb-3" id="terms-reset-heading">
+                            {{ render_icon(icon="warning") }}
+                            Require acceptance for {{ affected }} user{{ "s" if affected != 1 else "" }}
+                        </h2>
+                        <p class="mb-3">
+                            Use this only after the new documents are published. Submitting this form takes
+                            effect immediately:
+                        </p>
+                        <ul class="mb-3">
+                            <li>Affected users are signed out of every active Arena session.</li>
+                            <li>They must accept the current documents before they can continue.</li>
+                            <li>Their previous acceptance dates are permanently removed.</li>
+                        </ul>
+                        <p class="text-muted small mb-4">
+                            Your administrator account remains signed in and is recorded as accepting the
+                            current documents now. The operation is recorded in the security audit log.
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for("arena_admin_terms_reset") }}"
+                              data-confirm="Require {{ affected }} Arena user{{ "s" if affected != 1 else "" }} to accept the current documents? They will be signed out immediately, and their previous acceptance dates cannot be recovered.">
+                            <div class="mb-3 arena-filter-search">
+                                <label class="form-label" for="confirm-pw-terms-reset">Confirm with your password</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="confirm-pw-terms-reset"
+                                       name="confirm_password"
+                                       autocomplete="current-password"
+                                       required>
+                            </div>
+                            <div class="d-grid d-sm-block">
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    {{ render_icon(icon="restart_alt") }}
+                                    Require acceptance for {{ affected }} user{{ "s" if affected != 1 else "" }}
+                                </button>
+                            </div>
+                        </form>
+                    </section>
+                {% else %}
+                    <section class="arena-card" aria-labelledby="terms-reset-empty-heading">
+                        <h2 class="h5 text-success mb-2" id="terms-reset-empty-heading">
+                            {{ render_icon(icon="check_circle") }}
+                            No reset is needed
+                        </h2>
+                        <p class="text-muted mb-0">
+                            No other account has an acceptance on file. Users who have not yet accepted the
+                            current documents are already stopped at the acceptance gate.
+                        </p>
+                    </section>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

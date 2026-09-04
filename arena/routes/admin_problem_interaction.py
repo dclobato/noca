@@ -29,6 +29,7 @@ from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.services import admin_problem_interaction_service
 from shared.http_params import PG_INT32_MAX
 from shared.services.editor_urls import editor_url
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.sample_interactions import InteractionParseError, parse_interaction_text, transcript_to_text
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -122,6 +123,7 @@ async def arena_admin_problem_interaction_update(
         transcript=parsed,
         explanation=explanation.strip() or None,
     )
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
     flash(f"Sample interaction #{interaction.ordinal} updated.", FlashCategory.SUCCESS)
     return RedirectResponse(editor_url(edit_url, anchor=f"si-{interaction.id}"), 303)
@@ -145,6 +147,7 @@ async def arena_admin_problem_interaction_move(
     interaction = await _get_interaction_or_404(session, problem.id, si_id)
 
     await admin_problem_interaction_service.move_interaction(session, interaction, new_ordinal)
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
 
     interactions = await admin_problem_interaction_service.list_interactions(session, problem.id)

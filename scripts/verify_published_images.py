@@ -57,6 +57,7 @@ _APP_TARGETS = (
     "healthmonitor",
     "animator",
     "landingpage",
+    "mailer",
 )
 _LANGUAGES_DIR = Path(__file__).resolve().parents[1] / "containers" / "languages"
 _TIMEOUT = httpx.Timeout(30.0)

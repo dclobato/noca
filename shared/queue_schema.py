@@ -12,10 +12,15 @@ The job queue carries lightweight judgment references only; the worker
 loads the full submission payload from PostgreSQL.
 """
 
+from __future__ import annotations
+
+import uuid
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from shared.services.email_models import EmailMessage
 
 
 class JobKind(str):
@@ -27,6 +32,76 @@ class JobKind(str):
     ARENA_AI_REVIEW = "arena_ai_review"
     CUSTOM_VALIDATOR_VALIDATION = "custom_validator_validation"
     SOLUTION_TEST = "solution_test"
+    MAIL = "mail"
+
+
+class MailJob(BaseModel):
+    """One fully rendered outbound email, stored in Valkey at ``mail:job:<job_id>``.
+
+    The Web and Arena HTTP processes render every email before handing it to
+    the ``mailer`` worker, so the payload *is* the message: the worker has no
+    templates, no database lookups, and nothing to decide beyond delivering it.
+    ``enqueued_at`` lets the worker refuse a message that sat in the queue past
+    its TTL -- credential emails carry generated passwords, and a stale one
+    must be dropped rather than delivered late.
+
+    Recovery mirrors the other queue jobs: a crash while the item is inflight
+    lets the reaper requeue it with an incremented ``requeue_count``, and past
+    the cap it is dropped as a poison pill.
+    """
+
+    job_id: str = Field(description="UUID naming this delivery attempt (the queue list item)")
+    to_email: str
+    to_name: str | None = None
+    from_email: str | None = None
+    from_name: str | None = None
+    cc_email: str | None = None
+    cc_name: str | None = None
+    subject: str | None = None
+    text_body: str | None = None
+    html_body: str | None = None
+    enqueued_at: float = Field(description="POSIX timestamp of the enqueue, for the TTL check")
+    actor_key: str | None = Field(default=None, description="Budget key of the actor that caused the send")
+    requeue_count: int = Field(default=0, description="Times this job has been requeued by the reaper")
+    job_kind: str = Field(default=JobKind.MAIL, description="Worker dispatch discriminator")
+
+    model_config = {"frozen": True}
+
+    @classmethod
+    def from_message(cls, message: EmailMessage, *, actor_key: str | None, enqueued_at: float) -> MailJob:
+        """Wrap a rendered message as a queue job with a fresh id."""
+        if message.to_email is None:
+            raise ValueError("A mail job requires to_email.")
+        return cls(
+            job_id=str(uuid.uuid4()),
+            to_email=message.to_email,
+            to_name=message.to_name,
+            from_email=message.from_email,
+            from_name=message.from_name,
+            cc_email=message.cc_email,
+            cc_name=message.cc_name,
+            subject=message.subject,
+            text_body=message.text_body,
+            html_body=message.html_body,
+            enqueued_at=enqueued_at,
+            actor_key=actor_key,
+        )
+
+    def to_message(self) -> EmailMessage:
+        """Rebuild the provider payload the worker hands to ``EmailProvider.send``."""
+        return EmailMessage(
+            from_email=self.from_email,
+            from_name=self.from_name,
+            to_email=self.to_email,
+            to_name=self.to_name,
+            cc_email=self.cc_email,
+            cc_name=self.cc_name,
+            subject=self.subject,
+            text_body=self.text_body,
+            html_body=self.html_body,
+            queued_at=self.enqueued_at,
+            delivery_attempt=self.requeue_count + 1,
+        )
 
 
 class CustomValidatorValidationJob(BaseModel):

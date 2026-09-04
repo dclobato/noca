@@ -220,13 +220,14 @@ def problem_to_package(
         title=problem.title,
         author=problem.author,
         notes=problem.notes,
-        # Contest has no source, license, or statement language; the keys are
-        # still written, as null.
+        # Contest has no source, license, statement language, or expected
+        # difficulty; the keys are still written, as null.
         source=None,
         license=None,
         color=problem.color,
         hide_author_show_source=False,
         statement_language=None,
+        expected_difficulty=None,
         time_limit_ms=problem.time_limit_ms,
         memory_limit_kb=problem.memory_limit_kb,
         pids_limit=problem.pids_limit,

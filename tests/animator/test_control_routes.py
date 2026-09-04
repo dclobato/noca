@@ -38,10 +38,11 @@ from animator.config import settings
 from animator.models.reveal_session import RevealSessionState
 from animator.routes.control import router as control_router
 from animator.routes.controller_lease import router as controller_lease_router
+from animator.services.feed_cache import AnimatorFeedCache
 from shared.app_logging import MainConsoleFormatter
 from shared.reveal_schema import GLOBAL_SCOPE
 from shared.services.animator_access_service import create_global_secret, create_site_secret, digest_token
-from shared.services.valkey_service.revelation import reveal_lock_key, reveal_state_key
+from shared.services.valkey_service.revelation import reveal_lock_key, reveal_projectors_key, reveal_state_key
 from tests.animator._fake_reveal_store import FakeRevealStoreClient as FakeValkey
 from tests.animator._reveal_seed import Ceremony, seed_ceremony
 from web.models.users import UberAdmin
@@ -84,6 +85,7 @@ def _records() -> Iterator[list[logging.LogRecord]]:
 def _build_app(engine: AsyncEngine, valkey: FakeValkey) -> FastAPI:
     """Wire a minimal app around the control router."""
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.valkey_runtime = valkey
     app.include_router(controller_lease_router)
@@ -167,8 +169,45 @@ async def test_controller_lease_claim_heartbeat_release_and_takeover(
         "status": "claimed",
         "lease_ttl_seconds": settings.CONTROLLER_LEASE_TTL_SECONDS,
         "heartbeat_interval_seconds": settings.CONTROLLER_HEARTBEAT_SECONDS,
+        "projector_count": 0,
     }
     assert "controller" not in claimed.text
+
+
+async def test_lease_responses_carry_the_scope_projector_count(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+) -> None:
+    """Claim, heartbeat and takeover report the projectors of *their* scope.
+
+    The count is a gauge the operator reads, never a gate: a release reports no
+    count (the panel no longer drives anything), and an unreadable count is
+    ``null`` rather than a refused heartbeat or a misleading zero.
+    """
+    fixture = await _seed(session, uberadmin)
+    valkey = FakeValkey(bootstrap_controller_leases=False)
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    headers = _auth(fixture.global_token)
+    lease_url = f"{fixture.url}/controller-lease"
+    global_key = reveal_projectors_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)
+    site_key = reveal_projectors_key(fixture.ceremony.contest_id, fixture.ceremony.site_a)
+    valkey.projectors[global_key] = {"proj-1": 100, "proj-2": 100, "stale": 0}
+    valkey.projectors[site_key] = {"other-scope": 100}
+
+    async with _client(app) as client:
+        claimed = await client.post(f"{lease_url}/claim", headers=headers)
+        renewed = await client.post(f"{lease_url}/heartbeat", headers=headers)
+        taken = await client.post(f"{lease_url}/takeover", headers=headers)
+        valkey.clock = 50
+        later = await client.post(f"{lease_url}/heartbeat", headers=headers)
+        released = await client.post(f"{lease_url}/release", headers=headers)
+
+    assert claimed.json()["projector_count"] == 2
+    assert renewed.json()["projector_count"] == 2
+    assert taken.json()["projector_count"] == 2
+    assert "stale" not in valkey.projectors[global_key]
+    assert later.json()["projector_count"] == 2
+    assert released.json()["projector_count"] is None
 
 
 async def test_mutations_require_controller_header_but_state_does_not(

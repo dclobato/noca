@@ -9,17 +9,17 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned: debian:bookworm-slim @ sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
+# Pinned: debian:trixie-slim @ sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin/isolate

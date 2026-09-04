@@ -109,6 +109,15 @@ function makeRail({ reduced = false } = {}) {
   };
 }
 
+// The rail is revealed with the board, so its list holds a non-event
+// placeholder until the first real event lands. Assertions about events count
+// only the rows that carry an event key.
+function eventItems(list) {
+  return list.children.filter((item) =>
+    Object.prototype.hasOwnProperty.call(item.attributes, "data-event-key"),
+  );
+}
+
 function verdict(id, code = "AC") {
   return {
     judgment_id: id,
@@ -148,7 +157,7 @@ function verdict(id, code = "AC") {
 (function testVerdictMessagesWaitForSnapshotAndChooseSpecificResult() {
   const ordinary = makeRail();
   ordinary.rail.observeVerdict(verdict("j-wa", "WA"));
-  assert.strictEqual(ordinary.list.children.length, 0, "verdict waits for its snapshot");
+  assert.strictEqual(eventItems(ordinary.list).length, 0, "verdict waits for its snapshot");
   ordinary.rail.reconcile(snapshot(), snapshot());
   assert.strictEqual(ordinary.list.children[0].textContent, "42\u2032alpha got WA for A");
 
@@ -184,7 +193,7 @@ function verdict(id, code = "AC") {
 (function testSlidingWindowAndMissingMappings() {
   const { rail, list } = makeRail();
   rail.observeSubmission({ submission_id: "missing", team_id: "unknown", problem_id: "p1" });
-  assert.strictEqual(list.children.length, 0, "unmappable events do not expose raw ids");
+  assert.strictEqual(eventItems(list).length, 0, "unmappable events do not expose raw ids");
 
   for (let index = 1; index <= 31; index += 1) {
     rail.observeSubmission({ submission_id: "s" + index, team_id: "t1", problem_id: "p1" });
@@ -199,6 +208,111 @@ function verdict(id, code = "AC") {
     pending.rail.observeVerdict(verdict("j" + index, "WA"));
   }
   assert.strictEqual(pending.rail._pendingCount(), events.MAX_EVENTS);
+})();
+
+(function testRailAppearsWithTheBoardAndParksAPlaceholder() {
+  const container = new El("section");
+  const list = new El("ol");
+  container.setAttribute("hidden", "");
+  const rail = events.createEventRail({
+    doc: doc,
+    container: container,
+    list: list,
+    now: () => Date.parse("2026-07-24T12:00:00Z"),
+    reducedMotion: { matches: false },
+  });
+  rail.configure({
+    start_time: "2026-07-24T11:18:00Z",
+    problems: [{ problem_id: "p1", label: "A" }],
+  });
+  assert.strictEqual(container.hidden, true, "rail stays hidden until a snapshot arrives");
+
+  rail.reconcile(null, snapshot());
+  assert.strictEqual(container.hidden, false, "the first snapshot reveals the rail");
+  assert.strictEqual(list.children.length, 1);
+  assert.strictEqual(list.children[0].textContent, events.EMPTY_MESSAGE);
+  assert.strictEqual(list.attributes["data-pace"], "idle", "the empty rail does not scroll");
+
+  rail.reconcile(snapshot(), snapshot());
+  assert.strictEqual(list.children.length, 1, "the placeholder is not duplicated");
+
+  rail.observeSubmission({ submission_id: "s1", team_id: "t1", problem_id: "p1" });
+  assert.deepStrictEqual(
+    list.children.map((item) => item.textContent),
+    ["42\u2032alpha submitted A"],
+    "the first real event replaces the placeholder",
+  );
+  assert.strictEqual(list.attributes["data-pace"], "short");
+
+  rail.reconcile(snapshot(), snapshot());
+  assert.strictEqual(list.children.length, 1, "the placeholder does not come back");
+})();
+
+(function testSnapshotSeedIsAppliedOnceAndSharesLiveKeys() {
+  const container = new El("section");
+  const list = new El("ol");
+  container.setAttribute("hidden", "");
+  const rail = events.createEventRail({
+    doc: doc,
+    container: container,
+    list: list,
+    now: () => Date.parse("2026-07-24T12:00:00Z"),
+    reducedMotion: { matches: false },
+  });
+  rail.configure({
+    start_time: "2026-07-24T11:18:00Z",
+    problems: [{ problem_id: "p1", label: "A" }],
+  });
+
+  const seeded = Object.assign(snapshot(), {
+    recent_events: [
+      { key: "submission:s9", minute: 3, kind: "submitted", team_name: "alpha", problem_label: "A" },
+      {
+        key: "verdict:j9",
+        minute: 5,
+        kind: "verdict",
+        team_name: "alpha",
+        problem_label: "A",
+        verdict: "WA",
+      },
+      { key: "verdict:j10", minute: 7, kind: "first", team_name: "beta", problem_label: "B" },
+      { key: "verdict:j11", minute: 9, kind: "balloon", team_name: "gamma", problem_label: "B" },
+      { key: "verdict:bad", minute: 9, kind: "verdict", team_name: "", problem_label: "B" },
+    ],
+  });
+  rail.reconcile(null, seeded);
+  assert.deepStrictEqual(
+    list.children.map((item) => item.textContent),
+    [
+      "3\u2032alpha submitted A",
+      "5\u2032alpha got WA for A",
+      "7\u2032beta is first solver for B",
+      "9\u2032gamma got balloon for B",
+    ],
+    "the seed renders oldest first and drops unnameable entries",
+  );
+  assert.strictEqual(container.hidden, false);
+
+  // A live event the seed already covered must not render twice.
+  rail.observeVerdict(verdict("j9", "WA"));
+  rail.reconcile(seeded, seeded);
+  assert.strictEqual(list.children.length, 4, "a seeded verdict is not re-rendered live");
+
+  // A second snapshot must not resurrect the backlog.
+  rail.reconcile(seeded, seeded);
+  assert.strictEqual(list.children.length, 4, "the seed is applied exactly once");
+
+  rail.observeSubmission({ submission_id: "s-new", team_id: "t1", problem_id: "p1" });
+  assert.strictEqual(list.children.length, 5, "live events still append after a seed");
+})();
+
+(function testLiveIndicatorTracksTheContestPhase() {
+  const { rail, container } = makeRail();
+  assert.ok(!("data-live" in container.attributes), "the rail claims nothing until told");
+  rail.setLive(true);
+  assert.strictEqual(container.attributes["data-live"], "true");
+  rail.setLive(false);
+  assert.strictEqual(container.attributes["data-live"], "false");
 })();
 
 console.log("animator events contract: all assertions passed");

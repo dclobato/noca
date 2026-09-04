@@ -129,6 +129,24 @@ class Contest(Base):
         return now > self.start_time + timedelta(minutes=self.stop_updating_scoreboard)
 
     @property
+    def scoreboard_frozen_hidden_seconds(self) -> int:
+        """Seconds of scoreboard activity the freeze is currently withholding.
+
+        Measured to *now* while the contest runs and to the end once it is over,
+        because those are genuinely different amounts: a board frozen 35 minutes
+        ago is hiding 35 minutes, not the whole window the contest rules set
+        aside. Stating the planned window mid-contest would overstate it.
+
+        Returns 0 when nothing is withheld -- the board is not frozen yet, or
+        ``stop_updating_scoreboard`` falls after the contest end, which is a
+        freeze configured never to take effect.
+        """
+        now = _match_datetime_kind(self.start_time)
+        freeze_at = self.start_time + timedelta(minutes=self.stop_updating_scoreboard)
+        hidden_until = min(now, self.start_time + timedelta(minutes=self.duration_minutes))
+        return max(0, int((hidden_until - freeze_at).total_seconds()))
+
+    @property
     def are_submissions_blind(self) -> bool:
         """Whether to hide submission results and verdicts from teams."""
         now = _match_datetime_kind(self.start_time)

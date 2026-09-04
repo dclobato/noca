@@ -133,14 +133,27 @@
             }, 250);
         }
 
+        function onMessage(event) {
+            if (event.data === 'refresh') {
+                scheduleRefresh();
+            }
+        }
+
         function connect() {
+            if (window.NocaSse) {
+                // A refused connection (429 from the SSE lease) is permanent
+                // for the browser; NocaSse surfaces it and retries with backoff.
+                NocaSse.open(eventsUrl, {
+                    onMessage: onMessage,
+                    onOpen: () => setStatus('Live', 'bg-success'),
+                    onUnavailable: () => setStatus('Live updates unavailable', 'bg-danger'),
+                    onRecovered: scheduleRefresh,
+                });
+                return;
+            }
             const source = new EventSource(eventsUrl);
             source.onopen = () => setStatus('Live', 'bg-success');
-            source.onmessage = (event) => {
-                if (event.data === 'refresh') {
-                    scheduleRefresh();
-                }
-            };
+            source.onmessage = onMessage;
             source.onerror = () => setStatus('Reconnecting…', 'bg-warning text-dark');
         }
 

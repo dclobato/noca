@@ -22,10 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from animator.models.reveal_session import MedalCutoffs
 from animator.services.contest_feed_service import (
-    build_meta_response,
     build_snapshot_response,
     load_enabled_contest,
 )
+from animator.services.contest_meta_service import build_meta_response
 from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
 from tests.animator._feed_seed import (
     START,

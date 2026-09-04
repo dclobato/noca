@@ -46,6 +46,9 @@ async def _post(session: AsyncSession, contest: Contest, admin: User) -> MagicMo
     valkey.get = AsyncMock(return_value=None)
     valkey.set = AsyncMock(return_value=None)
     valkey.delete = AsyncMock(return_value=None)
+    # The admin router now carries the per-actor read ceiling, which runs a
+    # counter script; answering ``None`` sends it to its local fallback.
+    valkey.eval = AsyncMock(return_value=None)
     app.state.valkey_runtime = valkey
     await session.commit()
     token = actor_token(auth_service, username=admin.username, contest_id=contest.id)
@@ -182,6 +185,9 @@ async def test_a_failed_cache_prewarm_leaves_no_flag_and_no_audit_row(
     valkey.get = AsyncMock(return_value=None)
     valkey.set = AsyncMock(return_value=None)
     valkey.delete = AsyncMock(return_value=None)
+    # The admin router now carries the per-actor read ceiling, which runs a
+    # counter script; answering ``None`` sends it to its local fallback.
+    valkey.eval = AsyncMock(return_value=None)
     app.state.valkey_runtime = valkey
     await session.commit()
     token = actor_token(auth_service, username=admin.username, contest_id=stopped_contest.id)

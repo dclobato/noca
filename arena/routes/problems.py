@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -44,6 +45,8 @@ from starlette.background import BackgroundTask
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user, require_arena_user
+from arena.dependencies.problem_export_rate_limit import arena_problem_export_rate_limit
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services import (
     admin_problem_interaction_service,
@@ -72,12 +75,15 @@ from shared.enumerations import (
     ArenaEditorialReleasePolicy,
     ArenaNotificationKind,
     ArenaRole,
+    Environment,
     ProblemValidatorType,
     StatementLanguage,
 )
 from shared.http_params import DbId
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
+from shared.services.arena_difficulty_display import difficulty_display
 from shared.services.arena_notification_service import create_arena_notification
+from shared.services.problem_export_cache import SAMPLE_CASES_SUFFIX, ensure_cached_export, export_cache_dir
 from shared.services.problem_package import PackageError
 from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from shared.services.testcase_files import read_testcase_full
@@ -85,7 +91,12 @@ from shared.services.valkey_service.queue_ops import enqueue_arena_submission_jo
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["arena-problems"])
+#: Answered when production has no export cache configured. Arena refuses to
+#: start in that state, so this is the guard for a configuration that changed
+#: under a running process rather than the expected path.
+UNCACHED_IN_PRODUCTION_DETAIL = "Problem export cache is not configured."
+
+router = APIRouter(tags=["arena-problems"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -240,7 +251,7 @@ async def arena_problem_list(
         request: The current HTTP request.
         search: Hybrid search over number, title, statement, source, and author.
         sort_by: Column sort key (relevance while searching; otherwise number_asc).
-        category_slugs: Category slugs for AND-based filtering.
+        category_slugs: Category slugs for OR-based filtering.
         language: Statement-language filter; an unknown value means "all languages".
         page: 1-based page number.
         current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
@@ -436,6 +447,11 @@ async def arena_problem_detail(
         back_language=back_language,
     )
     rating_history_url = str(request.url_for("arena_problem_rating_history_public", arena_number=arena_number))
+    difficulty = difficulty_display(
+        problem.rating.rating if problem.rating else None,
+        problem.rating.attempted_users if problem.rating else None,
+        problem.expected_difficulty,
+    )
 
     show_editorial_link = bool(problem.editorial) and (
         problem.editorial_release_policy is ArenaEditorialReleasePolicy.ALWAYS
@@ -443,6 +459,13 @@ async def arena_problem_detail(
     )
     editorial_url = (
         str(request.url_for("arena_problem_editorial_view", arena_number=arena_number)) if show_editorial_link else None
+    )
+    # Presentation-only hint: the editorial exists but is still gated behind an
+    # Accepted verdict.  Mutually exclusive with ``editorial_url`` by construction.
+    editorial_pending_ac = (
+        bool(problem.editorial)
+        and problem.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
+        and solved_at is None
     )
 
     prev_number, next_number = await problem_browse_service.get_adjacent_problem_numbers(session, arena_number)
@@ -493,6 +516,7 @@ async def arena_problem_detail(
                 "back_sort_by": back_sort_by,
                 "back_category_slugs": back_category_slugs,
                 "rating_history_url": rating_history_url,
+                "difficulty": difficulty,
                 "prefill_source_code": prefill_source_code,
                 "prefill_language_id": prefill_language_id,
                 "accepting_set": accepting_set,
@@ -500,6 +524,7 @@ async def arena_problem_detail(
                 "problem_set_assignment_options": problem_set_assignment_options,
                 "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
                 "editorial_url": editorial_url,
+                "editorial_pending_ac": editorial_pending_ac,
                 "prev_problem_url": prev_problem_url,
                 "next_problem_url": next_problem_url,
                 "prev_problem_number": prev_number,
@@ -660,6 +685,7 @@ async def arena_problem_statistics(
     name="arena_problem_statistics_data",
 )
 async def arena_problem_statistics_data(
+    request: Request,
     arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
@@ -668,31 +694,36 @@ async def arena_problem_statistics_data(
 
     Requires a logged-in user.  Only enabled problems are reachable.  Returns
     ``{}`` when statistics have not been computed yet so the client can render
-    an empty state.
+    an empty state.  Timestamps gain a ``*_display`` twin in the viewer's
+    timezone, and each first/last solver gains a ``profile_url`` when the
+    viewer may open that profile.
 
     Args:
+        request: The current HTTP request.
         arena_number: Public arena number of the problem.
+        current_user: The authenticated Arena user (login required).
         session: Async database session.
 
     Returns:
-        JSONResponse: The precomputed statistics payload, or ``{}``.
+        JSONResponse: The decorated statistics payload, or ``{}``.
     """
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")
     problem, _ = result
-    stats = await problem_stats_service.get_problem_statistics(session, problem.id)
-    if stats and stats.get("computed_at"):
-        stats["computed_at_display"] = format_user_datetime(
-            datetime.fromisoformat(str(stats["computed_at"])),
-            current_user,
-        )
-    return JSONResponse(stats or {})
+    stats = await problem_stats_service.get_problem_statistics_for_viewer(
+        session,
+        problem.id,
+        current_user,
+        lambda user_id: str(request.url_for("arena_user_profile_public", user_id=user_id)),
+    )
+    return JSONResponse(stats)
 
 
 @router.get(
     "/problems/{arena_number:dbid}/sample-testcases.zip",
     name="arena_problem_sample_testcases_zip",
+    dependencies=[Depends(arena_problem_export_rate_limit)],
 )
 async def arena_problem_sample_testcases_zip(
     arena_number: DbId,
@@ -711,24 +742,43 @@ async def arena_problem_sample_testcases_zip(
         Response: application/zip attachment, or 404 when the problem is
             disabled/missing or has no sample test cases.
     """
+    cache_dir = settings.PUBLIC_PROBLEM_PACK_PATH
+    if cache_dir is None and settings.ENVIRONMENT == Environment.PRODUCTION:
+        raise HTTPException(status_code=503, detail=UNCACHED_IN_PRODUCTION_DETAIL)
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")
     problem, _ = result
-
     sample_tcs = [tc for tc in problem.test_cases if tc.is_sample]
     if not sample_tcs:
         raise HTTPException(status_code=404, detail="No sample test cases available.")
+    filename = f"sample-testcases-{arena_number}.zip"
 
-    zip_bytes = await anyio.to_thread.run_sync(
-        lambda: problem_tc_export_service.build_sample_testcases_zip(
+    def _build_bytes() -> bytes:
+        return problem_tc_export_service.build_sample_testcases_zip(
             problem.id,
             sample_tcs,
             settings.PROBLEM_TESTCASE_DIR,
             has_custom_validator=problem.validator_type is ProblemValidatorType.INTERACTIVE,
         )
-    )
-    filename = f"sample-testcases-{arena_number}.zip"
+
+    if cache_dir is not None:
+
+        async def _build(destination: Path) -> None:
+            data = await anyio.to_thread.run_sync(_build_bytes)
+            await anyio.to_thread.run_sync(destination.write_bytes, data)
+
+        archive_path = await ensure_cached_export(
+            export_cache_dir(cache_dir),
+            problem.id,
+            problem.public_export_generation,
+            _build,
+            suffix=SAMPLE_CASES_SUFFIX,
+        )
+        # The archive belongs to the cache, so the response must not delete it.
+        return FileResponse(archive_path, media_type="application/zip", filename=filename)
+
+    zip_bytes = await anyio.to_thread.run_sync(_build_bytes)
     return Response(
         content=zip_bytes,
         media_type="application/zip",
@@ -736,7 +786,11 @@ async def arena_problem_sample_testcases_zip(
     )
 
 
-@router.get("/problems/{arena_number:dbid}/export", name="arena_problem_export")
+@router.get(
+    "/problems/{arena_number:dbid}/export",
+    name="arena_problem_export",
+    dependencies=[Depends(arena_problem_export_rate_limit)],
+)
 async def arena_problem_export(
     arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
@@ -760,33 +814,50 @@ async def arena_problem_export(
             disabled or missing.
     """
     del current_user
+    cache_dir = settings.PUBLIC_PROBLEM_PACK_PATH
+    if cache_dir is None and settings.ENVIRONMENT == Environment.PRODUCTION:
+        raise HTTPException(status_code=503, detail=UNCACHED_IN_PRODUCTION_DETAIL)
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")
     problem, author_info = result
-
     owner_name = (author_info.name if author_info else None) or ""
-    # The projection runs in a worker thread, where a lazy load would raise
-    # MissingGreenlet: everything it touches must be resolved on the loop first.
-    await session.refresh(problem, attribute_names=["sample_interactions"])
+    filename = safe_package_filename(f"problem-{arena_number}-{problem.title}")
+
+    async def _build(destination: Path) -> None:
+        # The projection runs in a worker thread, where a lazy load would raise
+        # MissingGreenlet: everything it touches must be resolved on the loop first.
+        await session.refresh(problem, attribute_names=["sample_interactions"])
+        await anyio.to_thread.run_sync(
+            lambda: admin_problem_io_service.export_problem_package(
+                problem,
+                owner_name,
+                settings.PROBLEM_TESTCASE_DIR,
+                destination,
+                profile="public",
+            )
+        )
+
+    if cache_dir is not None:
+        try:
+            archive_path = await ensure_cached_export(
+                export_cache_dir(cache_dir), problem.id, problem.public_export_generation, _build
+            )
+        except PackageError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # The archive belongs to the cache, so the response must not delete it.
+        return FileResponse(archive_path, media_type="application/zip", filename=filename)
+
     with temporary_package_path() as destination:
         try:
-            await anyio.to_thread.run_sync(
-                lambda: admin_problem_io_service.export_problem_package(
-                    problem,
-                    owner_name,
-                    settings.PROBLEM_TESTCASE_DIR,
-                    destination,
-                    profile="public",
-                )
-            )
+            await _build(destination)
         except PackageError as exc:
             destination.unlink(missing_ok=True)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     return FileResponse(
         destination,
         media_type="application/zip",
-        filename=safe_package_filename(f"problem-{arena_number}-{problem.title}"),
+        filename=filename,
         background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 

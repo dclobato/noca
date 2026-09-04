@@ -1,0 +1,21 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Evidence-gated difficulty text for a table cell. The wording lives on the
+  DifficultyDisplay object (shared/services/arena_difficulty_display.py), so
+  every surface says the same thing.
+  Variables: difficulty (DifficultyDisplay).
+#}
+{% if difficulty.state == "unknown" %}
+    <span class="text-muted arena-difficulty-value arena-difficulty-value--unknown"
+          title="{{ difficulty.description }}"
+          aria-label="{{ difficulty.description }}">{{ difficulty.text }}</span>
+{% else %}
+    <span class="arena-difficulty-value arena-difficulty-value--{{ difficulty.state }}"
+          title="{{ difficulty.description }}"
+          aria-label="{{ difficulty.description }}">{{ difficulty.text }}</span>
+{% endif %}

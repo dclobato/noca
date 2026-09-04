@@ -1,0 +1,36 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+{% extends "_auth_base.html" %}
+{% block title_suffix %}&mdash; Age requirement{% endblock %}
+{% block auth_content %}
+    <div class="container arena-auth-flow-page my-auto">
+        <div class="arena-auth-flow-shell">
+            <aside class="arena-auth-flow-welcome">
+                <div class="arena-auth-flow-welcome-copy">
+                    <p class="arena-auth-flow-welcome-title">Not yet.</p>
+                    <p class="arena-auth-flow-welcome-text">{{ brand_name }} is built for ages 13 and up.</p>
+                </div>
+            </aside>
+            <main class="arena-auth-card arena-auth-flow-card">
+                <div class="arena-auth-flow-heading">
+                    <h1 class="arena-auth-title">This account can't be used yet</h1>
+                    <p class="arena-auth-subtitle">
+                        Based on the date of birth you entered, this account doesn't meet our minimum age of 13.
+                    </p>
+                </div>
+                <p class="arena-2fa-help">
+                    This is a legal requirement, not a judgement about you &mdash; we're not able to make an
+                    exception. Your account stays as it is, and nothing has been deleted. Once you turn 13, you're
+                    welcome to sign up again.
+                </p>
+                <p class="arena-2fa-help">If you believe this is a mistake, please contact us.</p>
+                <p class="arena-auth-flow-footer">
+                    <a href="{{ request.url_for("arena_login") }}" class="arena-auth-link">Back to login</a>
+                </p>
+            </main>
+        </div>
+    </div>
+{% endblock %}

@@ -100,6 +100,8 @@ def _build_app() -> FastAPI:
         "/assets/medal/silver",
         "/assets/medal/bronze",
         "/assets/medal/unsupported",
+        "/announcements",
+        "/announcements/abc",
     ],
 )
 def test_public_paths_are_public(path: str) -> None:
@@ -122,6 +124,9 @@ def test_public_paths_are_public(path: str) -> None:
         "/submissions/abc",
         "/status",
         "/admin/users",
+        "/announcementsx",
+        "/admin/announcements",
+        "/admin/announcements/new",
     ],
 )
 def test_non_public_paths_are_protected(path: str) -> None:

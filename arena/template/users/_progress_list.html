@@ -40,7 +40,11 @@
                                     <span class="text-muted">&mdash;</span>
                                 {% endif %}
                             </td>
-                            <td>{{ "%.1f"|format(item.rating) }}</td>
+                            <td>
+                                {% with difficulty=item.difficulty %}
+                                    {% include "_partials/difficulty_value.html" %}
+                                {% endwith %}
+                            </td>
                             {% if date_label %}
                                 <td>
                                     {% if item.activity_at %}

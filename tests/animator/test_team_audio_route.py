@@ -32,9 +32,11 @@ from sqlalchemy import insert, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from animator.routes.team_media import router as team_media_router
+from animator.services import team_audio_service
 from shared.db_schema import users_media
 from shared.enumerations import RoleEnum
 from tests.animator._feed_seed import make_contest, make_site, make_user
+from tests.animator._media_probe import StatementProbe
 from tests.animator._reveal_seed import Ceremony, seed_ceremony
 from web.models.users import UberAdmin
 
@@ -257,6 +259,52 @@ async def test_a_replaced_clip_changes_the_etag(session: AsyncSession, uberadmin
     assert stale.status_code == 200
     assert stale.content == _WAV
     assert stale.headers["ETag"] != first.headers["ETag"]
+
+
+async def test_304_runs_one_narrow_query_and_no_signature_check(
+    session: AsyncSession, uberadmin: UberAdmin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_audio(session, ceremony.a1, audio=b64encode(_MP3).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise AssertionError("detect_audio_mime must not run on a 304")
+
+    async with _client(app) as client:
+        first = await client.get(_url(ceremony, ceremony.a1))
+        monkeypatch.setattr(team_audio_service, "detect_audio_mime", _boom)
+        with StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+            second = await client.get(_url(ceremony, ceremony.a1), headers={"If-None-Match": first.headers["ETag"]})
+
+    assert second.status_code == 304
+    assert not probe.selected_any("audio_base64", "audio_mime", "foto_base64", "avatar_base64")
+    assert probe.count_selecting("users_media") == 1
+
+
+async def test_a_miss_loads_only_the_audio_column(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_audio(session, ceremony.a1, audio=b64encode(_MP3).decode())
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client, StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+        response = await client.get(_url(ceremony, ceremony.a1))
+
+    assert response.status_code == 200
+    assert probe.selected_any("audio_base64")
+    assert not probe.selected_any("audio_mime", "foto_base64", "avatar_base64")
+
+
+async def test_a_team_with_no_clip_is_404_without_a_blob_query(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    ceremony = await seed_ceremony(session, uberadmin)
+    await _set_audio(session, ceremony.a1, audio=None)
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+
+    async with _client(app) as client, StatementProbe(session.bind) as probe:  # type: ignore[arg-type]
+        response = await client.get(_url(ceremony, ceremony.a1))
+
+    assert response.status_code == 404
+    assert not probe.selected_any("audio_base64")
 
 
 async def test_a_clip_without_a_timestamp_still_gets_a_stable_etag(session: AsyncSession, uberadmin: UberAdmin) -> None:

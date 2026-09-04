@@ -11,10 +11,12 @@
    `_identity_avatar.html` partial, both of which the contest dashboard also
    uses, so the two surfaces describe a role identically by construction.
 
-   Navigation is NOT here: it lives in `_contest_nav.html`, a full-width band
-   below this one, because a row of small icons squeezed between the clock and
-   the account controls is slower to hit and to read during a contest than a row
-   that can afford large icons and full labels.
+   Contest navigation is NOT here: it lives in `_contest_nav.html`, a full-width
+   band below this one, because a row of small icons squeezed between the clock
+   and the account controls is slower to hit and to read during a contest than a
+   row that can afford large icons and full labels. The UberAdmin dashboard link
+   is the exception because it exits the contest scope instead of navigating
+   within it; it lives with the other global controls in the identity cluster.
 
    The bar is sticky because the countdown is the reason it exists: a judge
    adjudicating a scrolled Runs table needs the clock without scrolling back to
@@ -72,6 +74,12 @@
             </div>
         {% endif %}
         <div class="d-flex align-items-center gap-2 noca-navbar-identity order-2 order-lg-4">
+            {% if in_contest and current_user.role == RoleEnum.UBERADMIN.value %}
+                <a class="noca-navbar-icon-action"
+                   href="{{ nav_url(request, 'uberadmin_dashboard') or '#' }}"
+                   aria-label="Return to UberAdmin dashboard"
+                   title="UberAdmin dashboard">{{ render_icon(icon="space_dashboard") }}</a>
+            {% endif %}
             {# Theme control. It lives with the account controls rather than in the
                footer because a display preference is personal chrome, and the footer
                is below the fold on every long page. It keeps the shared
@@ -85,7 +93,7 @@
                before the script runs. #}
             <button type="button"
                     id="theme-toggle-btn"
-                    class="noca-navbar-theme-toggle"
+                    class="noca-navbar-icon-action"
                     aria-label="Switch to dark mode"
                     title="Switch to dark mode">
                 <i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>
@@ -128,7 +136,9 @@
                     <li>
                         {# POST, not a link: GET logout is prefetchable by browsers and
                            extensions. #}
-                        <form method="post" action="{{ nav_url(request, 'logout') or '#' }}">
+                        <form method="post"
+                              action="{{ nav_url(request, 'logout') or '#' }}"
+                              data-noca-draft-clear>
                             <button type="submit"
                                     class="dropdown-item d-flex align-items-center gap-2 noca-navbar-account-logout">
                                 {{ render_icon("logout") }}

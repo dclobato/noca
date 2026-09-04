@@ -47,6 +47,14 @@
            `data-confirm` listener must exist on every page regardless. #}
         <script src="{{ request.url_for('static_shared_js', path='confirm-submit.js') }}?v={{ app_version }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='submit-once.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-sse.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-form-draft.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='htmx-poll-backoff.js') }}?v={{ app_version }}"
+                defer></script>
     </head>
     <body class="d-flex flex-column min-vh-100">
         {% set _bc %}
@@ -119,6 +127,13 @@
            dies mid-edit loses the form body to the login redirect. The web module
            has no presence domain, so `data-presence-enabled="false"` keeps the
            shared script's green-dot half switched off. #}
+        {# Browser drafts (`noca-form-draft.js`) are scoped to the account that
+           wrote them and deleted only once the server confirms the save landed;
+           both facts are rendered here so every page can settle them. #}
+        {% set draft_owner = form_draft_owner(request) %}
+        {% if draft_owner %}<div data-noca-draft-owner="{{ draft_owner }}" hidden></div>{% endif %}
+        {% set draft_confirmed = form_draft_confirmed(request) %}
+        {% if draft_confirmed %}<div data-noca-draft-confirmed="{{ draft_confirmed }}" hidden></div>{% endif %}
         {% set heartbeat = session_heartbeat_config(request) %}
         {% if heartbeat %}
             <div data-noca-presence
@@ -128,6 +143,7 @@
                  hidden></div>
             <script src="{{ request.url_for('static_shared_js', path='noca-presence.js') }}?v={{ app_version }}"></script>
         {% endif %}
-        {% block extra_script %}{% endblock %}
+        {% block extra_script %}
+        {% endblock %}
     </body>
 </html>

@@ -47,6 +47,17 @@
       ? require("./cell-format.js")
       : (typeof window !== "undefined" ? window : {}).AnimatorCellFormat;
 
+  // "Did the ceremony move" is shared with the projector for the same reason:
+  // the projector closes its media overlay on that signal and this panel resets
+  // its Show/Hide label on it, so two definitions would drift into a button
+  // describing the opposite of what is on screen. Only the pure signature is
+  // used here — the controller half of that module drives a dialog this page
+  // does not have.
+  var cueApi =
+    typeof module !== "undefined" && module.exports
+      ? require("./ceremony-media-cue.js")
+      : (typeof window !== "undefined" ? window : {}).CeremonyMediaCue;
+
   var UNKNOWN_OUTCOME =
     "Command outcome unknown — controls are locked until the ceremony state is reloaded.";
   var RELOAD_REQUIRED =
@@ -104,6 +115,7 @@
         backVisible: false,
         jumpVisible: false,
         jumpPendingVisible: false,
+        mediaVisible: false,
       };
     }
     if (stateLoadFailed) {
@@ -115,6 +127,7 @@
         backVisible: false,
         jumpVisible: false,
         jumpPendingVisible: false,
+        mediaVisible: false,
       };
     }
     if (!projection) {
@@ -128,6 +141,7 @@
         backVisible: false,
         jumpVisible: false,
         jumpPendingVisible: false,
+        mediaVisible: false,
       };
     }
     if (projection.phase === "idle") {
@@ -144,6 +158,7 @@
         backVisible: false,
         jumpVisible: false,
         jumpPendingVisible: false,
+        mediaVisible: false,
       };
     }
     var revealing = projection.phase === "revealing";
@@ -155,6 +170,11 @@
       backVisible: true,
       jumpVisible: revealing,
       jumpPendingVisible: revealing && !projection.next_cell,
+      // Available while `done` as well as while `revealing`: the champion's
+      // photo is the moment this control exists for, and by then the ceremony
+      // has stopped stepping. It needs a focused team because the cue names no
+      // team of its own — the server reads the ceremony's own cursor.
+      mediaVisible: !!projection.focused_team_id,
     };
   }
 
@@ -413,6 +433,68 @@
       jumpPending: function () {
         return run(deps.urls.jumpPending, { method: "POST" });
       },
+      // Raise or lower the focused team's media on every projector in scope.
+      //
+      // Deliberately NOT routed through run(), and the three differences are the
+      // whole reason this command is safe in situations where a reveal command
+      // is not:
+      //
+      //   * No Idempotency-Key. A cue persists nothing, so there is no receipt
+      //     ring to match one against, and re-cueing is inherently a no-op.
+      //   * A failure never sets `blocked`. The ambiguity lock exists to stop a
+      //     retried `step` revealing two teams; a cue cannot reveal anything, so
+      //     locking the pad over one would be pure cost.
+      //   * `hide` is dispatched even while the pad IS blocked. That is the case
+      //     it matters most in: an ambiguous 5xx with a photo covering the
+      //     board is exactly when the operator needs the board back, and hiding
+      //     can never double-apply.
+      //
+      // Answers 204, so there is no projection to apply and no state to update.
+      // Resolves with true on success and false on any refusal.
+      mediaCue: function (action) {
+        var hiding = action === "hide";
+        if (busy || secret === null || !deps.ownership.canCommand()) {
+          return Promise.resolve(false);
+        }
+        if (blocked && !hiding) {
+          return Promise.resolve(false);
+        }
+        var url = hiding ? deps.urls.hideMedia : deps.urls.showMedia;
+        return deps
+          .fetchImpl(url, {
+            method: "POST",
+            headers: headers(false, null, deps.ownership.controllerHeader()),
+          })
+          .then(
+            function (response) {
+              if (response.ok) {
+                return true;
+              }
+              if (response.status === 403) {
+                handleForbidden();
+                return false;
+              }
+              return response
+                .json()
+                .catch(function () {
+                  return null;
+                })
+                .then(function (payload) {
+                  deps.onError(
+                    (payload && payload.detail) || "The media cue was refused.",
+                    { status: response.status },
+                  );
+                  return false;
+                });
+            },
+            function (error) {
+              // Reported, not locked: the projector either got the cue or it did
+              // not, and pressing again is the correct and harmless response.
+              deps.onError("The media cue could not be delivered.", error);
+              return false;
+            },
+          );
+      },
     };
   }
 
@@ -450,6 +532,7 @@
       jumpTeam: doc.getElementById("control-jump-team"),
       ownershipStatus: doc.getElementById("control-ownership-status"),
       ownershipDetail: doc.getElementById("control-ownership-detail"),
+      projectors: doc.getElementById("control-projectors"),
       takeover: doc.getElementById("control-takeover"),
       ownershipRetry: doc.getElementById("control-ownership-retry"),
       takeoverModal: doc.getElementById("control-takeover-modal"),
@@ -476,7 +559,16 @@
       backTen: doc.getElementById("control-back-ten"),
       jump: doc.getElementById("control-jump"),
       jumpPending: doc.getElementById("control-jump-pending"),
+      media: doc.getElementById("control-media"),
     };
+    // Whether this panel believes a media overlay is currently up. It is
+    // deliberately local rather than read from the projection: the cue persists
+    // nothing, so there is no authoritative "is the photo up" to read. It stays
+    // honest because the projector clears the overlay on exactly the signal that
+    // resets this flag — a changed ceremony signature, computed by the shared
+    // `ceremonySignature` both surfaces use so the two cannot drift.
+    var mediaShown = false;
+    var lastSignature = null;
     // The last projection the server confirmed; feeds the visibility mapping,
     // the start-over modal counts, and the keyboard gating.
     var lastProjection = null;
@@ -527,6 +619,7 @@
       buttons.back.hidden = !controls.backVisible;
       buttons.backTen.hidden = !controls.backVisible;
       buttons.jumpPending.hidden = !controls.jumpPendingVisible;
+      buttons.media.hidden = !controls.mediaVisible;
       els.jumpRow.hidden = !controls.jumpVisible;
       // Once a session exists the projection names the token's scope, so the
       // selector has nothing left to declare — collapse it to static text. A
@@ -566,6 +659,24 @@
       els.focus.textContent = focused ? format.teamLabel(focused) : "—";
       els.jumpTeam.disabled = teams.length === 0;
       buttons.jump.disabled = teams.length === 0;
+      renderMediaButton(focused);
+    }
+
+    // The button always states what is on the projector, not only what can be
+    // done next, and it names the team — "Show media" alone is a question.
+    function renderMediaButton(focused) {
+      if (!buttons.media) {
+        return;
+      }
+      var name = focused ? format.teamLabel(focused) : "";
+      buttons.media.textContent = mediaShown ? "Hide media" : "Show media";
+      buttons.media.setAttribute(
+        "title",
+        name ? (mediaShown ? "Hide " + name + " on the projector" : "Show " + name + " on the projector") : "",
+      );
+      if (els.mediaTeam) {
+        els.mediaTeam.textContent = name;
+      }
     }
 
     var lease = window.AnimatorControlLease.createLeaseClient({
@@ -593,6 +704,7 @@
       elements: {
         label: els.ownershipStatus,
         detail: els.ownershipDetail,
+        projectors: els.projectors,
         takeover: els.takeover,
         retry: els.ownershipRetry,
       },
@@ -623,9 +735,22 @@
         reset: root.getAttribute("data-reset-url"),
         jump: root.getAttribute("data-jump-url"),
         jumpPending: root.getAttribute("data-jump-pending-url"),
+        showMedia: root.getAttribute("data-show-media-url"),
+        hideMedia: root.getAttribute("data-hide-media-url"),
       },
       ownership: ownership,
       onState: function (projection) {
+        // Reset the label only when the ceremony actually *moved*, using the
+        // projector's own definition of movement. Every command and every reload
+        // lands here, but the projector closes its overlay on a changed
+        // signature — so clearing the flag unconditionally would make the button
+        // read "Show media" while a photograph is still on the projector, and
+        // the operator's next press would re-show it instead of hiding it.
+        var signature = cueApi.ceremonySignature(projection);
+        if (lastSignature !== null && signature !== lastSignature) {
+          mediaShown = false;
+        }
+        lastSignature = signature;
         lastProjection = projection;
         stateUnusable = false;
         stateLoadFailed = false;
@@ -656,7 +781,7 @@
     function loadScopes() {
       var initialScope = root.getAttribute("data-initial-scope") || "global";
       return window
-        .fetch(root.getAttribute("data-meta-url"), { headers: { Accept: "application/json" } })
+        .fetch(root.getAttribute("data-meta-url"), { headers: { Accept: "application/json" }, cache: "no-store" })
         .then(function (response) {
           return response.ok ? response.json() : null;
         })
@@ -803,6 +928,18 @@
     });
     buttons.jumpPending.addEventListener("click", function () {
       client.jumpPending();
+    });
+    buttons.media.addEventListener("click", function () {
+      var next = !mediaShown;
+      client.mediaCue(next ? "show" : "hide").then(function (ok) {
+        // Only a confirmed cue flips the label. A refused one leaves the button
+        // describing what is actually on the projector, so the operator's next
+        // press repeats the attempt rather than sending its opposite.
+        if (ok) {
+          mediaShown = next;
+          renderState(lastProjection);
+        }
+      });
     });
     buttons.reload.addEventListener("click", function () {
       client.reload();

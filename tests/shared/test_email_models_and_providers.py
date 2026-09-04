@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import dataclasses
+from datetime import UTC, datetime
 from email.generator import BytesGenerator
 from email.mime.text import MIMEText
 from io import BytesIO
@@ -490,6 +491,11 @@ def _email_settings(mbox_dir: str | None):
         SMTP_PASSWORD="pass",
         SMTP_USE_TLS=True,
         EMAIL_MBOX_LOG_DIR=mbox_dir,
+        EMAIL_QUEUE_JOB_TTL_SECONDS=3600,
+        EMAIL_BUDGET_ENABLED=True,
+        EMAIL_BUDGET_WINDOW_SECONDS=600,
+        EMAIL_BUDGET_USER_MAX=20,
+        EMAIL_BUDGET_ADMIN_MAX=200,
     )
 
 
@@ -498,7 +504,7 @@ def test_email_config_passes_mbox_log_dir_to_provider() -> None:
 
     config = EmailConfig.from_settings(_email_settings("/var/log/noca/email"))
     assert config.mbox_log_dir == "/var/log/noca/email"
-    provider = config.create_provider()
+    provider = config.create_worker_provider()
     assert isinstance(provider, SMTPProvider)
     assert provider._mbox_log_dir == "/var/log/noca/email"
 
@@ -539,3 +545,55 @@ def test_email_config_default_mbox_log_dir_is_none() -> None:
         smtp_use_tls=True,
     )
     assert config.mbox_log_dir is None
+
+
+# ---------------------------------------------------------------------------
+# Queue provenance headers on the mbox copy (issue #164)
+# ---------------------------------------------------------------------------
+
+
+def test_mbox_copy_records_queue_time_and_attempt_for_a_queued_message(tmp_path) -> None:
+    """A message that came through the mailer says when it was queued, how long it waited, and which try succeeded."""
+    import time
+
+    queued_at = time.time() - 125
+    with _patched_smtp() as mock_cls:
+        mock_server = mock_cls.return_value.__enter__.return_value
+        mock_server.ehlo_resp = None
+        mock_server.send_message.return_value = {}
+        _mbox_provider(tmp_path).send(
+            _make_message(from_email="from@example.com", queued_at=queued_at, delivery_attempt=3)
+        )
+        sent_mime = mock_server.send_message.call_args[0][0]
+
+    copy = _read_mbox(tmp_path)[0]
+    assert copy["X-NOCA-Queued-At"].startswith(datetime.fromtimestamp(queued_at, tz=UTC).isoformat()[:19])
+    assert 124 <= int(copy["X-NOCA-Queue-Seconds"]) <= 130
+    assert copy["X-NOCA-Delivery-Attempt"] == "3"
+    # The recipient's message carries none of it.
+    assert sent_mime["X-NOCA-Queued-At"] is None
+    assert sent_mime["X-NOCA-Delivery-Attempt"] is None
+
+
+def test_mbox_copy_of_a_direct_delivery_has_no_queue_headers(tmp_path) -> None:
+    with _patched_smtp() as mock_cls:
+        mock_server = mock_cls.return_value.__enter__.return_value
+        mock_server.ehlo_resp = None
+        mock_server.send_message.return_value = {}
+        _mbox_provider(tmp_path).send(_make_message(from_email="from@example.com"))
+
+    copy = _read_mbox(tmp_path)[0]
+    assert copy["X-NOCA-Queued-At"] is None
+    assert copy["X-NOCA-Queue-Seconds"] is None
+    assert copy["X-NOCA-Delivery-Attempt"] is None
+
+
+def test_mail_job_carries_queue_provenance_into_the_message() -> None:
+    from shared.queue_schema import MailJob
+
+    job = MailJob.from_message(_make_message(), actor_key=None, enqueued_at=1_700_000_000.0)
+    retried = MailJob.model_validate({**job.model_dump(), "requeue_count": 2})
+
+    assert job.to_message().queued_at == 1_700_000_000.0
+    assert job.to_message().delivery_attempt == 1
+    assert retried.to_message().delivery_attempt == 3

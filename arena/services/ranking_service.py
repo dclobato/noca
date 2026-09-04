@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import distinct, func, select
@@ -17,12 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.services.identity_search_service import (
     prepare_affiliation_search,
-    prepare_user_search,
+    prepare_public_user_search,
 )
 from arena.services.leaderboard_service import build_ranked_affiliations_cte, build_ranked_users_cte
 from arena.services.pagination_service import Pagination, PaginationParams, build_pagination_params
 from arena.services.profile_location_service import LocationChoice, country_name, subdivision_name
-from shared.services.email_validation import EmailValidationService
+from arena.services.user_visibility_service import resolve_display_identity
 
 _PER_PAGE = 50
 
@@ -34,34 +35,88 @@ class RankedUser:
     Attributes:
         id: Arena user UUID.
         rank: Global competition rank (ties share the same rank).
-        name: Public display name.
-        email_mascarado: Masked email address for display.
+        name: **Resolved** public display name -- the username unless the user
+            is an adult who opted in to their legal name. Never ``nome``.
+        is_pseudonymous: True when ``name`` is the pseudonymous username.
+        email_mascarado: Masked email address for display, or None when the
+            user is age-shielded. A masked address beside an affiliation and a
+            country re-identifies a minor, so the shield withholds it entirely
+            and the template guards on this being set.
         affiliation_id: Affiliation UUID, or None.
         affiliation_name: Affiliation display name, or None.
         affiliation_has_logo: True when the affiliation has an uploaded logo.
+        avatar_revision: Cache-busting revision of the user's effective avatar,
+            appended as ``?v=`` to the avatar URL so a list page hits the browser cache.
         country_code: ISO 3166-1 alpha-2 country code, or None.
         country_name: Country display name, or None.
+        subdivision_code: ISO 3166-2 subdivision code, or None.
         subdivision_name: Subdivision display name, or None.
         rating: Computed Arena user rating.
         solved: Number of distinct problems the user has solved.
-        public_profile: True when the user has opted in to a public profile
-            page. The CTE only emits users with ``ranking_visible=True``,
-            so a public profile page can be linked whenever this is True.
+        public_profile: **Effective** public-profile flag, after the age
+            shield. A public profile page can be linked whenever this is True.
+
+    Build rows with :meth:`from_row` and nothing else. Constructing this
+    dataclass directly is how ``name=row.nome`` reappears and puts a minor's
+    legal name back on the ranking pages.
     """
 
     id: str
     rank: int
     name: str
-    email_mascarado: str
+    is_pseudonymous: bool
+    email_mascarado: str | None
     affiliation_id: str | None
     affiliation_name: str | None
     affiliation_has_logo: bool
     country_code: str | None
     country_name: str | None
+    subdivision_code: str | None
     subdivision_name: str | None
     rating: int
     solved: int
     public_profile: bool
+    avatar_revision: int
+
+    @classmethod
+    def from_row(cls, row: Any) -> RankedUser:
+        """Build one ranking row from a CTE row, applying the age shield.
+
+        Args:
+            row: A result row from ``build_ranked_users_cte()`` joined with the
+                affiliation, carrying the identity columns the shield needs.
+
+        Returns:
+            RankedUser: The presentation-safe row.
+        """
+        identity = resolve_display_identity(
+            user_id=row.id,
+            full_name=row.nome,
+            username=row.username,
+            date_of_birth=row.dta_nascimento,
+            full_name_public=row.full_name_public,
+            public_profile=row.public_profile,
+            ranking_visible=row.ranking_visible,
+            email=row.email_normalizado,
+        )
+        return cls(
+            id=identity.user_id,
+            rank=row.global_rank,
+            name=identity.display_name,
+            is_pseudonymous=identity.is_pseudonymous,
+            email_mascarado=identity.masked_email,
+            affiliation_id=row.affiliation_id,
+            affiliation_name=row.affiliation_name,
+            affiliation_has_logo=bool(row.affiliation_logo_base64),
+            country_code=row.country_code,
+            country_name=country_name(row.country_code),
+            subdivision_code=row.subdivision_code,
+            subdivision_name=subdivision_name(row.subdivision_code),
+            rating=row.rating,
+            solved=row.solved,
+            public_profile=identity.public_profile,
+            avatar_revision=row.avatar_revision,
+        )
 
 
 @dataclass(frozen=True)
@@ -75,8 +130,10 @@ class RankedAffiliation:
         has_logo: True when the affiliation has an uploaded logo.
         country_code: ISO 3166-1 alpha-2 country code, or None.
         country_name: Country display name, or None.
+        subdivision_code: ISO 3166-2 subdivision code, or None.
         subdivision_name: Subdivision display name, or None.
         rating: Computed affiliation rating.
+        solved: Total counted solves by ranking-visible affiliation members.
     """
 
     id: str
@@ -85,8 +142,10 @@ class RankedAffiliation:
     has_logo: bool
     country_code: str | None
     country_name: str | None
+    subdivision_code: str | None
     subdivision_name: str | None
     rating: int
+    solved: int
 
 
 async def get_ranked_users_paginated(
@@ -104,9 +163,13 @@ async def get_ranked_users_paginated(
 
     Args:
         session: Active async database session.
-        search: Optional search text matched against name and email through the
-            indexed candidate query in ``identity_search_service``: full-text on
-            the name, substring on name and email, and fuzzy on the name.
+        search: Optional search text matched through the **public** indexed
+            candidate query in ``identity_search_service``: full-text,
+            substring, and fuzzy on the name for users who are not
+            age-shielded, substring and fuzzy on the username for everyone, and
+            substring on the email. Matching a shielded user's real name is
+            suppressed because answering "is this name in the ranking?" while
+            rendering a pseudonym would reconstruct the shield's own secret.
             Search only filters — it never reorders.
         affiliation_id: Optional affiliation UUID to scope the results.
         page: Requested page number (1-based).
@@ -137,29 +200,12 @@ async def get_ranked_users_paginated(
         base = base.where(ranked_cte.c.affiliation_id == affiliation_id)
 
     if search and search.strip():
-        base = base.where(ranked_cte.c.id.in_(await prepare_user_search(session, search)))
+        base = base.where(ranked_cte.c.id.in_(await prepare_public_user_search(session, search)))
 
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (await session.execute(base.offset(params.offset).limit(params.per_page))).all()
 
-    items = [
-        RankedUser(
-            id=row.id,
-            rank=row.global_rank,
-            name=row.nome,
-            email_mascarado=EmailValidationService.mask(row.email_normalizado),
-            affiliation_id=row.affiliation_id,
-            affiliation_name=row.affiliation_name,
-            affiliation_has_logo=bool(row.affiliation_logo_base64),
-            country_code=row.country_code,
-            country_name=country_name(row.country_code),
-            subdivision_name=subdivision_name(row.subdivision_code),
-            rating=row.rating,
-            solved=row.solved,
-            public_profile=bool(row.public_profile),
-        )
-        for row in rows
-    ]
+    items = [RankedUser.from_row(row) for row in rows]
     return Pagination(items=items, page=params.page, per_page=params.per_page, total=total)
 
 
@@ -216,8 +262,10 @@ async def get_ranked_affiliations_paginated(
             has_logo=bool(row.has_logo),
             country_code=row.country_code,
             country_name=country_name(row.country_code),
+            subdivision_code=row.subdivision_code,
             subdivision_name=subdivision_name(row.subdivision_code),
             rating=row.rating,
+            solved=row.solved,
         )
         for row in rows
     ]

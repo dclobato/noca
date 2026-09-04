@@ -391,3 +391,28 @@ class _BlockingRuntime:
     async def iter_submission_events(self) -> AsyncIterator[SubmissionEvent]:
         await asyncio.Event().wait()
         yield  # pragma: no cover - unreachable, keeps this an async generator
+
+
+async def test_contest_changed_hook_fires_before_fan_out_even_without_clients() -> None:
+    """The feed cache invalidates on every verdict and submission, spectators or not."""
+    seen: list[str] = []
+    stream = AnimatorEventStream(_FakeRuntime([]), on_contest_changed=seen.append)
+
+    stream._dispatch_verdict(_make_verdict(contest_id="c1"))
+    stream._dispatch_submission(_make_submission(contest_id="c2"))
+    # A legacy verdict without a contest cannot name what to invalidate.
+    stream._dispatch_verdict(_make_verdict(contest_id=None))
+
+    assert seen == ["c1", "c2"]
+
+
+async def test_failing_contest_changed_hook_does_not_stall_fan_out() -> None:
+    def explode(contest_id: str) -> None:
+        raise RuntimeError("boom")
+
+    stream = AnimatorEventStream(_FakeRuntime([]), on_contest_changed=explode)
+    watching = stream.register(_make_contest("c1"))
+
+    stream._dispatch_verdict(_make_verdict(contest_id="c1"))
+
+    assert [e.event for e in _drain(watching)] == [EVENT_VERDICT, EVENT_SCOREBOARD_REFRESH]

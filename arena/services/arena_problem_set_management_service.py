@@ -40,6 +40,7 @@ from shared.db_schema.arena import (
     arena_users,
 )
 from shared.enumerations import ArenaRole
+from shared.services.arena_difficulty_display import DifficultyDisplay, difficulty_display
 
 ProblemSetManagementSort = Literal["deadline", "name", "starts_on"]
 SortDir = Literal["asc", "desc"]
@@ -67,7 +68,7 @@ class ProblemSetProblemManagementRow:
     arena_number: int
     title: str
     categories: tuple[str, ...]
-    rating: float | None
+    difficulty: DifficultyDisplay
 
 
 @dataclass
@@ -78,7 +79,7 @@ class _ProblemAccumulator:
     arena_number: int
     title: str
     categories: list[str]
-    rating: float | None
+    difficulty: DifficultyDisplay
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,7 @@ class ProblemAutocompleteRow:
     problem_id: str
     arena_number: int
     title: str
-    rating: float | None
+    difficulty: DifficultyDisplay
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class ReportStudentRow:
     user_name: str
     verdicts: tuple[str | None, ...]
     snapshot_rating: int | None
+    avatar_revision: int
 
 
 @dataclass(frozen=True)
@@ -236,6 +238,8 @@ async def list_problem_set_problems(
             arena_problems.c.title,
             arena_problem_categories.c.name.label("category_name"),
             arena_problem_ratings.c.rating,
+            arena_problem_ratings.c.attempted_users,
+            arena_problems.c.expected_difficulty,
         )
         .select_from(
             arena_problem_set_problems.join(
@@ -264,7 +268,7 @@ async def list_problem_set_problems(
                 arena_number=row.arena_number,
                 title=row.title,
                 categories=[],
-                rating=None if row.rating is None else row.rating / 10.0,
+                difficulty=difficulty_display(row.rating, row.attempted_users, row.expected_difficulty),
             ),
         )
         if row.category_name and row.category_name not in item.categories:
@@ -275,7 +279,7 @@ async def list_problem_set_problems(
             arena_number=item.arena_number,
             title=item.title,
             categories=tuple(item.categories),
-            rating=item.rating,
+            difficulty=item.difficulty,
         )
         for item in items.values()
     ]
@@ -303,6 +307,8 @@ async def search_set_candidate_problems(
             arena_problems.c.arena_number,
             arena_problems.c.title,
             arena_problem_ratings.c.rating,
+            arena_problem_ratings.c.attempted_users,
+            arena_problems.c.expected_difficulty,
         )
         .select_from(
             arena_problems.outerjoin(arena_problem_ratings, arena_problem_ratings.c.problem_id == arena_problems.c.id)
@@ -335,7 +341,7 @@ async def search_set_candidate_problems(
             problem_id=row.id,
             arena_number=row.arena_number,
             title=row.title,
-            rating=None if row.rating is None else row.rating / 10.0,
+            difficulty=difficulty_display(row.rating, row.attempted_users, row.expected_difficulty),
         )
         for row in rows
     ]
@@ -354,7 +360,7 @@ async def build_teacher_problem_set_report(
     _assert_teacher(arena_class, actor_id=actor_id, actor_role=actor_role)
     active = _active_members_subquery().subquery()
     user_rows = await session.execute(
-        select(arena_users.c.id, arena_users.c.nome)
+        select(arena_users.c.id, arena_users.c.nome, arena_users.c.avatar_revision)
         .select_from(active.join(arena_users, arena_users.c.id == active.c.user_id))
         .where(
             active.c.class_id == arena_class.id,
@@ -393,7 +399,7 @@ async def build_teacher_problem_set_report(
             snapshot_totals = {row.user_id: row.total_rating for row in totals}
 
     students = []
-    for user_id, user_name in user_rows.all():
+    for user_id, user_name, avatar_revision in user_rows.all():
         verdicts = tuple(
             arena_problem_set_report_service.best_verdict(grouped.get((user_id, problem.problem_id), []))
             for problem in problems
@@ -404,6 +410,7 @@ async def build_teacher_problem_set_report(
                 user_name=user_name,
                 verdicts=verdicts,
                 snapshot_rating=snapshot_totals.get(user_id) if snapshot_available else None,
+                avatar_revision=avatar_revision,
             )
         )
     student_tuple = tuple(students)

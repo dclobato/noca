@@ -10,6 +10,8 @@ from .batch import batch_import_users
 from .crud import create_user, remove_user, update_user, update_user_credentials
 from .models import BatchImportResult, ContestUserGroups, RoleUserGroups, SiteUserGroup, UserImportResult
 from .queries import (
+    count_contest_teams,
+    count_teams_by_site,
     get_contest_user_groups,
     get_user_by_username_in_contest,
     get_user_in_contest,
@@ -44,6 +46,8 @@ __all__ = [
     "UserImportResult",
     "batch_import_users",
     "build_user_export_row",
+    "count_contest_teams",
+    "count_teams_by_site",
     "create_user",
     "ensure_contest_user_add_or_edit_allowed",
     "ensure_contest_user_remove_allowed",

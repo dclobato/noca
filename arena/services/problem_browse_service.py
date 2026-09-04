@@ -34,6 +34,7 @@ from shared.db_schema.arena import arena_problems as _problems_table
 from shared.db_schema.arena import arena_users as _users_table
 from shared.db_schema.arena.arena_rating_history import arena_problem_rating_history
 from shared.enumerations import ProblemValidatorType, StatementLanguage
+from shared.services.arena_difficulty_display import DifficultyDisplay, difficulty_display
 from shared.services.arena_query_helpers import counts_toward_problem_rating
 
 
@@ -45,11 +46,14 @@ class AuthorInfo:
         name: Author's full display name, or ``None`` if the author record is missing.
         affiliation_name: Name of the author's affiliated institution, or ``None``.
         affiliation_country_code: ISO 3166-1 alpha-2 code for the affiliation's country, or ``None``.
+        affiliation_subdivision_code: ISO 3166-2 code for the affiliation's
+            subdivision, or ``None``.
     """
 
     name: str | None
     affiliation_name: str | None
     affiliation_country_code: str | None
+    affiliation_subdivision_code: str | None
 
 
 # Single source of truth for the public problem-list sort contract; the public
@@ -81,8 +85,8 @@ class PublicProblemListItem:
         id: Problem UUID.
         arena_number: Sequential public problem number.
         title: Problem title.
-        rating: Current display-scale problem difficulty (0.1–10.0), or ``None``
-            if not yet computed.
+        difficulty: Evidence-gated difficulty presentation (measured value or
+            the unknown state when too few users have attempted the problem).
         categories: Categories linked to this problem.
         author_name: Display name of the problem author, or ``None`` if missing.
         is_favorite: Whether the viewing user has favorited this problem.
@@ -97,7 +101,7 @@ class PublicProblemListItem:
     id: str
     arena_number: int
     title: str
-    rating: float | None
+    difficulty: DifficultyDisplay
     categories: list[ProblemListCategory]
     author_name: str | None
     is_favorite: bool = False
@@ -163,14 +167,14 @@ async def list_enabled_problems_paginated(
     """Return a paginated list of enabled problems with search and filter support.
 
     Search covers arena number, title, statement, source, and the resolved author name.
-    Category filter uses AND semantics: a problem must belong to every selected category.
+    Category filter uses OR semantics: a problem may belong to any selected category.
 
     Args:
         session: Active async database session.
         page: 1-based page number.
         per_page: Number of items per page (default 25).
         search: Hybrid search applied to number, title, statement, source, and author name.
-        category_slugs: Require ALL listed category slugs (AND semantics). None = no filter.
+        category_slugs: Require ANY listed category slug (OR semantics). None = no filter.
         language: Restrict to problems whose statement is in this language. None = no filter.
         sort_by: One of the ``VALID_SORTS`` values.
         user_id: When provided, populate ``is_favorite`` for each row.
@@ -211,16 +215,16 @@ async def list_enabled_problems_paginated(
     if category_slugs:
         effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
         if effective_slugs:
-            category_count = (
-                select(func.count(_cat_map_table.c.category_id.distinct()))
+            # OR semantics: one matching category row is enough to include the problem.
+            matching_category = (
+                select(_cat_map_table.c.category_id)
                 .select_from(_cat_map_table.join(ArenaCategory, _cat_map_table.c.category_id == ArenaCategory.id))
                 .where(
                     _cat_map_table.c.problem_id == ArenaProblem.id,
                     ArenaCategory.slug.in_(effective_slugs),
                 )
-                .scalar_subquery()
             )
-            filtered_problem_ids = filtered_problem_ids.where(category_count == len(effective_slugs))
+            filtered_problem_ids = filtered_problem_ids.where(matching_category.exists())
 
     count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
@@ -266,6 +270,7 @@ async def list_enabled_problems_paginated(
             ArenaRatingProblem.rating.label("rating_value"),
             ArenaRatingProblem.attempted_users,
             ArenaRatingProblem.solved_users,
+            ArenaProblem.expected_difficulty,
             has_custom_validator,
         )
         .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
@@ -317,17 +322,15 @@ async def list_enabled_problems_paginated(
     for row in rows:
         solver_count_value = int(row.solver_count or 0)
         if row.rating_value is None:
-            rating = None
             ac_rate = None
         else:
-            rating = row.rating_value / 10.0
             ac_rate = row.solved_users / row.attempted_users if row.attempted_users else 0.0
         items.append(
             PublicProblemListItem(
                 id=row.id,
                 arena_number=row.arena_number,
                 title=row.title,
-                rating=rating,
+                difficulty=difficulty_display(row.rating_value, row.attempted_users, row.expected_difficulty),
                 categories=categories.get(row.id, []),
                 author_name=row.author_name,
                 is_favorite=row.id in favorite_ids,
@@ -416,6 +419,7 @@ async def get_enabled_problem_by_number(
             _users_table.c.nome.label("author_name"),
             _affiliations_table.c.name.label("affiliation_name"),
             _affiliations_table.c.country_code.label("affiliation_country_code"),
+            _affiliations_table.c.subdivision_code.label("affiliation_subdivision_code"),
         )
         .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
         .outerjoin(_users_table, ArenaProblem.owner_id == _users_table.c.id)
@@ -434,17 +438,25 @@ async def get_enabled_problem_by_number(
     row = (await session.execute(stmt)).unique().one_or_none()
     if row is None:
         return None
-    problem, owner_name, affiliation_name, affiliation_country_code = row
+    (
+        problem,
+        owner_name,
+        affiliation_name,
+        affiliation_country_code,
+        affiliation_subdivision_code,
+    ) = row
     if not problem.author_is_owner:
         return problem, AuthorInfo(
             name=problem.author,
             affiliation_name=None,
             affiliation_country_code=None,
+            affiliation_subdivision_code=None,
         )
     return problem, AuthorInfo(
         name=owner_name,
         affiliation_name=affiliation_name,
         affiliation_country_code=affiliation_country_code,
+        affiliation_subdivision_code=affiliation_subdivision_code,
     )
 
 

@@ -29,6 +29,7 @@ from arena.services.admin_problem_validator_service import stage_validator_sourc
 from shared.language_configs import default_extension_for_language
 from shared.language_registry import highlightjs_language_for_language_id
 from shared.services.custom_validator import current_validator_source, remove_validator, status_view
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -63,6 +64,7 @@ async def arena_admin_problem_validator_upload(
     if job is None:
         flash("Choose a validator language and source file together.", FlashCategory.DANGER)
         return RedirectResponse(edit_url, 303)
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
     await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, job)
     flash("Custom validator queued for compilation.", FlashCategory.SUCCESS)
@@ -179,6 +181,7 @@ async def arena_admin_problem_validator_remove(
     )
     remove_validator(problem.custom_validator)
     await session.delete(problem.custom_validator)
+    await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
 
     flash("Custom validator removed.", FlashCategory.SUCCESS)

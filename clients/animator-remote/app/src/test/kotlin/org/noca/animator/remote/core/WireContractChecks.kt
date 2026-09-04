@@ -59,7 +59,24 @@ internal fun controllerLeaseFixtureParses() {
     assertEquals("claimed", lease.status)
     assertEquals(45, lease.leaseTtlSeconds)
     assertEquals(10, lease.heartbeatIntervalSeconds)
+    assertEquals(3, lease.projectorCount)
     assertNull(lease.serverTime)
+    // A lease answered by a server predating the readout still parses, and an
+    // explicit null (Valkey could not tell) stays distinct from zero.
+    assertNull(
+        assertNotNull(
+            parseControllerLeaseResponse(
+                """{"status":"renewed","lease_ttl_seconds":45,"heartbeat_interval_seconds":10}""",
+            ),
+        ).projectorCount,
+    )
+    assertNull(
+        assertNotNull(
+            parseControllerLeaseResponse(
+                """{"status":"renewed","lease_ttl_seconds":45,"heartbeat_interval_seconds":10,"projector_count":null}""",
+            ),
+        ).projectorCount,
+    )
 }
 
 internal fun metaWithoutHasStartedDecodesAsStarted() {
@@ -237,6 +254,51 @@ internal fun controlVisibilityTruthTable() {
     val done = controlsForState(projectionInPhase(RevealPhase.DONE))
     assertTrue(done.startOverVisible && done.resetVisible && done.backVisible)
     assertTrue(!done.stepVisible && !done.jumpVisible && !done.jumpPendingVisible)
+
+    // Show media is gated on a focused team rather than on the phase: the cue
+    // names no team of its own, so the server has nothing to read without a
+    // cursor. It survives into `done` deliberately — the champion's photo is
+    // the moment the control exists for. Must match `controlsForState` in
+    // animator/static/js/control.js exactly.
+    assertTrue(!revealing.mediaVisible)
+    assertTrue(!done.mediaVisible)
+    assertTrue(
+        controlsForState(projectionInPhase(RevealPhase.REVEALING).copy(focusedTeamId = "team-1")).mediaVisible,
+    )
+    assertTrue(
+        controlsForState(projectionInPhase(RevealPhase.DONE).copy(focusedTeamId = "team-1")).mediaVisible,
+    )
+    assertTrue(
+        !controlsForState(projectionInPhase(RevealPhase.IDLE).copy(focusedTeamId = "team-1")).mediaVisible,
+    )
+}
+
+/**
+ * "Did the ceremony move" must match `ceremonySignature` in
+ * `animator/static/js/ceremony-media-cue.js` exactly.
+ *
+ * The projector closes its media overlay when this value changes, and both
+ * operator panels reset their Show/Hide label on the same signal. A second
+ * definition would drift, and the symptom is a button describing the opposite of
+ * what is on the projector.
+ */
+internal fun ceremonySignatureMatchesTheProjector() {
+    assertEquals("none", ceremonySignature(null))
+
+    val base = projectionInPhase(RevealPhase.REVEALING).copy(revealedCount = 3, focusedTeamId = "t1")
+    assertEquals("revealing|3|t1", ceremonySignature(base))
+    assertEquals(ceremonySignature(base), ceremonySignature(base.copy()))
+
+    // An unchanged reload must not read as movement — that is the whole bug this
+    // guards: clearing the label while the overlay is still up.
+    assertEquals(ceremonySignature(base), ceremonySignature(base.copy(frozenCount = 99)))
+
+    // Every command shape does read as movement.
+    assertTrue(ceremonySignature(base) != ceremonySignature(base.copy(revealedCount = 4)))
+    assertTrue(ceremonySignature(base) != ceremonySignature(base.copy(focusedTeamId = "t2")))
+    assertTrue(ceremonySignature(base) != ceremonySignature(base.copy(focusedTeamId = null)))
+    assertTrue(ceremonySignature(base) != ceremonySignature(base.copy(phase = RevealPhase.DONE)))
+    assertTrue(ceremonySignature(base) != ceremonySignature(base.copy(phase = RevealPhase.IDLE)))
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +327,88 @@ internal fun bodilessCommandsSendNoBody() = runBlocking {
         assertEquals("Bearer operator-token", request.headers["Authorization"])
         assertEquals("application/json", request.headers["Accept"])
     }
+}
+
+/**
+ * The media cues answer `204` and are unlike every other command on the wire.
+ *
+ * Each assertion here corresponds to something the server relies on: no body
+ * (the routes take none), no `Idempotency-Key` (the receipt ring lives in saved
+ * state these commands never write), and the controller id (raising or blanking
+ * a projector is a control action, so ownership is required in both directions).
+ */
+internal fun mediaCuesAreBodilessAndKeyless() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { HttpResponse(204, "") }
+    val client = unlockedClient(transport)
+
+    assertEquals(MediaCueOutcome.Sent, client.showMedia())
+    assertEquals("${ENDPOINTS.showTeamMedia}", transport.last().url)
+    assertEquals(MediaCueOutcome.Sent, client.hideMedia())
+    assertEquals("${ENDPOINTS.hideTeamMedia}", transport.last().url)
+
+    for (request in transport.sent) {
+        assertEquals(HttpMethod.POST, request.method)
+        assertNull(request.body, "a media cue takes no body")
+        assertTrue("Content-Type" !in request.headers, "no body means no Content-Type")
+        assertEquals("Bearer operator-token", request.headers["Authorization"])
+        assertEquals("controller-00000001", request.headers[CONTROLLER_ID_HEADER])
+        assertTrue(
+            "Idempotency-Key" !in request.headers,
+            "a cue persists nothing, so there is no receipt ring to match a key against",
+        )
+    }
+}
+
+/**
+ * A failed cue must never engage the ambiguity lock, and `hide` must survive it.
+ *
+ * The lock exists so a retried `step` cannot reveal two teams. A cue reveals
+ * nothing, so locking over one would be pure cost — and hiding is precisely what
+ * an operator needs when an ambiguous `5xx` has left a photograph over the
+ * board. `show` stays suppressed there, because raising an overlay while the
+ * ceremony's true position is unknown risks showing the wrong team.
+ */
+internal fun mediaCuesNeverLockAndHideSurvivesTheLock() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { HttpResponse(503, """{"detail":"unavailable"}""") }
+    val client = unlockedClient(transport)
+
+    val refused = client.showMedia()
+    assertTrue(refused is MediaCueOutcome.Refused, "a 503 on a cue is stated, not ambiguous")
+    assertTrue(!client.isBlocked, "a failed cue must not lock the pad")
+
+    transport.responder = { throw TransportFailure("network down") }
+    assertTrue(client.showMedia() is MediaCueOutcome.Failed)
+    assertTrue(!client.isBlocked, "a transport failure on a cue must not lock the pad either")
+
+    // Now lock the client for real, with a genuinely ambiguous reveal command.
+    assertTrue(client.step() is CommandOutcome.Ambiguous)
+    assertTrue(client.isBlocked)
+
+    transport.responder = { HttpResponse(204, "") }
+    assertEquals(MediaCueOutcome.Suppressed, client.showMedia())
+    assertEquals(MediaCueOutcome.Sent, client.hideMedia())
+    assertTrue(client.isBlocked, "hiding resolves nothing about the ambiguous command")
+}
+
+/** A cue must not become the attempt that **Retry same command** re-sends. */
+internal fun mediaCuesDoNotBecomeTheRetryableAttempt() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { throw TransportFailure("network down") }
+    val client = unlockedClient(transport)
+
+    assertTrue(client.step() is CommandOutcome.Ambiguous)
+    assertTrue(client.canRetryLastAttempt)
+
+    transport.responder = { HttpResponse(204, "") }
+    client.hideMedia()
+
+    // Still the step, which is the command whose outcome is genuinely unresolved.
+    assertTrue(client.canRetryLastAttempt)
+    transport.responder = { HttpResponse(200, projectionJson()) }
+    client.retryLastAttempt()
+    assertEquals(ENDPOINTS.step, transport.last().url)
 }
 
 internal fun startAndJumpBodyShapes() = runBlocking {
@@ -376,4 +520,12 @@ internal fun leaseOperationsUseDedicatedEndpoints() = runBlocking {
         assertTrue("Idempotency-Key" !in request.headers)
         assertNull(request.body)
     }
+}
+
+/** The readout wording matches `projectorCopy` in control-ownership.js, null included. */
+internal fun projectorLabelMatchesTheWebPanel() {
+    assertEquals("Projector count unavailable", projectorLabel(null))
+    assertEquals("No projectors connected", projectorLabel(0))
+    assertEquals("1 projector connected", projectorLabel(1))
+    assertEquals("3 projectors connected", projectorLabel(3))
 }

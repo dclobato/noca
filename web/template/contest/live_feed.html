@@ -36,7 +36,9 @@
 {% endblock %}
 {% block extra_script %}
     {% if not not_started %}
-        <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}-r1"></script>
-        <script src="{{ request.url_for('static_js', path='live-feed.js') }}?v={{ app_version }}-r1"></script>
+        <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}-r1"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='live-feed.js') }}?v={{ app_version }}-r1"
+                defer></script>
     {% endif %}
 {% endblock %}

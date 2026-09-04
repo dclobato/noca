@@ -48,6 +48,7 @@ from animator.routes.control import router as control_router
 from animator.routes.reveal_public import router as reveal_public_router
 from animator.services.contest_queries import load_enabled_contest
 from animator.services.controller_lease_service import ControllerLeaseService
+from animator.services.feed_cache import AnimatorFeedCache
 from animator.services.reveal_session_store import RevealSessionStore
 from shared.reveal_schema import GLOBAL_SCOPE
 from shared.services.animator_access_service import create_global_secret, create_site_secret
@@ -120,6 +121,7 @@ def _build_app(engine: AsyncEngine, valkey: object) -> FastAPI:
     ``/reveal/state``, not through the operator's own API.
     """
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.valkey_runtime = valkey
     app.include_router(control_router)

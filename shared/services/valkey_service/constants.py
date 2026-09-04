@@ -48,6 +48,7 @@ QUEUE_UNKNOWN_CONTEST = "unknown_contest"
 REVEAL_STATE_KEY_PREFIX = "animator:reveal"
 REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"
 REVEAL_CONTROLLER_KEY_PREFIX = "animator:reveal:controller"
+REVEAL_PROJECTORS_KEY_PREFIX = "animator:reveal:projectors"
 REVELATION_CHANNEL_PREFIX = _channel_name("revelation:events")
 
 # AI review queue — separate namespace from the autojudge pipeline
@@ -56,3 +57,10 @@ QUEUE_AI_REVIEW_INFLIGHT_KEY = "ai:queue:inflight"
 QUEUE_AI_REVIEW_INFLIGHT_TIMES_KEY = "ai:queue:inflight:times"
 QUEUE_AI_REVIEW_JOB_HASH_PREFIX = "ai:job"
 AI_BATCH_TURNAROUND_STATS_KEY = "ai:batch:turnaround:stats"
+
+# Outbound email queue drained by the mailer worker — its own namespace so a
+# flood of mail never competes with judging or AI review keys
+QUEUE_MAIL_PENDING_KEY = "mail:queue:pending"
+QUEUE_MAIL_INFLIGHT_KEY = "mail:queue:inflight"
+QUEUE_MAIL_INFLIGHT_TIMES_KEY = "mail:queue:inflight:times"
+QUEUE_MAIL_JOB_HASH_PREFIX = "mail:job"

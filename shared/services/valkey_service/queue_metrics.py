@@ -191,3 +191,14 @@ async def get_ai_review_queue_size_with_client(client: aivalkey.Valkey) -> int:
     pipe.llen(QUEUE_AI_REVIEW_INFLIGHT_KEY)
     pending, inflight = await pipe.execute()
     return int(pending) + int(inflight)
+
+
+async def get_mail_queue_size_with_client(client: aivalkey.Valkey) -> int:
+    """Return the total number of mail jobs in pending + inflight queues."""
+    from shared.services.valkey_service.constants import QUEUE_MAIL_INFLIGHT_KEY, QUEUE_MAIL_PENDING_KEY
+
+    pipe = client.pipeline()
+    pipe.llen(QUEUE_MAIL_PENDING_KEY)
+    pipe.llen(QUEUE_MAIL_INFLIGHT_KEY)
+    pending, inflight = await pipe.execute()
+    return int(pending) + int(inflight)

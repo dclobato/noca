@@ -6,28 +6,100 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/* `table-layout: fixed` with EVERY column sized. The browser then spreads spare
+   width across the columns on a wide screen and only overflows into
+   `.table-responsive` when the board genuinely cannot fit, which is what ends the
+   sideways scroll a twelve-problem contest used to cause on a laptop. Leaving one
+   column unsized would let it collapse to zero once the sized columns exhaust the
+   table, so the team column is sized in the template too (`.noca-col-14`).
+
+   Deliberately NOT `.noca-fixed-table`: that helper pairs `table-layout: fixed`
+   with `overflow-wrap: anywhere`, which would break `+2 (40')` mid-token inside a
+   4rem column. */
+.noca-scoreboard-table {
+    --noca-scoreboard-problem-width: 4rem;
+    table-layout: fixed;
+}
+
 .problem-cell {
-    min-width: 5rem;
+    width: var(--noca-scoreboard-problem-width);
+    padding: 0.25rem;
+    font-size: 0.875rem;
     text-align: center;
     vertical-align: middle;
 }
 
-/* min-height on a <td> is not reliably respected by every browser's table
-   layout algorithm, so every problem-cell branch wraps its content in this
-   block-level flex container instead — flexbox min-height/centering is
-   universally solid, guaranteeing solved/pending/attempted/empty cells all
-   reserve the same row height regardless of content. */
-.noca-problem-cell-inner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 5rem;
+/* The team cell sets the row height, because it is the one cell that always has
+   two lines. Left at Bootstrap's 1rem/1.5 it would stand 53px tall and quietly
+   undo a third of the compaction the problem cells just paid for. */
+.noca-scoreboard-team-cell {
+    font-size: 0.875rem;
+    line-height: 1.2;
+}
+
+/* `.noca-problem-cell-inner`, `.noca-cell-note` and `.noca-cell-first-mark` are
+   defined once in shared/static/css/common.css — the Web scoreboard, the
+   animator live board and the reveal projector all draw the same cell. */
+
+/* Cell state, carried by the cell's own background-color now that the in-cell
+   balloon is gone. `--first` deliberately sets no background -- only an outline
+   plus the inline star -- so it stacks on `--solved` without a combined rule.
+
+   Qualified with the table and the element on purpose. Bootstrap paints the cell
+   background from `.table > :not(caption) > * > *`, specificity (0,1,1); a bare
+   `.noca-problem-cell--solved` is (0,1,0) and loses outright no matter where it
+   is loaded, so the tint would simply never appear. This is the same collision
+   the own-team rule below documents -- it resolved it with `!important`, which is
+   not available here because the two rules have to compose. */
+/* A solved cell is tinted with the PROBLEM's own balloon colour rather than a
+   semantic green: what it reports is which balloon the team won, and only the
+   colour says which. `--noca-success` is the fallback for a problem whose stored
+   colour failed validation, and the mix is against a theme-scoped surface token
+   so the tint follows the theme with no dark override. */
+.noca-scoreboard-table td.noca-problem-cell--solved {
+    background-color: color-mix(
+        in srgb,
+        var(--noca-cell-balloon, var(--noca-success)) 20%,
+        var(--noca-surface-container-lowest)
+    );
+}
+
+/* An unsolved attempt and a pending judgment have no balloon to name, so here
+   the colour IS the semantics -- but held far below the solved tint on purpose.
+   Bootstrap's `*-bg-subtle` pastels sit close enough in saturation to a real
+   balloon colour to be mistaken for one, which on this board is the one thing a
+   tint must never be. At this strength they read as a wash behind the glyph,
+   and the glyph (`-3`, `?`) is what actually names the state. */
+.noca-scoreboard-table td.noca-problem-cell--attempted {
+    background-color: color-mix(in srgb, var(--noca-danger) 8%, var(--noca-surface-container-lowest));
+}
+
+.noca-scoreboard-table td.noca-problem-cell--pending {
+    background-color: color-mix(in srgb, var(--noca-warning) 8%, var(--noca-surface-container-lowest));
+}
+
+/* The first-solve ring takes the problem's own balloon colour (see
+   `.animator-cell--first`, which matches it), so the ring, the star inside the
+   cell and the header balloon all read as the same object. Brand green is the
+   fallback for a problem whose stored colour failed validation. A pale balloon
+   rings faintly; the star's halo and the visually-hidden text carry the signal. */
+.noca-problem-cell--first {
+    outline: 2px solid var(--noca-cell-balloon, var(--noca-brand));
+    outline-offset: -2px;
 }
 
 .problem-header {
+    width: var(--noca-scoreboard-problem-width);
     text-align: center;
     vertical-align: middle;
+}
+
+/* Half the former 51x80, matching the size the animator's `.animator-balloon`
+   already ships — small enough not to tower over a compact row, large enough that
+   the letter baked into the artwork stays readable. */
+.problem-header img {
+    height: 3rem;
+    width: auto;
 }
 
 /* Scoreboard card: the documented elevation ramp (subtle tint, hairline
@@ -121,9 +193,20 @@
    Uses --bs-primary-rgb (the base primary color, not the dark-remapped
    *-bg-subtle token) at low alpha so it composites visibly over both the
    light and the dark table background instead of needing a separate
-   dark-mode override. */
+   dark-mode override.
+
+   The wash is a background-IMAGE, not a background-color, and that is the whole
+   point: the cell states above own `background-color`, and two color
+   declarations on one cell resolve to a single winner rather than blending. As
+   separate layers they genuinely compose — the state tint shows through the
+   translucent wash — so your own row is the one row where solved, attempted and
+   pending stay legible, instead of the one row where they are hidden. Which is
+   also why there is no `!important` here any more: nothing needs overriding. */
 .noca-own-team-row > td {
-    background-color: rgba(var(--bs-primary-rgb), 0.2) !important;
+    background-image: linear-gradient(
+        rgba(var(--bs-primary-rgb), 0.14),
+        rgba(var(--bs-primary-rgb), 0.14)
+    );
 }
 
 /* `.noca-icon-btn`, `.noca-drag-handle`, `.noca-sortable-*`, and

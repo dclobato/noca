@@ -14,8 +14,10 @@ from .errors import (
     ClarificationHiddenError,
     ClarificationLockUnavailableError,
     ClarificationNotAcquiredByActorError,
+    ClarificationRateLimitError,
     ContestNotRunningError,
     ForbiddenClarificationActionError,
+    TooManyUnansweredClarificationsError,
 )
 from .lifecycle import (
     acquire_clarification,
@@ -53,10 +55,12 @@ __all__ = [
     "ClarificationHiddenError",
     "ClarificationLockUnavailableError",
     "ClarificationNotAcquiredByActorError",
+    "ClarificationRateLimitError",
     "ClarificationSort",
     "ClarificationView",
     "ContestNotRunningError",
     "ForbiddenClarificationActionError",
+    "TooManyUnansweredClarificationsError",
     "acquire_clarification",
     "answer_clarification",
     "can_answer_clarifications",

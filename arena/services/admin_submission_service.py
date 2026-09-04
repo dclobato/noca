@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,6 +39,8 @@ class AdminSubmissionListRow:
         status: ``JudgmentStatus`` string of the active judgment, or ``None``.
         submit_to_ai: ``True`` when the submission was queued for AI review.
         has_ai_review: ``True`` when a completed AI review row exists.
+        avatar_revision: Cache-busting revision of the user's effective avatar,
+            appended as ``?v=`` to the avatar URL so a list page hits the browser cache.
     """
 
     submission_id: str
@@ -53,6 +55,7 @@ class AdminSubmissionListRow:
     status: str | None
     submit_to_ai: bool
     has_ai_review: bool
+    avatar_revision: int
 
 
 _ALLOWED_PER_PAGE: set[int] = {10, 25, 50, 100, 500}
@@ -130,6 +133,7 @@ async def list_submissions_paginated(
             status=row[9],
             submit_to_ai=row[11],
             has_ai_review=row[12] is not None,
+            avatar_revision=row[16],
         )
         for row in rows
     ]
@@ -160,12 +164,16 @@ async def reenqueue_failed_submission(session: AsyncSession, *, submission_id: s
     if submission is None:
         return None
 
+    # Locked so an overlapping second request waits for this one and then finds
+    # the judgment already QUEUED instead of enqueueing the same job twice.
     judgment = (
         await session.execute(
             select(ArenaSubmissionJudgment)
             .where(ArenaSubmissionJudgment.submission_id == submission_id)
             .order_by(ArenaSubmissionJudgment.created_at.desc())
             .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if judgment is None or judgment.status != JudgmentStatus.FAILED.value:

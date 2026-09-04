@@ -28,6 +28,76 @@
              {% if title %}title="{{ title }}"{% endif %}>
     </span>
 {% endmacro %}
+{% macro render_country_flag(request, country_code, country_name=None, decorative=True) %}
+    {% if country_code %}
+        {% if country_code | upper == "BR" %}
+            {% set country_flag_path = "img/state-flags/BR.svg" %}
+        {% else %}
+            {% set country_flag_path = 'img/flags/' + country_code.lower() + '.svg' %}
+        {% endif %}
+        <img src="{{ request.url_for('static_vendor', path=country_flag_path) }}"
+             class="arena-country-flag{% if country_code | upper == 'BR' %} arena-country-flag--circular{% endif %}"
+             alt="{% if not decorative %}{{ country_name or country_code }} flag{% endif %}"
+             {% if decorative %}aria-hidden="true"{% endif %}>
+    {% endif %}
+{% endmacro %}
+{% macro render_state_flag(
+    request,
+    country_code,
+    subdivision_code,
+    subdivision_name=None,
+    decorative=False
+    ) %}
+    {% if country_code and country_code | upper == "BR" and subdivision_code %}
+        {% set state_code = subdivision_code.split("-")[-1] | upper %}
+        {% set state_flag_path = 'img/state-flags/' + state_code + '.svg' %}
+        <img src="{{ request.url_for('static_vendor', path=state_flag_path) }}"
+             class="arena-state-flag"
+             alt="{% if not decorative %}{{ subdivision_name or state_code }} flag{% endif %}"
+             {% if decorative %}aria-hidden="true"{% endif %}>
+    {% endif %}
+{% endmacro %}
+{% macro render_location_state_flag(request, location, decorative=False) %}
+    {{ render_state_flag(request,
+        location.country_code,
+        location.subdivision_code,
+        location.subdivision_name,
+        decorative) }}
+{% endmacro %}
+{% macro render_decorative_state_flag(request, location) %}
+    {{ render_location_state_flag(request, location, decorative=True) }}
+{% endmacro %}
+{% macro render_location(
+    request,
+    location,
+    separator=", ",
+    empty_label="—"
+    ) %}
+    {% set country_code = location.country_code %}
+    {% set country_name = location.country_name %}
+    {% set subdivision_code = location.subdivision_code %}
+    {% set subdivision_name = location.subdivision_name %}
+    {% if country_code %}
+        {% if country_code | upper == "BR" %}
+            <span class="arena-location-flags">
+                {{ render_country_flag(request,
+                                country_code,
+                                country_name or "Brazil",
+                                decorative=False) }}
+                {{ render_state_flag(request, country_code, subdivision_code, subdivision_name) }}
+            </span>
+        {% else %}
+            {{ render_country_flag(request, country_code) }}
+            {{ country_name }}
+            {% if subdivision_name %}{{ separator }}{{ subdivision_name }}{% endif %}
+        {% endif %}
+    {% else %}
+        <span class="text-muted">{{ empty_label }}</span>
+    {% endif %}
+{% endmacro %}
+{% macro render_affiliation_location(request, location) %}
+    {{ render_location(request, location, separator=" · ") }}
+{% endmacro %}
 {% macro render_flash_messages(dismissible=True, with_icons=True, full_width=False) %}
     {% set _flashed = get_flashed_messages(with_categories=True) %}
     {% if _flashed %}

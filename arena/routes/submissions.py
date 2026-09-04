@@ -27,20 +27,32 @@ import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings as arena_settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
+from arena.routes.safe_redirect import same_origin_referer_path
 from arena.services import admin_submission_service
+from arena.services.ai_review_request_service import (
+    AIReviewRequestOutcome,
+    ai_review_request_verdict,
+    request_ai_review,
+)
 from arena.services.ai_turnaround_stats_service import get_batch_turnaround_stats
 from arena.services.arena_problem_set_report_service import can_teacher_view_submission
 from arena.services.arena_teacher_feedback_service import delete_teacher_feedback, upsert_teacher_feedback
+from arena.services.output_diff import (
+    EXPECTED_PREFIX_BYTES,
+    OUTPUT_MISMATCH_VERDICTS,
+    OutputComparison,
+    build_output_comparison,
+)
 from arena.services.session_service import build_current_next_url, build_login_redirect_response
-from arena.services.user_ai_credit_service import consume_ai_credit
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import (
     arena_ai_batch_jobs,
@@ -64,16 +76,14 @@ from shared.enumerations import (
     Verdict,
 )
 from shared.language_registry import highlightjs_language_for_language_id
-from shared.queue_schema import ArenaAIReviewJob
 from shared.services.arena_notification_service import create_arena_notification
-from shared.services.testcase_files import read_testcase_full
+from shared.services.testcase_files import read_testcase_output_prefix
 from shared.services.valkey_service.queue_ops import (
-    enqueue_arena_ai_review_job,
     enqueue_arena_submission_job,
 )
 from shared.signal_names import describe_signal
 
-router = APIRouter(tags=["arena-submissions"])
+router = APIRouter(tags=["arena-submissions"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 _SUPERSEDED = JudgmentStatus.SUPERSEDED.value
 _STUDENT_REPORT_BACK_CONTEXT = "student_report"
@@ -120,7 +130,8 @@ class TestResultData:
     Attributes:
         verdict: Verdict string for this test case (e.g. "WA", "TLE").
         stdout_excerpt: Truncated contestant standard output, or None if empty.
-        expected_output: Expected output from the test case, or None if absent.
+        output_diff: Bounded side-by-side comparison with the expected output,
+            built only for an output-mismatch verdict (WA or PE); None otherwise.
         is_sample: True when the failing test case is a sample (public) case.
         test_case_ordinal: 1-based ordinal of the failing test case.
         stderr_excerpt: Truncated standard error output, or None if empty.
@@ -131,7 +142,7 @@ class TestResultData:
 
     verdict: str
     stdout_excerpt: str | None
-    expected_output: str | None
+    output_diff: OutputComparison | None
     is_sample: bool
     test_case_ordinal: int
     stderr_excerpt: str | None
@@ -498,14 +509,21 @@ async def arena_submission_detail(
             )
         ).one_or_none()
         if tr_row is not None:
-            # Expected-output content now lives on the filesystem; read it from disk.
-            _, expected_output = await anyio.to_thread.run_sync(
-                read_testcase_full, submission_row[5], tr_row[3], arena_settings.PROBLEM_TESTCASE_DIR
-            )
+            output_diff: OutputComparison | None = None
+            if tr_row[0] in OUTPUT_MISMATCH_VERDICTS:
+                # Only a bounded prefix of the expected output ever leaves the disk.
+                expected_prefix, expected_cut = await anyio.to_thread.run_sync(
+                    read_testcase_output_prefix,
+                    submission_row[5],
+                    tr_row[3],
+                    arena_settings.PROBLEM_TESTCASE_DIR,
+                    EXPECTED_PREFIX_BYTES,
+                )
+                output_diff = build_output_comparison(tr_row[1], expected_prefix, expected_cut=expected_cut)
             test_result = TestResultData(
                 verdict=tr_row[0],
                 stdout_excerpt=tr_row[1],
-                expected_output=expected_output,
+                output_diff=output_diff,
                 is_sample=tr_row[2],
                 test_case_ordinal=tr_row[3],
                 stderr_excerpt=tr_row[4],
@@ -692,15 +710,14 @@ async def arena_submission_request_ai_review(
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Enqueue an AI code-review job for a submission.
+    """Request an AI code-review for a submission the caller owns.
 
-    Only the submission owner may request a review.  The route is idempotent:
-    if a review has already been requested or completed, it redirects back to
-    the submission detail without double-enqueuing.
-
-    The decision of whether to use the user's own API key or the platform key is
-    frozen at request time (``use_platform_key``) and stored in the job payload so
-    the worker does not re-derive it from the user's current state.
+    The workflow -- locked state check, credit gate, flag, commit, one enqueue --
+    lives in :mod:`arena.services.ai_review_request_service`; this handler only
+    authenticates, applies the per-user request cap, and maps the outcome to a
+    flash and a redirect. A repeat request on a pending submission is answered
+    with the pending state and **never** re-enqueues: recovery of a lost job is
+    the aiassistant reconciler's alone.
 
     Args:
         submission_id: UUID of the ``arena_submissions`` row.
@@ -723,73 +740,19 @@ async def arena_submission_request_ai_review(
 
     detail_url = str(request.url_for("arena_submission_detail", submission_id=submission_id))
 
-    # Load submission fields needed for the job and ownership check
-    sub_row = (
-        await session.execute(
-            select(
-                arena_submissions.c.user_id,
-                arena_submissions.c.problem_id,
-                arena_submissions.c.language_id,
-                arena_submissions.c.submit_to_ai,
-            ).where(arena_submissions.c.id == submission_id)
-        )
-    ).one_or_none()
+    # Counted before any lookup, whatever the outcome, so a flood does no database work.
+    allowed, retry_after = await ai_review_request_verdict(request, current_user.id)
+    if not allowed:
+        flash(f"Too many AI review requests. Try again in {retry_after} s.", FlashCategory.DANGER)
+        return RedirectResponse(url=detail_url, status_code=303)
 
-    if sub_row is None or sub_row[0] != current_user.id:
+    outcome = await request_ai_review(session, request.app.state.valkey_runtime, current_user, submission_id)
+    if outcome is AIReviewRequestOutcome.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Submission not found.")
-
-    ai_review_exists = (
-        await session.scalar(
-            select(arena_submission_ai_reviews.c.submission_id).where(
-                arena_submission_ai_reviews.c.submission_id == submission_id
-            )
-        )
-    ) is not None
-    if ai_review_exists:
-        return RedirectResponse(url=detail_url, status_code=303)
-
-    # Already flagged as pending but no review yet. The Valkey enqueue is a
-    # second write that cannot share the DB transaction, so a crash or failure
-    # after commit can leave submit_to_ai=True with no job on the queue. Re-enqueue
-    # idempotently to self-heal that state instead of dead-ending the user. No
-    # credit is consumed and submit_to_ai is not touched: the intent (and any
-    # platform-credit charge) was already recorded on the first request.
-    if sub_row[3]:  # submit_to_ai is True
-        heal_job = ArenaAIReviewJob(
-            submission_id=submission_id,
-            user_id=sub_row[0],
-            problem_id=sub_row[1],
-            language_id=sub_row[2],
-            use_platform_key=not bool(current_user.ai_api_key),
-        )
-        await enqueue_arena_ai_review_job(request.app.state.valkey_runtime, heal_job)
+    if outcome is AIReviewRequestOutcome.PENDING:
         flash("Your AI review is still being processed.", FlashCategory.INFO)
-        return RedirectResponse(url=detail_url, status_code=303)
-
-    # Gate: user must have their own API key or available platform credits.
-    # The decision is frozen here so the worker does not re-derive it.
-    use_platform_key = not bool(current_user.ai_api_key)
-    if use_platform_key:
-        consumed = await consume_ai_credit(current_user, session, submission_id=submission_id)
-        if not consumed:
-            flash("You do not have enough AI credits for this action.", FlashCategory.DANGER)
-            return RedirectResponse(url=detail_url, status_code=303)
-
-    # Mark submission as queued for AI review
-    await session.execute(
-        update(arena_submissions).where(arena_submissions.c.id == submission_id).values(submit_to_ai=True)
-    )
-
-    job = ArenaAIReviewJob(
-        submission_id=submission_id,
-        user_id=sub_row[0],
-        problem_id=sub_row[1],
-        language_id=sub_row[2],
-        use_platform_key=use_platform_key,
-    )
-    await session.commit()
-    await enqueue_arena_ai_review_job(request.app.state.valkey_runtime, job)
-
+    elif outcome is AIReviewRequestOutcome.INSUFFICIENT_CREDIT:
+        flash("You do not have enough AI credits for this action.", FlashCategory.DANGER)
     return RedirectResponse(url=detail_url, status_code=303)
 
 
@@ -1085,6 +1048,7 @@ async def arena_submission_force_rejudge(
         await enqueue_arena_submission_job(request.app.state.valkey_runtime, job)
         flash("Submission queued for a fresh judgment.", FlashCategory.SUCCESS)
 
-    referer = request.headers.get("referer")
-    redirect_url = referer or str(request.url_for("arena_submission_detail", submission_id=submission_id))
+    redirect_url = same_origin_referer_path(
+        request, fallback=str(request.url_for("arena_submission_detail", submission_id=submission_id))
+    )
     return RedirectResponse(url=redirect_url, status_code=303)

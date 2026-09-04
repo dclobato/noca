@@ -11,9 +11,9 @@
 # Encodes the judge user and /sandbox conventions only; toolchain packages
 # are installed in each consumer Dockerfile on top of this base.
 #
-# Digest-pinned for reproducible builds (same pin as fpc-pascal/compile).
+# Digest-pinned for reproducible builds (same pin as every other judge image).
 
-FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

@@ -113,13 +113,16 @@ async def _make_submission(
     return submission
 
 
-async def _make_problem(session: AsyncSession, user: ArenaUser) -> ArenaProblem:
+async def _make_problem(
+    session: AsyncSession, user: ArenaUser, *, expected_difficulty: int | None = None
+) -> ArenaProblem:
     problem = ArenaProblem(
         arena_number=int(uuid.uuid4().int % 1_000_000_000) + 1,
         title=f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=user.id,
         problem_statement="<p>Test.</p>",
         validator_type=ProblemValidatorType.STANDARD,
+        expected_difficulty=expected_difficulty,
     )
     session.add(problem)
     await session.flush()

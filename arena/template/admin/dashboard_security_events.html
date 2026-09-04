@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -82,6 +82,7 @@
                             <th>Source port</th>
                             <th>Request ID</th>
                             <th>Metadata</th>
+                            <th class="text-end">Unlock</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -122,10 +123,28 @@
                                     {% endif %}
                                 </td>
                                 <td class="small text-break">{{ event.metadata }}</td>
+                                <td class="text-end text-nowrap">
+                                    {% if event.client_ip %}
+                                        <a href="{{ request.url_for("arena_admin_dashboard_lockouts") }}?ip={{ event.client_ip | urlencode }}"
+                                           class="btn btn-outline-secondary btn-sm arena-icon-button"
+                                           title="Check and lift the lockouts of {{ event.client_ip }}">
+                                            {{ render_icon(icon="lock_open") }}
+                                            <span>Address</span>
+                                        </a>
+                                    {% endif %}
+                                    {% if event.identifier_hash %}
+                                        <a href="{{ request.url_for("arena_admin_dashboard_lockouts") }}?identifier={{ (event.actor_label or '') | urlencode }}&amp;identifier_hash={{ event.identifier_hash | urlencode }}"
+                                           class="btn btn-outline-secondary btn-sm arena-icon-button"
+                                           title="Check and lift the lockouts of this account">
+                                            {{ render_icon(icon="lock_open") }}
+                                            <span>User</span>
+                                        </a>
+                                    {% endif %}
+                                </td>
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-3">No security events found.</td>
+                                <td colspan="10" class="text-center text-muted py-3">No security events found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

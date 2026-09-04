@@ -40,7 +40,8 @@
         <form id="edit-form"
               method="post"
               action="{{ view.save_url }}"
-              enctype="multipart/form-data">
+              enctype="multipart/form-data"
+              data-noca-draft="{{ view.draft_key }}">
         </form>
         {% include "_partials/problem_editor_shell.html" %}
         <div class="tab-content border border-top-0 rounded-bottom p-3 mb-3">
@@ -79,6 +80,7 @@
                name="active_tab"
                id="active-tab-input"
                form="edit-form"
+               data-noca-draft-ignore
                value="{{ view.active_tab }}">
         {% if not is_edit_allowed and not is_limits_edit_allowed %}
             <div class="text-muted small mb-4">Editing is not available — see the notice above.</div>

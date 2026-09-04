@@ -29,8 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 import animator.main as animator_main
 from animator.config import settings
 from animator.routes.control import router as control_router
+from animator.routes.control_media import router as control_media_router
 from animator.routes.control_page import router as control_page_router
 from animator.routes.public import router as public_router
+from animator.services.feed_cache import AnimatorFeedCache
 from tests.animator._feed_seed import make_contest
 from tests.animator._reveal_seed import seed_ceremony
 from web.models.users import UberAdmin
@@ -63,10 +65,12 @@ def _build_app(engine: AsyncEngine) -> FastAPI:
     belongs to a different router.
     """
     app = FastAPI()
+    app.state.feed_cache = AnimatorFeedCache()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.include_router(public_router)
     app.include_router(control_page_router)
     app.include_router(control_router)
+    app.include_router(control_media_router)
     app.mount(
         "/static/css",
         StaticFiles(directory=_ANIMATOR_DIR / "static" / "css"),
@@ -176,6 +180,7 @@ async def test_fetching_the_shell_is_not_audited_as_a_command_attempt(
 async def test_the_shell_is_reachable_through_the_real_app(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """The router is actually registered in ``animator.main``, not just importable."""
     ceremony = await seed_ceremony(session, uberadmin)
+    animator_main.app.state.feed_cache = AnimatorFeedCache()
     animator_main.app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)  # type: ignore[arg-type]
     animator_main.app.state.templates = _build_app(session.bind).state.templates  # type: ignore[arg-type]
 

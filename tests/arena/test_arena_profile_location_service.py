@@ -14,12 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_users import ArenaUser
 from arena.services.profile_location_service import (
+    ReverseGeocodeResult,
     list_subdivisions,
     map_reverse_geocode_response,
     reverse_geocode_location,
     search_affiliations,
     update_user_affiliation,
     update_user_location,
+    validate_coordinates,
 )
 from shared.enumerations import ArenaRole
 from shared.services.network_utils import NetworkService, NetworkServiceError
@@ -165,3 +167,90 @@ async def test_user_affiliation_update_and_clear(session: AsyncSession) -> None:
     cleared = await update_user_affiliation(session, user, affiliation_id=None)
     assert cleared is None
     assert user.affiliation_id is None
+
+
+def test_validate_coordinates_accepts_the_range_boundaries() -> None:
+    """The poles and the antimeridian are legal coordinates, not off-by-one errors."""
+    assert validate_coordinates(90.0, 180.0) == (90.0, 180.0)
+    assert validate_coordinates(-90.0, -180.0) == (-90.0, -180.0)
+    assert validate_coordinates(0.0, 0.0) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude", "message"),
+    [
+        (90.1, 0.0, "Latitude"),
+        (-90.1, 0.0, "Latitude"),
+        (float("nan"), 0.0, "Latitude"),
+        (float("inf"), 0.0, "Latitude"),
+        (0.0, 180.1, "Longitude"),
+        (0.0, -180.1, "Longitude"),
+        (0.0, float("nan"), "Longitude"),
+    ],
+)
+def test_validate_coordinates_rejects_out_of_range_and_non_finite(
+    latitude: float, longitude: float, message: str
+) -> None:
+    """Anything outside the WGS84 ranges, NaN and infinity included, is refused."""
+    with pytest.raises(ValueError, match=message):
+        validate_coordinates(latitude, longitude)
+
+
+def test_reverse_geocode_treats_an_unmappable_country_as_not_detected() -> None:
+    """A country code the ISO tables do not know is an empty answer, not an error.
+
+    The caller sent coordinates, never a country, so "Unknown country code." would be
+    both a leak of internal vocabulary and a lie about what the caller did wrong.
+    """
+    result = map_reverse_geocode_response({"address": {"country_code": "xx"}})
+
+    assert result == ReverseGeocodeResult(None, None, None, None)
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    ["ftp://geocoder.internal/reverse", "https://", "not-a-url", ""],
+    ids=["scheme", "no-host", "malformed", "empty"],
+)
+def test_reverse_geocode_never_echoes_the_configured_endpoint(endpoint_url: str) -> None:
+    """A misconfigured endpoint must not describe itself to the caller.
+
+    ``make_json_request`` validates the URL, params and headers *outside* its own try
+    block, so those validators raise plain ``ValueError`` naming what they rejected.
+    The route relays that message verbatim to any logged-in user, so the provider call
+    replaces every one of them with its single fixed message.
+    """
+    with pytest.raises(ValueError, match="Could not detect location") as raised:
+        reverse_geocode_location(
+            latitude=1.0,
+            longitude=2.0,
+            endpoint_url=endpoint_url,
+            user_agent="noca-test",
+            network_service=NetworkService(),
+        )
+
+    message = str(raised.value)
+    assert "geocoder.internal" not in message
+    assert "ftp" not in message
+    assert "scheme" not in message.lower()
+
+
+def test_reverse_geocode_never_echoes_a_rejected_user_agent() -> None:
+    """A header the sanitizer rejects is configuration too, and stays out of the message.
+
+    The sanitizer names the offending header and why it was refused; that wording tells
+    a caller which headers NOCA sets on its outbound calls, so it is replaced like the
+    URL validators' wording.
+    """
+    with pytest.raises(ValueError, match="Could not detect location") as raised:
+        reverse_geocode_location(
+            latitude=1.0,
+            longitude=2.0,
+            endpoint_url="https://example.test/reverse",
+            user_agent="noca\x00build-tag",
+            network_service=NetworkService(),
+        )
+
+    message = str(raised.value)
+    assert "null byte" not in message
+    assert "User-Agent" not in message

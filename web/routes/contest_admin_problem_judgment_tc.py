@@ -30,6 +30,7 @@ from shared.services.editor_urls import editor_url
 from shared.services.problem_editor_save import lock_problem_row
 from shared.services.problem_package.testcase_archive import parse_testcases_zip
 from shared.services.problem_save_errors import PendingOpsError, unsupported_strategy_message
+from shared.services.public_export_generation import bump_public_export_generation
 from shared.services.testcase_pending_ops import (
     CaseContent,
     PendingTestCaseOps,
@@ -295,6 +296,8 @@ async def problem_judgment_case_toggle_sample(
     test_case.is_sample = not test_case.is_sample
     kind = "sample" if test_case.is_sample else "secret"
     ordinal = test_case.ordinal
+    # A sample/secret flip changes which cases the public package ships.
+    await bump_public_export_generation(ctx.session, "contest", problem.id)
     await ctx.session.commit()
     flash(f"Test case #{ordinal} is now a {kind} case.", FlashCategory.SUCCESS)
     return _redirect(editor_url(page_url, anchor=f"tc-{tc_id}"))

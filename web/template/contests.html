@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,6 +17,11 @@
                     <p class="noca-gateway-eyebrow">{{ brand_name }}</p>
                     <h1>Contests</h1>
                     <p>Sign in to a running contest, get ready for what's next, or revisit results from ones that have ended.</p>
+                    <a href="{{ nav_url(request, 'announcements_list') }}"
+                       class="noca-gateway-section-link">
+                        {{ render_icon("campaign") }}
+                        Announcements
+                    </a>
                 </div>
                 <aside class="noca-gateway-signal" aria-label="Open contest count">
                     <span class="noca-gateway-signal-label">Open now</span>

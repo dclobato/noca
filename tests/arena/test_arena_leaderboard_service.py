@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,8 +27,15 @@ async def _make_user(
     active: bool = True,
     confirmed: bool = True,
     created_at: datetime | None = None,
+    full_name_public: bool = True,
 ) -> ArenaUser:
-    """Create a persisted Arena user with leaderboard-relevant fields."""
+    """Create a persisted Arena user with leaderboard-relevant fields.
+
+    These users are adults who opted in to publishing their legal name, so the
+    ordering assertions below can keep naming them. The age shield itself is
+    covered by ``test_minor_shield_read_paths.py`` and
+    ``test_user_visibility_service.py``.
+    """
     user = ArenaUser(
         nome=name,
         email_normalizado=f"{name.lower().replace(' ', '.')}@example.com",
@@ -37,6 +44,7 @@ async def _make_user(
         ativo=active,
         email_confirmado=confirmed,
         consentimento_responsavel=True,
+        full_name_public=full_name_public,
         user_rating=rating,
         solved_problems=solved,
     )
@@ -125,6 +133,21 @@ async def test_get_top_rated_users_includes_staff_and_filters_inactive_unconfirm
 
 
 @pytest.mark.asyncio
+async def test_get_top_rated_users_carries_the_avatar_revision(session: AsyncSession) -> None:
+    """The dashboard card versions each avatar URL from the row, so the row must carry it.
+
+    Without it the template would emit a bare URL, which the avatar route answers
+    with ``must-revalidate`` and no ``ETag`` -- a full download per row per view.
+    """
+    user = await _make_user(session, name="Rev", rating=500, solved=1)
+    user.avatar_revision = 7
+    await session.commit()
+
+    top_users = await get_top_rated_users(session, limit=5)
+
+    assert [u.avatar_revision for u in top_users if u.id == user.id] == [7]
+
+
 async def test_get_top_rated_users_limit_below_one_returns_empty(
     session: AsyncSession,
 ) -> None:
@@ -132,3 +155,20 @@ async def test_get_top_rated_users_limit_below_one_returns_empty(
     await _make_user(session, name="Visible", rating=50, solved=2)
 
     assert await get_top_rated_users(session, limit=0) == []
+
+
+@pytest.mark.asyncio
+async def test_rows_are_pseudonymous_unless_an_adult_opted_in(
+    session: AsyncSession,
+) -> None:
+    """Every row is resolved through the age shield, never taken from ``nome``."""
+    opted_in = await _make_user(session, name="Opted In", rating=200, solved=5)
+    default = await _make_user(session, name="Default Adult", rating=100, solved=5, full_name_public=False)
+
+    top_users = await get_top_rated_users(session, limit=2)
+
+    assert top_users[0].name == opted_in.nome
+    assert top_users[0].is_pseudonymous is False
+    assert top_users[1].name == default.username
+    assert top_users[1].is_pseudonymous is True
+    assert default.nome not in {user.name for user in top_users}

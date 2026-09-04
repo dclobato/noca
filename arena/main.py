@@ -38,14 +38,18 @@ from starlette.middleware.sessions import SessionMiddleware
 from arena.config import settings
 from arena.database import create_engine, create_session_factory
 from arena.dependencies.access_control import enforce_arena_authentication
+from arena.dependencies.required_announcements import load_pending_required_announcement
 from arena.error_handlers import register_error_handlers
 from arena.image_upload_limits import arena_image_upload_rules
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.admin_affiliations import router as arena_admin_affiliations_router
+from arena.routes.admin_announcements import router as arena_admin_announcements_router
 from arena.routes.admin_categories import router as arena_admin_categories_router
 from arena.routes.admin_dashboard import router as arena_admin_dashboard_router
 from arena.routes.admin_dashboard_history import router as arena_admin_dashboard_history_router
+from arena.routes.admin_dashboard_lockouts import router as arena_admin_dashboard_lockouts_router
 from arena.routes.admin_dashboard_security import router as arena_admin_dashboard_security_router
+from arena.routes.admin_dashboard_terms import router as arena_admin_dashboard_terms_router
 from arena.routes.admin_problem_api import router as arena_admin_problem_api_router
 from arena.routes.admin_problem_interaction import router as arena_admin_problem_interaction_router
 from arena.routes.admin_problem_io import router as arena_admin_problem_io_router
@@ -57,9 +61,19 @@ from arena.routes.admin_problem_validator import router as arena_admin_problem_v
 from arena.routes.admin_problems import router as arena_admin_problems_router
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
+from arena.routes.admin_users_consent import router as arena_admin_users_consent_router
+from arena.routes.admin_users_google import router as arena_admin_users_google_router
+from arena.routes.admin_users_lockout import router as arena_admin_users_lockout_router
+from arena.routes.admin_users_username import router as arena_admin_users_username_router
 from arena.routes.affiliations import router as arena_affiliations_router
+from arena.routes.announcements import router as arena_announcements_router
 from arena.routes.auth import router as arena_auth_router
 from arena.routes.auth_2fa import router as arena_auth_2fa_router
+from arena.routes.auth_google import router as arena_auth_google_router
+from arena.routes.auth_google_complete import router as arena_auth_google_complete_router
+from arena.routes.auth_google_existing import router as arena_auth_google_existing_router
+from arena.routes.auth_parental_grant import router as arena_auth_parental_grant_router
+from arena.routes.auth_parental_revoke import router as arena_auth_parental_revoke_router
 from arena.routes.auth_password import router as arena_auth_password_router
 from arena.routes.auth_signup import router as arena_auth_signup_router
 from arena.routes.classes import router as arena_classes_router
@@ -86,7 +100,10 @@ from arena.routes.submissions import router as arena_submissions_router
 from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_security import router as arena_user_security_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
+from arena.routes.user_username_api import router as arena_user_username_api_router
 from arena.routes.users import router as arena_users_router
+from arena.services.google_avatar_service import GoogleAvatarService
+from arena.services.google_oauth_service import build_google_oauth_client
 from arena.services.qrcode_service import QRCodeService
 from arena.services.startup_seeds import ensure_sem_afiliacao
 from arena.services.token_service import ArenaTokenAction, JWTService, load_token_config_from_dict
@@ -107,10 +124,11 @@ from shared.services.imageprocessing_service import ImageProcessingConfig, Image
 from shared.services.multipart_file_size import MultipartFileSizeLimitMiddleware
 from shared.services.network_utils import NetworkService
 from shared.services.network_utils.ip_reputation import IPQualityScoreIPReputationService
+from shared.services.problem_export_cache import export_cache_dir
 from shared.services.problem_package.reconcile import reconcile_import_journals
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
-from shared.services.startup_wait import wait_for_db, wait_for_valkey
+from shared.services.startup_wait import wait_for_db, wait_for_mailer, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
 from shared.services.user_presence import count_online_users
 from shared.services.valkey_service import (
@@ -238,6 +256,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info(banner.center(80, " "))
     logger.info("-" * 80)
     logger.info("Problem test case directory: %s", settings.PROBLEM_TESTCASE_DIR)
+    if settings.PUBLIC_PROBLEM_PACK_PATH is not None:
+        settings.PUBLIC_PROBLEM_PACK_PATH.mkdir(parents=True, exist_ok=True)
+        export_cache_dir(settings.PUBLIC_PROBLEM_PACK_PATH).mkdir(parents=True, exist_ok=True)
+        logger.info("Public problem package cache directory: %s", settings.PUBLIC_PROBLEM_PACK_PATH)
+    elif settings.ENVIRONMENT == Environment.PRODUCTION:
+        # Refused rather than warned about, as Web does: the routes this backs are
+        # reachable by every logged-in user, and a package build per request is
+        # never acceptable in production. Failing the deploy beats a 503 later.
+        raise RuntimeError(
+            "NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH must be set in production: it backs the "
+            "per-problem public export and sample-case ZIP caches."
+        )
+    else:
+        logger.info("Public problem package caches disabled (NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH unset)")
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
 
@@ -265,6 +297,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
     await valkey_runtime.start()
     app.state.valkey_runtime = valkey_runtime
+    # Email is queued for the mailer worker and never sent from here, so a
+    # deployment without one must fail now rather than accept mail it will drop.
+    # Startup-only: individual sends never check mailer liveness.
+    await wait_for_mailer(valkey_runtime, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     logger.info("- Valkey runtime started")
 
     revocation_store = ValkeyRevocationStore(valkey_url=settings.valkey_url, logger=logger)
@@ -287,17 +323,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("- JWTService started")
 
     email_config = EmailConfig.from_settings(settings)
-    app.state.email_service = EmailService(config=email_config, logger=logger)
-    logger.info(
-        "- EmailService started (provider=%s, send_email=%s)",
-        email_config.provider_type,
-        email_config.send_email,
-    )
-    logger.info(
-        "- Email mbox logging configured (enabled=%s, directory=%s)",
-        email_config.send_email and email_config.provider_type.casefold() == "smtp" and bool(email_config.mbox_log_dir),
-        email_config.mbox_log_dir or "N/A",
-    )
+    app.state.email_service = EmailService(config=email_config, logger=logger, valkey_runtime=valkey_runtime)
+    logger.info("- EmailService started (delivery=%s)", app.state.email_service.delivery_mode)
 
     image_config = ImageProcessingConfig(
         avatar_size=settings.IMAGE_AVATAR_SIZE,
@@ -310,6 +337,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.image_service = ImageProcessingService(config=image_config, logger=logger)
     logger.info("- ImageProcessingService started")
 
+    app.state.google_avatar_service = GoogleAvatarService(
+        image_service=app.state.image_service,
+        max_file_size=settings.IMAGE_MAX_FILE_SIZE,
+    )
+    logger.info("- GoogleAvatarService started")
+
     app.state.qrcode_service = QRCodeService.create_default()
     logger.info("- QRCodeService started")
 
@@ -319,6 +352,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         logger=logger,
     )
     app.state.geo_service = geo_service
+
+    # None when Google sign-in is disabled, which is what makes every /auth/google
+    # route answer 404 on a deployment that has not configured an OAuth client.
+    app.state.google_oauth = build_google_oauth_client(settings)
+    logger.info("- Google sign-in %s", "enabled" if app.state.google_oauth else "disabled")
     logger.info(
         "- GeolocationIP service initialised (enabled=%s)",
         settings.GEOLOCATION_API_KEY is not None,
@@ -496,7 +534,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
-    dependencies=[Depends(enforce_arena_authentication)],
+    dependencies=[Depends(enforce_arena_authentication), Depends(load_pending_required_announcement)],
 )
 register_error_handlers(app)
 
@@ -549,6 +587,12 @@ app.mount(
 )
 
 app.mount(
+    "/static/shared-img",
+    StaticFiles(directory=_SHARED_DIR / "static" / "img"),
+    name="static_shared_img",
+)
+
+app.mount(
     "/static/img",
     StaticFiles(directory=_ARENA_DIR / "static" / "img"),
     name="arena_static_img",
@@ -573,7 +617,12 @@ app.include_router(arena_health_router)
 app.include_router(arena_live_router)
 app.include_router(arena_auth_router)
 app.include_router(arena_auth_signup_router)
+app.include_router(arena_auth_parental_grant_router)
+app.include_router(arena_auth_parental_revoke_router)
 app.include_router(arena_auth_2fa_router)
+app.include_router(arena_auth_google_router)
+app.include_router(arena_auth_google_complete_router)
+app.include_router(arena_auth_google_existing_router)
 app.include_router(arena_auth_password_router)
 app.include_router(arena_classes_router)
 app.include_router(arena_classes_members_router)
@@ -585,11 +634,13 @@ app.include_router(arena_problem_sets_autocomplete_router)
 app.include_router(arena_student_problem_sets_router)
 app.include_router(arena_submissions_router)
 app.include_router(arena_legal_router)
+app.include_router(arena_announcements_router)
 app.include_router(arena_help_router)
 app.include_router(arena_problem_problem_sets_router)
 app.include_router(arena_problems_router)
 app.include_router(arena_problem_editorial_router)
 app.include_router(arena_users_router)
+app.include_router(arena_user_username_api_router)
 app.include_router(arena_user_public_profile_router)
 app.include_router(arena_user_submission_status_router)
 app.include_router(arena_user_security_router)
@@ -599,11 +650,18 @@ app.include_router(arena_affiliations_router)
 app.include_router(arena_ranking_router)
 app.include_router(arena_admin_affiliations_router)
 app.include_router(arena_admin_categories_router)
+app.include_router(arena_admin_announcements_router)
 app.include_router(arena_admin_dashboard_router)
 app.include_router(arena_admin_dashboard_history_router)
+app.include_router(arena_admin_dashboard_lockouts_router)
 app.include_router(arena_admin_dashboard_security_router)
+app.include_router(arena_admin_dashboard_terms_router)
 app.include_router(arena_admin_users_router)
 app.include_router(arena_admin_users_actions_router)
+app.include_router(arena_admin_users_username_router)
+app.include_router(arena_admin_users_consent_router)
+app.include_router(arena_admin_users_google_router)
+app.include_router(arena_admin_users_lockout_router)
 app.include_router(arena_admin_problem_new_router)
 app.include_router(arena_admin_problems_router)
 app.include_router(arena_admin_problem_save_router)

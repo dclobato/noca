@@ -1,0 +1,89 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Announcement management list, shared by the Web (UberAdmin) and Arena (Admin)
+  surfaces, laid out like the Arena categories page ("Admin List Page" in
+  docs/PADROES_UI.md): header with the add-new action, count, pagination, table.
+
+  There is no edit action anywhere on purpose: a published announcement is
+  immutable, and the only retraction is deletion, which asks first through the
+  repository-wide `data-confirm` courtesy (`confirm-submit.js`, loaded by both
+  `_base.html`s). Each row carries `id="announcement-<id>"` so a redirect back
+  here can highlight the row it concerns.
+
+  Required context:
+    pagination        Pagination[AnnouncementRow]
+    new_url           URL of the create form page
+    delete_url_name   endpoint name of this surface's delete route
+    detail_url_name   endpoint name of this surface's public detail route
+  Optional context:
+    heading_class     extra classes for the <h1> (default: Bootstrap h3)
+    table_class       table classes (default: Bootstrap's compact table)
+#}
+{% from "_macros.html" import render_icon with context %}
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <h1 class="{{ heading_class | default('h3', true) }} mb-0">
+        {{ render_icon(icon="campaign") }}
+        Announcement Management
+    </h1>
+    <a href="{{ new_url }}" class="btn btn-primary btn-sm">
+        {{ render_icon(icon="add") }}
+        Add new announcement
+    </a>
+</div>
+<p class="text-muted small mb-2">{{ pagination.total }} announcement{{ 's' if pagination.total != 1 else '' }}</p>
+{% with pagination=pagination, page_param="page", label="Announcement management pagination", nav_margin="mb-2" %}
+    {% include "_partials/pagination.html" %}
+{% endwith %}
+<div class="table-responsive">
+    <table class="{{ table_class | default('table table-sm align-middle mb-0', true) }}">
+        <thead>
+            <tr>
+                <th scope="col">Title</th>
+                <th scope="col" class="text-nowrap">Published (UTC)</th>
+                <th scope="col">Publisher</th>
+                <th scope="col" class="text-end">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in pagination.items %}
+                <tr id="announcement-{{ row.id }}" class="noca-target-row">
+                    <td>
+                        <a href="{{ request.url_for(detail_url_name, announcement_id=row.id) }}?page={{ pagination.page }}">{{ row.title }}</a>
+                        {% if row.required %}
+                            <span class="badge text-bg-warning ms-1"
+                                  title="Every user must acknowledge this announcement">Required</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-nowrap">{{ row.published_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                    <td>{{ row.published_by_label }}</td>
+                    <td class="text-end">
+                        <form method="post"
+                              action="{{ request.url_for(delete_url_name, announcement_id=row.id) }}"
+                              class="d-inline"
+                              data-confirm="Remove the announcement “{{ row.title }}”? This cannot be undone.">
+                            <input type="hidden" name="page" value="{{ pagination.page }}">
+                            <button type="submit"
+                                    class="btn btn-outline-danger btn-sm noca-icon-btn"
+                                    title="Remove announcement"
+                                    aria-label="Remove announcement {{ row.title }}">
+                                {{ render_icon(icon="delete") }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" class="text-muted">No announcements yet.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% with pagination=pagination, page_param="page", label="Announcement management pagination" %}
+    {% include "_partials/pagination.html" %}
+{% endwith %}

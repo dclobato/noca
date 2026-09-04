@@ -1,0 +1,130 @@
+{
+  "_comment": [
+    "The single source of truth for how one scoreboard cell reads, consumed by",
+    "both language's test suites so the three surfaces cannot drift apart.",
+    "",
+    "tests/animator/js/cell-format.test.cjs drives animator/static/js/cell-format.js",
+    "with these cells; tests/web/test_scoreboard_route.py builds the equivalent",
+    "ProblemResult and renders web/template/contest/scoreboard.html. Web is",
+    "server-rendered Jinja and cannot import the JavaScript formatter, so it is a",
+    "third rendering of the same wording -- this file is what pins the three",
+    "together. Adding a case here makes both suites answer for it.",
+    "",
+    "`attempts` is already the count of failures BEFORE the accepted submission",
+    "(see ProblemResult.attempts in shared/services/scoreboard_projection.py), so a",
+    "solved cell reports `+attempts` directly. Subtracting one underreports every",
+    "solve.",
+    "",
+    "`minute` is the cell's first line for a solve. `attempt_line` is the attempts",
+    "and the penalty they caused, as ONE line -- never split across two, which is",
+    "what made the projector's pending cell the tallest on any surface. An empty",
+    "string means the cell has no such line."
+  ],
+  "cases": [
+    {
+      "name": "solved on the first attempt",
+      "cell": {
+        "solved": true,
+        "attempts": 0,
+        "penalty": 0,
+        "solved_at_minutes": 15,
+        "is_pending": false,
+        "is_first_balloon": false
+      },
+      "state": "solved",
+      "minute": "15'",
+      "attempt_line": "",
+      "web_cell_class": "noca-problem-cell--solved"
+    },
+    {
+      "name": "solved after failures",
+      "cell": {
+        "solved": true,
+        "attempts": 2,
+        "penalty": 40,
+        "solved_at_minutes": 34,
+        "is_pending": false,
+        "is_first_balloon": false
+      },
+      "state": "solved",
+      "minute": "34'",
+      "attempt_line": "+2 (40')",
+      "web_cell_class": "noca-problem-cell--solved"
+    },
+    {
+      "name": "first to solve",
+      "cell": {
+        "solved": true,
+        "attempts": 0,
+        "penalty": 0,
+        "solved_at_minutes": 12,
+        "is_pending": false,
+        "is_first_balloon": true
+      },
+      "state": "solved",
+      "minute": "12'",
+      "attempt_line": "",
+      "web_cell_class": "noca-problem-cell--first"
+    },
+    {
+      "name": "attempted, unsolved",
+      "cell": {
+        "solved": false,
+        "attempts": 3,
+        "penalty": 60,
+        "solved_at_minutes": null,
+        "is_pending": false,
+        "is_first_balloon": false
+      },
+      "state": "attempted",
+      "minute": "",
+      "attempt_line": "−3 (60')",
+      "web_cell_class": "noca-problem-cell--attempted"
+    },
+    {
+      "name": "pending, no prior failures",
+      "cell": {
+        "solved": false,
+        "attempts": 0,
+        "penalty": 0,
+        "solved_at_minutes": null,
+        "is_pending": true,
+        "is_first_balloon": false
+      },
+      "state": "pending",
+      "minute": "",
+      "attempt_line": "?",
+      "web_cell_class": "noca-problem-cell--pending"
+    },
+    {
+      "name": "pending after failures",
+      "cell": {
+        "solved": false,
+        "attempts": 1,
+        "penalty": 20,
+        "solved_at_minutes": null,
+        "is_pending": true,
+        "is_first_balloon": false
+      },
+      "state": "pending",
+      "minute": "",
+      "attempt_line": "? −1 (20')",
+      "web_cell_class": "noca-problem-cell--pending"
+    },
+    {
+      "name": "never attempted",
+      "cell": {
+        "solved": false,
+        "attempts": 0,
+        "penalty": 0,
+        "solved_at_minutes": null,
+        "is_pending": false,
+        "is_first_balloon": false
+      },
+      "state": "none",
+      "minute": "",
+      "attempt_line": "",
+      "web_cell_class": ""
+    }
+  ]
+}

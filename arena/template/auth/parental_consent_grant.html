@@ -1,0 +1,91 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_auth_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% from "auth/_consent_macros.html" import consent_welcome, consent_milestone, consent_back_to_login with context %}
+{% block title_suffix %}&mdash; Confirm parental consent{% endblock %}
+{% block auth_content %}
+    {#
+      THESIS: consent is not a click but a state with a history and an end, so the
+      decision is one lit node on a chronology that visibly continues past it. The
+      refused arrangement is the alert-box card, where reversibility is a sentence
+      under the button and reads as reassurance instead of as fact.
+      OWN-WORLD: Arena's Academic Modern, unchanged, in the same two-panel auth
+      shell login and 2FA use. Brand green marks the live node; the withdrawal page
+      runs the identical rail in error red, which is what lets a guardian holding
+      both emails tell the pages apart at a glance.
+      STORY: a parent arrives from an email, sees what already happened, what the
+      decision changes, and that they can undo it, then acts once.
+      FIRST VIEWPORT: the welcome panel states the decision; the card holds the
+      rail -- the account's creation above, the bordered decision panel with the
+      account, the three effects and the single full-width action, and the
+      withdrawal right below it, still on the rail.
+      FORM: chronology with a live node; candidate 6 of 7, user-locked over the
+      dealt lead; seed 8da719d8.
+    #}
+    <div class="container arena-auth-flow-page arena-auth-flow-page--prose my-auto">
+        <div class="arena-auth-flow-shell">
+            {{ consent_welcome("A decision for a parent.", "Read what consent allows, then decide. Nothing starts until you do.", mascot=True) }}
+            <main class="arena-auth-card arena-auth-flow-card arena-consent-page">
+                <div class="arena-auth-flow-heading">
+                    <h1 class="arena-auth-title">Authorise {{ child_name }}&rsquo;s account</h1>
+                    <p class="arena-auth-subtitle">As their parent or legal guardian, you decide whether this account may be used.</p>
+                </div>
+                <ol class="arena-consent-rail">
+                    {% if timeline.created_on %}
+                        {{ consent_milestone("Account created", timeline.created_on, child_name ~ " signed up and cannot use the account until you decide.") }}
+                    {% endif %}
+                    {% if already_consented %}
+                        {{ consent_milestone("Consent already recorded", timeline.consent_given_on, "Your consent for this account is already on record. Confirming again changes nothing.") }}
+                    {% endif %}
+                    <li class="arena-consent-node arena-consent-node--now">
+                        <div class="arena-consent-decision">
+                            <p class="arena-consent-account">
+                                You are being asked, as their parent or legal guardian, to authorise the
+                                Arena account of <strong>{{ child_name }}</strong> ({{ child_email }}).
+                            </p>
+                            <ul class="arena-consent-effects">
+                                <li class="arena-consent-effect">
+                                    {{ render_icon(icon="login") }}
+                                    <span>Once their email address is confirmed, {{ child_name }} can log in.</span>
+                                </li>
+                                <li class="arena-consent-effect">
+                                    {{ render_icon(icon="code") }}
+                                    <span>They can solve problems, submit code, and take part in classes and rankings.</span>
+                                </li>
+                                <li class="arena-consent-effect">
+                                    {{ render_icon(icon="visibility_off") }}
+                                    <span>They appear publicly only under a pseudonymous username, never their real name.</span>
+                                </li>
+                            </ul>
+                            <p class="arena-consent-attestation">
+                                Pressing this button records your decision as {{ child_name }}&rsquo;s parent or legal
+                                guardian.
+                            </p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_parental_consent_submit") }}"
+                                  novalidate>
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <button type="submit" class="btn arena-btn-primary arena-consent-submit">Grant consent and enable the account</button>
+                            </form>
+                            <p class="arena-consent-escape">
+                                <a href="{{ request.url_for("arena_dashboard") }}"
+                                   class="arena-auth-link">Deny &mdash; return to the dashboard without granting consent</a>
+                            </p>
+                        </div>
+                    </li>
+                    {{ consent_milestone("You can withdraw your consent at any time", none, "The withdrawal link arrives in the confirmation email we send you once you consent.") }}
+                    {% if timeline.consent_ends_on %}
+                        {{ consent_milestone("Consent is no longer required", timeline.consent_ends_on, child_name ~ " turns 18 and manages the account alone from that day.") }}
+                    {% endif %}
+                </ol>
+                {{ consent_back_to_login() }}
+            </main>
+        </div>
+    </div>
+{% endblock %}

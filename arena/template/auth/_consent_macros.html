@@ -1,0 +1,48 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared parts of the two guardian-facing consent pages. Grant and withdrawal are
+  the same chronology and differ only in accent, copy, and direction, so the rail's
+  past and future nodes are written once here rather than twice in the pages.
+
+  Both pages sit in the `arena-auth-flow-shell` every other Arena auth page uses.
+  They previously carried the older centred `arena-auth-logo` header, which by now
+  survived on almost nothing else and read as a different product.
+#}
+{% macro consent_welcome(title, text, mascot=False) %}
+    {# The welcome panel states what the visitor is here to do. A guardian is not an
+       Arena user and did not come to be greeted, so the copy is the decision, not a
+       welcome; the withdrawal page passes no mascot, which would be the wrong voice
+       for a parent suspending their child's account. #}
+    <aside class="arena-auth-flow-welcome">
+        <div class="arena-auth-flow-welcome-copy">
+            <p class="arena-auth-flow-welcome-title">{{ title }}</p>
+            <p class="arena-auth-flow-welcome-text">{{ text }}</p>
+        </div>
+        {% if mascot %}
+            <img class="arena-auth-flow-mascot"
+                 src="{{ request.url_for('arena_static_img', path='welcome.webp') }}"
+                 alt="">
+        {% endif %}
+    </aside>
+{% endmacro %}
+{% macro consent_milestone(label, on=None, note=None) %}
+    {# One dated node on the rail. `on` is already formatted, and is omitted rather
+       than replaced with a placeholder when its column was never set. #}
+    <li class="arena-consent-node">
+        <p class="arena-consent-milestone">
+            {{ label }}
+            {% if on %}<span class="arena-consent-date">{{ on }}</span>{% endif %}
+        </p>
+        {% if note %}<p class="arena-consent-note">{{ note }}</p>{% endif %}
+    </li>
+{% endmacro %}
+{% macro consent_back_to_login() %}
+    <p class="arena-auth-flow-footer">
+        <a href="{{ request.url_for("arena_login") }}" class="arena-auth-link">Back to login</a>
+    </p>
+{% endmacro %}

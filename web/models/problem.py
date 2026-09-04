@@ -62,6 +62,7 @@ class Problem(Base):
     ordinal: Mapped[int]
     validator_type: Mapped[ProblemValidatorType]
     artifact_generation: Mapped[int]
+    public_export_generation: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

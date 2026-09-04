@@ -21,6 +21,8 @@ from web.models.contest import Contest
 from web.models.site import Site
 from web.models.users import UberAdmin, User
 from web.services.contest_service import get_contest_by_id
+from web.services.password_confirm_throttle import confirm_password as verify_current_password
+from web.services.password_confirm_throttle import render_lockout
 from web.services.profile_service import update_email, update_fullname, update_password
 from web.services.user_media_service import get_user_media
 
@@ -210,7 +212,22 @@ async def profile_password_submit(
                 )
             )
 
-        error = await update_password(session, actor, new_password, current_password=current_password)
+        # The current password is verified through the shared reconfirmation
+        # budget (lockout first, then the hash), so the service is called without
+        # ``current_password`` and the hash is checked exactly once.
+        confirmation = await verify_current_password(
+            request, session, actor=actor, password=current_password, action="profile_password"
+        )
+        if confirmation.locked:
+            return render_lockout(
+                request,
+                retry_after_seconds=confirmation.retry_after_seconds,
+                back_url="/profile",
+                back_label="Back to profile",
+            )
+        error = None if confirmation.ok else "Current password is incorrect."
+        if error is None:
+            error = await update_password(session, actor, new_password)
         if error:
             site_name = await _resolve_user_site_name(session, actor)
             user_media = await get_user_media(session, actor.id) if isinstance(actor, User) else None

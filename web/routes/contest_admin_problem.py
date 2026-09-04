@@ -16,8 +16,10 @@ from fastapi_flash import FlashCategory, FlashDep
 from shared.enumerations import ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
 from shared.services.admin_audit import record_admin_action
+from shared.services.form_draft import confirm_form_draft, problem_definition_draft_key
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_editor_save import abandon_swap, open_save_swap, stage_test_cases
+from shared.services.problem_export_cache import discard_cached_export, export_cache_dir
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.problem_package import DEFAULT_OUTPUT_LIMIT_BYTES, MAX_TITLE_CHARS
 from shared.services.problem_package.edit_swap import commit_with_edit_swap
@@ -436,6 +438,10 @@ async def new_problem_submit(
 
     pid = problem.id
     await commit_with_edit_swap(ctx.session, swap)
+    confirm_form_draft(
+        request,
+        problem_definition_draft_key("web", contest_id=ctx.contest.login_slug, validator_type=strategy.value),
+    )
     flash("Problem created. Now add the data it will be judged against.", FlashCategory.SUCCESS)
     # An interactive problem cannot be judged at all until a validator compiles,
     # so creation lands on that page; everything else starts at its test cases.
@@ -543,6 +549,11 @@ async def remove_problem(
     try:
         await anyio.to_thread.run_sync(lambda: delete_problem_statement(pid, settings.PROBLEM_STATEMENT_DIR))
         await anyio.to_thread.run_sync(lambda: delete_all_testcase_files(pid, settings.PROBLEM_TESTCASE_DIR))
+        # Removal is only allowed while the contest is upcoming, but admins and
+        # judges are not blocked before the start, so a preview export may have
+        # been cached; drop it here or it outlives the row it describes.
+        if settings.PUBLIC_PROBLEM_PACK_PATH is not None:
+            await discard_cached_export(export_cache_dir(settings.PUBLIC_PROBLEM_PACK_PATH), pid)
     except Exception:
         logger.exception("Failed to delete files for problem %s", pid)
 

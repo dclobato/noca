@@ -125,23 +125,67 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
 
     # ------------------------------------------------------------------
-    # Email
+    # Google sign-in (OpenID Connect). Off by default: with GOOGLE_OAUTH_ENABLED
+    # false every /auth/google route answers 404 and no Google affordance is
+    # rendered, so a deployment that has not registered an OAuth client behaves
+    # exactly as it did before this feature existed. The redirect URI is derived
+    # from ARENA_URL_BASE rather than configured separately, so it cannot drift
+    # from the deployment's own public base URL.
     # ------------------------------------------------------------------
-    SEND_EMAIL: bool = Field(default=False, description="Enable real email delivery")
-    EMAIL_PROVIDER: str = Field(default="mock", description="Email backend: 'mock' or 'smtp'")
+    GOOGLE_OAUTH_ENABLED: bool = Field(
+        default=False,
+        validation_alias="NOCA_ARENA_GOOGLE_OAUTH_ENABLED",
+        description="Offer Google as an alternative Arena login door.",
+    )
+    GOOGLE_OAUTH_CLIENT_ID: str = Field(
+        default="",
+        validation_alias="NOCA_ARENA_GOOGLE_OAUTH_CLIENT_ID",
+        description="OAuth 2.0 client ID from the Google Cloud Console.",
+    )
+    GOOGLE_OAUTH_CLIENT_SECRET: str = Field(
+        default="",
+        validation_alias="NOCA_ARENA_GOOGLE_OAUTH_CLIENT_SECRET",
+        description="OAuth 2.0 client secret from the Google Cloud Console.",
+    )
+
+    # ------------------------------------------------------------------
+    # Email. Arena never talks to a mail provider: every message is rendered
+    # here and handed to the noca-mailer worker over Valkey, which sends or
+    # logs it. NOCA_SEND_EMAIL, NOCA_EMAIL_PROVIDER, NOCA_SMTP_* and
+    # NOCA_EMAIL_MBOX_LOG_DIR are the mailer's settings alone.
+    # ------------------------------------------------------------------
     EMAIL_SENDER: str = Field(default="no-reply@noca.local", description="Default From address")
     EMAIL_SENDER_NAME: str | None = Field(
         default=None,
         description="Optional From display name (falls back to BRAND_NAME)",
     )
-    SMTP_SERVER: str | None = Field(default=None, description="SMTP server hostname")
-    SMTP_PORT: int = Field(default=587, gt=0, le=65535, description="SMTP port (1-65535)")
-    SMTP_USE_TLS: bool = Field(default=True, description="Use STARTTLS")
-    SMTP_USERNAME: str | None = Field(default=None, description="SMTP username")
-    SMTP_PASSWORD: str | None = Field(default=None, description="SMTP password")
-    EMAIL_MBOX_LOG_DIR: str | None = Field(
-        default=None,
-        description="Directory for the mbox audit log of sent emails; empty disables logging",
+    EMAIL_QUEUE_JOB_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=60,
+        description="Seconds a queued email may wait for the mailer before it is dropped unsent.",
+    )
+    EMAIL_BUDGET_ENABLED: bool = Field(default=True, description="Enforce the per-actor outbound-email budget.")
+    EMAIL_BUDGET_WINDOW_SECONDS: int = Field(
+        default=600, ge=1, description="Fixed-window length in seconds for the per-actor email budget."
+    )
+    EMAIL_BUDGET_USER_MAX: int = Field(
+        default=20,
+        ge=0,
+        description="Emails one ordinary user or anonymous IP may trigger per window; 0 disables that tier.",
+    )
+    EMAIL_BUDGET_ADMIN_MAX: int = Field(
+        default=200,
+        ge=0,
+        description="Emails one admin actor may trigger per window; 0 disables that tier.",
+    )
+    CLASS_REGISTRATION_RETRY_SECONDS: int = Field(
+        default=86400,
+        ge=0,
+        validation_alias="NOCA_ARENA_CLASS_REGISTRATION_RETRY_SECONDS",
+        description=(
+            "Seconds a student must wait after a denied class registration request before "
+            "requesting the same class again; 0 disables the wait."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -249,6 +293,16 @@ class Settings(BaseSettings):
         description=(
             "Root directory shared by Web, Arena, and Autojudge for problem test cases "
             "(must be readable and writable). Arena problems live under the 'arena/' subdir."
+        ),
+    )
+    PUBLIC_PROBLEM_PACK_PATH: Path | None = Field(
+        default=None,
+        validation_alias="NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH",
+        description=(
+            "Cache directory for the per-problem public export and sample-case ZIPs served to "
+            "every logged-in user. Required in production: Arena refuses to start without it. "
+            "Created at startup when set; each artifact is built once and reused until the "
+            "problem changes."
         ),
     )
 
@@ -370,6 +424,192 @@ class Settings(BaseSettings):
         default=900,
         ge=1,
         description="Auth lockout duration in seconds.",
+    )
+    AUTH_RATE_LIMIT_2FA_IP_DISTINCT_ACCOUNTS: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Distinct accounts an address must fail against, on top of the raw IP ceiling, before the "
+            "login 2FA step locks that address. Reaching the step needs a valid password, so failures "
+            "spanning one account are someone fumbling a code; spraying spans many. 1 restores the "
+            "plain per-IP count."
+        ),
+    )
+    USER_READ_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_USER_READ_RATE_LIMIT_ENABLED",
+        description="Enable the loose per-user ceiling on authenticated reads and polled partials.",
+    )
+    USER_READ_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="NOCA_ARENA_USER_READ_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Requests one user may make to the rate-limited read routers in each window. Generous by "
+            "design: legitimate clients poll these every few seconds and each call costs a bounded amount."
+        ),
+    )
+    USER_READ_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_ARENA_USER_READ_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for the per-user read ceiling.",
+    )
+
+    # ------------------------------------------------------------------
+    # Per-problem export limiting (/problems/{n}/export, /problems/{n}/sample-testcases.zip)
+    # ------------------------------------------------------------------
+    PROBLEM_EXPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_PROBLEM_EXPORT_RATE_LIMIT_ENABLED",
+        description="Enable the tight per-user budget on per-problem package and sample-ZIP downloads.",
+    )
+    PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_ARENA_PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Problem package and sample-ZIP downloads accepted per user in each fixed window, cached or "
+            "not. Tight by design: building one is expensive and a user downloads a given problem once."
+        ),
+    )
+    PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ARENA_PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-user problem downloads.",
+    )
+
+    SIGNUP_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=5,
+        ge=1,
+        validation_alias="NOCA_ARENA_SIGNUP_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Maximum signup attempts per client IP in each fixed window, counted once a submission "
+            "passes form validation and reaches the account lookup, reputation calls, insert and email."
+        ),
+    )
+    SIGNUP_REQUEST_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_ARENA_SIGNUP_REQUEST_RATE_LIMIT_MAX_REQUESTS",
+        description=(
+            "Maximum POST /auth/signup requests per client IP in each fixed window, counted before any "
+            "validation. A flood guard sized well above the attempt budget so form fumbles never reach it."
+        ),
+    )
+    SIGNUP_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=3600,
+        ge=1,
+        validation_alias="NOCA_ARENA_SIGNUP_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-IP signup rate limiting.",
+    )
+    AI_REVIEW_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_AI_REVIEW_RATE_LIMIT_ENABLED",
+        description="Cap AI review requests per user (POST /submissions/{id}/request-ai-review).",
+    )
+    AI_REVIEW_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=30,
+        ge=1,
+        validation_alias="NOCA_ARENA_AI_REVIEW_RATE_LIMIT_MAX_REQUESTS",
+        description="AI review requests accepted per user in each fixed window, whatever the outcome.",
+    )
+    AI_REVIEW_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ARENA_AI_REVIEW_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-user AI review request limiting.",
+    )
+    REJUDGE_COOLDOWN_SECONDS: int = Field(
+        default=300,
+        ge=0,
+        validation_alias="NOCA_ARENA_REJUDGE_COOLDOWN_SECONDS",
+        description=(
+            "Seconds after a rejudge-all during which another rejudge-all of the same problem "
+            "is refused; 0 disables the cooldown."
+        ),
+    )
+    USERNAME_CHANGE_COOLDOWN_DAYS: int = Field(
+        default=30,
+        ge=0,
+        validation_alias="NOCA_ARENA_USERNAME_CHANGE_COOLDOWN_DAYS",
+        description=(
+            "Days a user must wait between username changes; 0 disables the cooldown. The "
+            "username is the pseudonym an age-shielded user is published under, so unlimited "
+            "churn would let an observer correlate old and new handles across the ranking."
+        ),
+    )
+    GEOCODE_RATE_LIMIT_USER_MAX_REQUESTS: int = Field(
+        default=5,
+        ge=1,
+        validation_alias="NOCA_ARENA_GEOCODE_RATE_LIMIT_USER_MAX_REQUESTS",
+        description="Location detections accepted per user in each window, cache hits included.",
+    )
+    GEOCODE_RATE_LIMIT_USER_WINDOW_SECONDS: int = Field(
+        default=3600,
+        ge=1,
+        validation_alias="NOCA_ARENA_GEOCODE_RATE_LIMIT_USER_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-user location detection limiting.",
+    )
+    GEOCODE_RATE_LIMIT_GLOBAL_MAX_REQUESTS: int = Field(
+        default=30,
+        ge=1,
+        validation_alias="NOCA_ARENA_GEOCODE_RATE_LIMIT_GLOBAL_MAX_REQUESTS",
+        description="Upstream geocoder calls the whole deployment may make in each global window.",
+    )
+    GEOCODE_RATE_LIMIT_GLOBAL_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_ARENA_GEOCODE_RATE_LIMIT_GLOBAL_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for the deployment-wide geocoder budget.",
+    )
+    GEOCODE_RATE_LIMIT_GLOBAL_MIN_INTERVAL_SECONDS: int = Field(
+        default=1,
+        ge=0,
+        validation_alias="NOCA_ARENA_GEOCODE_RATE_LIMIT_GLOBAL_MIN_INTERVAL_SECONDS",
+        description=(
+            "Minimum seconds between two upstream geocoder calls across the deployment. "
+            "0 disables pacing, which is only appropriate for a self-hosted provider; the "
+            "windowed budget still applies and cannot be switched off."
+        ),
+    )
+    GEOCODE_CACHE_TTL_SECONDS: int = Field(
+        default=86400,
+        ge=1,
+        validation_alias="NOCA_ARENA_GEOCODE_CACHE_TTL_SECONDS",
+        description="How long a reverse-geocoded 0.001-degree cell stays cached in Valkey.",
+    )
+    # ------------------------------------------------------------------
+    # SSE connection limits (concurrent streams per IP / per user)
+    # ------------------------------------------------------------------
+    SSE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_SSE_LIMIT_ENABLED",
+        description="Cap the number of SSE streams one client may hold open at once.",
+    )
+    SSE_MAX_PER_IP: int = Field(
+        default=200,
+        ge=1,
+        validation_alias="NOCA_ARENA_SSE_MAX_PER_IP",
+        description="Concurrent SSE streams allowed per client IP across this module's event routes.",
+    )
+    SSE_MAX_PER_USER: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_ARENA_SSE_MAX_PER_USER",
+        description="Concurrent SSE streams allowed per authenticated user, across IPs.",
+    )
+    SSE_CONNECTION_TTL_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ARENA_SSE_CONNECTION_TTL_SECONDS",
+        description="Lease lifetime of one held SSE slot in Valkey; renewed while the stream is open.",
+    )
+    SSE_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_ARENA_SSE_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from the SSE connection caps.",
     )
     SECURITY_EVENTS_RETENTION_DAYS: int = Field(
         default=180,
@@ -558,6 +798,27 @@ class Settings(BaseSettings):
             raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot combine '*' with specific IPs/CIDRs.")
         return normalized
 
+    @field_validator("SSE_TRUSTED_CIDRS", mode="after")
+    @classmethod
+    def normalize_sse_trusted_cidrs(cls, v: str) -> str:
+        """Normalize trusted CIDRs for the SSE connection-cap bypass."""
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            try:
+                ip_network(part, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"NOCA_ARENA_SSE_TRUSTED_CIDRS must contain valid CIDRs only. Invalid value: '{part}'"
+                ) from exc
+            normalized_parts.append(part)
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError("NOCA_ARENA_SSE_TRUSTED_CIDRS cannot be empty.")
+        return normalized
+
     @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
     @classmethod
     def normalize_health_rate_limit_trusted_cidrs(cls, v: str) -> str:
@@ -579,17 +840,24 @@ class Settings(BaseSettings):
             raise ValueError("NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS cannot be empty.")
         return normalized
 
-    @field_validator("EMAIL_MBOX_LOG_DIR", mode="after")
+    @field_validator("PUBLIC_PROBLEM_PACK_PATH", mode="after")
     @classmethod
-    def normalize_mbox_log_dir(cls, v: str | None) -> str | None:
-        """Treat empty/blank values as disabled and require an absolute path."""
+    def normalize_problem_pack_path(cls, v: Path | None) -> Path | None:
+        """Require an absolute path; an existing directory must be writable.
+
+        Unlike the storage directories, the cache directory is allowed not to
+        exist yet: Arena creates it at startup. Only a path that already exists
+        must be a readable/writable directory.
+        """
         if v is None:
             return None
-        v = v.strip()
-        if not v:
-            return None
-        if not Path(v).is_absolute():
-            raise ValueError("NOCA_EMAIL_MBOX_LOG_DIR must be an absolute path.")
+        if not v.is_absolute():
+            raise ValueError("NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH must be an absolute path.")
+        if v.exists():
+            if not v.is_dir():
+                raise ValueError(f"NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH '{v}' is not a directory.")
+            if not os.access(v, os.R_OK) or not os.access(v, os.W_OK):
+                raise ValueError(f"Directory '{v}' must be readable and writable.")
         return v
 
     @field_validator("PROBLEM_TESTCASE_DIR_ROOT", mode="after")
@@ -624,6 +892,23 @@ class Settings(BaseSettings):
         if self.PRESENCE_ENABLED:
             return int(self.PRESENCE_HEARTBEAT_SECONDS)
         return derived_keepalive_seconds(self.JWT_EXPIRE_SECONDS)
+
+    @model_validator(mode="after")
+    def validate_google_oauth_settings(self) -> Settings:
+        """Refuse an enabled Google login with no client credentials.
+
+        Failing at startup is the point: the alternative is a login page that
+        offers a Google button which cannot work, discovered only when a user
+        clicks it.
+        """
+        if self.GOOGLE_OAUTH_ENABLED and not (
+            self.GOOGLE_OAUTH_CLIENT_ID.strip() and self.GOOGLE_OAUTH_CLIENT_SECRET.strip()
+        ):
+            raise ValueError(
+                "NOCA_ARENA_GOOGLE_OAUTH_ENABLED requires both "
+                "NOCA_ARENA_GOOGLE_OAUTH_CLIENT_ID and NOCA_ARENA_GOOGLE_OAUTH_CLIENT_SECRET."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_presence_settings(self) -> Settings:
@@ -691,23 +976,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_email_settings(self) -> Settings:
-        """Validate email configuration consistency."""
-        provider = self.EMAIL_PROVIDER.casefold()
-        if provider not in {"mock", "smtp"}:
-            raise ValueError("NOCA_EMAIL_PROVIDER must be 'mock' or 'smtp'.")
+        """Validate the sender identity every queued email carries."""
         if not self.EMAIL_SENDER.strip():
             raise ValueError("NOCA_EMAIL_SENDER cannot be empty.")
-        if not self.SEND_EMAIL or provider != "smtp":
-            return self
-        missing: list[str] = []
-        if not self.SMTP_SERVER:
-            missing.append("NOCA_SMTP_SERVER")
-        if not self.SMTP_USERNAME:
-            missing.append("NOCA_SMTP_USERNAME")
-        if not self.SMTP_PASSWORD:
-            missing.append("NOCA_SMTP_PASSWORD")
-        if missing:
-            raise ValueError(f"Missing required SMTP settings: {', '.join(missing)}")
         return self
 
     @model_validator(mode="after")

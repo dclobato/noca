@@ -1,14 +1,15 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
 {% block title_suffix %}— Security Events{% endblock %}
 {% block content %}
-    <div class="container py-5">
+    <div class="container-fluid px-4 py-5">
         <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
             <div>
                 <h1 class="h3 mb-1">Security Events</h1>
@@ -76,6 +77,7 @@
                                     <th scope="col">Source port</th>
                                     <th scope="col">Request ID</th>
                                     <th scope="col">Metadata</th>
+                                    <th scope="col" class="text-end">Unlock</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -118,6 +120,24 @@
                                             {% endif %}
                                         </td>
                                         <td class="small text-break">{{ event.metadata }}</td>
+                                        <td class="text-end text-nowrap">
+                                            {% if event.client_ip %}
+                                                <a href="{{ request.url_for("uberadmin_lockouts") }}?ip={{ event.client_ip | urlencode }}"
+                                                   class="btn btn-outline-secondary btn-sm"
+                                                   title="Check and lift the lockouts of {{ event.client_ip }}">
+                                                    {{ render_icon(icon="lock_open") }}
+                                                    Address
+                                                </a>
+                                            {% endif %}
+                                            {% if event.identifier_hash %}
+                                                <a href="{{ request.url_for("uberadmin_lockouts") }}?identifier={{ (event.actor_label or '') | urlencode }}&amp;identifier_hash={{ event.identifier_hash | urlencode }}"
+                                                   class="btn btn-outline-secondary btn-sm"
+                                                   title="Check and lift the lockouts of this login">
+                                                    {{ render_icon(icon="lock_open") }}
+                                                    Login
+                                                </a>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>

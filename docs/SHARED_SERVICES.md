@@ -22,7 +22,12 @@ Main entrypoints:
 - `format_compact_duration(total_seconds) -> str` formats seconds as `10s`,
   minutes and seconds as `4m08s`, or hours and minutes as `1h03m`
 - contest timestamp conversion helpers normalize elapsed times for display and
-  ICPC scoring
+  ICPC scoring. Both `icpc_minutes_from_seconds` (scoring) and
+  `display_minutes_from_seconds` (display) **truncate** to whole minutes, so a
+  solve at 60 min 45 s is minute 60 on the scoreboard and worth 60 penalty
+  minutes. Truncation is the ICPC rule and the two must agree: a scoring helper
+  that rounded to the nearest minute would shift the penalty of roughly half of
+  all solves and could reorder standings against what the scoreboard displays
 
 ---
 
@@ -237,6 +242,33 @@ Notes:
 
 ---
 
+## `db_datetime.py`
+
+Purpose:
+- normalize timestamps read back from `DateTime(timezone=True)` columns, which
+  PostgreSQL returns as aware values and SQLite returns as naive ones
+
+Canonical location:
+- `shared/db_datetime.py`
+
+Main entrypoints:
+- `as_utc(value) -> datetime` — relabels a naive value as UTC (NOCA persists
+  every such column in UTC) and converts an aware one, so both drivers agree
+- `utc_day(value) -> date` — the UTC calendar day of a timestamp, used for
+  day-bucketed aggregation
+
+Reused by:
+- `shared/services/arena_heatmap.py` (per-user calendar heatmaps) and
+  `shared/services/arena_problem_stats_payload.py` (per-problem submission
+  heatmap, solver ordering, and attempt ordering)
+
+Notes:
+- this is deliberately a neutral module rather than a helper hanging off one of
+  the heatmap services: both aggregators need it, and neither should depend on
+  the other
+
+---
+
 ## `arena_rating.py`
 
 Purpose:
@@ -269,39 +301,115 @@ Notes:
 - `RATING_AFFILIATION_FACTOR_KEY = "arena:rating:affiliation_factor"` — Valkey key
   the rating worker writes the active affiliation decay factor to for `/help/rating`.
 - rate functions do not commit; the caller owns the transaction.
+- `rate_affiliation` stores both the geometrically weighted rating and the sum
+  of precomputed `solved_problems` across ranking-visible members. Each
+  user-problem solve contributes once, so three members solving the same problem
+  contributes three to the affiliation total.
+- the solve-rate prior's **mean** is per problem. With no author estimate it is
+  the flat `PRIOR_SOLVE_RATE`; with `arena_problems.expected_difficulty` set,
+  `prior_solve_rate_for_difficulty(expected)` inverts the zero-attempt display
+  pipeline so the stored rating equals the declaration until the first attempt,
+  clamped to `[PRIOR_SOLVE_RATE_MIN, PRIOR_SOLVE_RATE_MAX]`. The prior *weight*
+  `ALPHA` is unchanged, so evidence overrides an estimate at the same rate it
+  overrides the flat prior. The contrast pivot is deliberately **not** per
+  problem: a pivot equal to the problem's own prior would pin every fresh
+  problem back to the centre regardless of its estimate.
+- `rate_all_problems()` ensures each problem's `arena_problem_ratings` row exists
+  *before* recomputing its stats from submissions: the recompute is an `UPDATE`,
+  so a problem attempted before it had a row would otherwise report zero
+  attempts for its first cycle.
 - `rate_all_problems()` ends each cycle by calling
   `arena_difficulty_histogram.persist_difficulty_histogram()` to snapshot the
-  catalogue-wide difficulty distribution; see below.
+  distribution of **measured** difficulties (attempters at or above
+  `arena_difficulty_display.MIN_ATTEMPTS_FOR_DISPLAY`) and the count of
+  problems left out; see below. The rating itself is still computed and
+  stored for every problem — the threshold governs presentation only.
+
+---
+
+## `arena_difficulty_display.py`
+
+Purpose:
+- decide, in exactly one place, what a reader sees for a problem's difficulty.
+  The worker stores a rating for every problem, and the Bayesian prior pins a
+  problem nobody has attempted to the centre of the scale on purpose. Shown as
+  a bare number, that centre is indistinguishable from a genuinely medium
+  problem, so `5.0` would mean both "medium" and "unknown". This module gates
+  the displayed value on the evidence behind it.
+
+Canonical location:
+- `shared/services/arena_difficulty_display.py`
+
+Main entrypoints:
+- `MIN_ATTEMPTS_FOR_DISPLAY = 5` — unique attempters required before the stored
+  rating is presented as a measurement. Shared with the histogram and the Arena
+  help page so the three cannot disagree.
+- `difficulty_display(rating, attempted_users, expected_difficulty=None) -> DifficultyDisplay`
+  — takes the stored **internal** rating (`[1, 100]`, `None` when no rating row
+  exists), the attempter count (`None` counts as 0), and the author's
+  `expected_difficulty`, and returns the frozen presentation value. Callers no
+  longer divide by 10 themselves. Below the threshold an estimate yields the
+  `"estimated"` state (`text` `"7.0?"`, `anchor_label` from
+  `ArenaExpectedDifficulty.from_internal`, `description` "Estimated difficulty
+  7.0 out of 10 (Challenging) — not enough submissions yet"); at or above it the
+  estimate is ignored entirely.
+- `DifficultyDisplay` — frozen dataclass with `value` (display scale or `None`),
+  `state` (`"measured"` / `"estimated"` / `"unknown"`), `anchor_label`, and
+  `attempted_users`, plus the derived `text` (`"7.0"`, `"7.0?"`, `"—"`),
+  `bar_level` (`[1, 10]` colour class for the list bar, which only a measured
+  value renders; an estimate and the unknown state are plain text) and
+  `description` (the `title` / `aria-label` sentence).
+
+Notes:
+- the gate keys on the attempter count **alone**. An author's declared estimate
+  is a prior, not evidence; it may fill the empty state with a marked estimate
+  but never satisfies the threshold.
+- pure module: no SQLAlchemy, no ORM, no I/O. Every Arena list projection
+  (`PublicProblemListItem`, admin `ProblemListItem`, `ProgressProblemRow`,
+  `FavoriteProblemRow`, the problem-set rows) carries a `difficulty` field built
+  from it, and every template renders it through
+  `arena/template/_partials/difficulty_value.html`, so the wording is written
+  once.
+- the rating-history endpoints and sparklines are deliberately not gated: they
+  show a trend, not a headline number.
 
 ---
 
 ## `arena_difficulty_histogram.py`
 
 Purpose:
-- bucket the internal difficulties (`[1, 100]`) computed by one
-  `arena_rating.rate_all_problems()` cycle into a 20-bin histogram over the
+- bucket the internal difficulties (`[1, 100]`) of the **measured** problems of
+  one `arena_rating.rate_all_problems()` cycle into a 20-bin histogram over the
   `[0, 10]` display scale and persist the snapshot, so the Arena `/help/rating`
   page can show a current catalogue-wide distribution chart without an
-  aggregate query at request time
+  aggregate query at request time. Problems below
+  `MIN_ATTEMPTS_FOR_DISPLAY` all sit at the centre by construction; bucketing
+  them would collapse the chart into one spike, so they are counted instead.
 
 Canonical location:
 - `shared/services/arena_difficulty_histogram.py`
 
 Main entrypoints:
-- `build_difficulty_histogram(difficulties: list[int]) -> dict` — pure bucketing,
-  20 bins of width 0.5 over the display scale
-- `persist_difficulty_histogram(session, difficulties, computed_at)` — builds the
-  payload and upserts it into the singleton `arena_rating_cycle_state` row
-  (`id = "singleton"`); does not commit, called once per cycle from
-  `rate_all_problems()`
+- `build_difficulty_histogram(difficulties: list[int], *, unmeasured_problems=0) -> dict`
+  — pure bucketing, 20 bins of width 0.5 over the display scale; the payload
+  carries `total_problems` (measured only), `unmeasured_problems`, and
+  `min_attempts` (the threshold that separated them)
+- `persist_difficulty_histogram(session, difficulties, computed_at, *, unmeasured_problems=0)`
+  — builds the payload and upserts it into the singleton
+  `arena_rating_cycle_state` row (`id = "singleton"`); does not commit, called
+  once per cycle from `rate_all_problems()`
 
 Notes:
 - the Arena read side is `arena/routes/help.py`
-  (`arena_help_difficulty_distribution`, `GET /help/rating/difficulty-distribution`)
+  (`arena_help_difficulty_distribution`, `GET /help/rating/difficulty-distribution`);
+  its empty shape before the first cycle carries the same keys
 
 ---
 
-## `arena_stats.py`
+## `arena_stats.py` and `arena_problem_stats.py`
+
+These modules precompute the problem and user statistics that Arena reads during
+HTTP requests.
 
 Purpose:
 - compute precomputed per-problem statistics for the Arena statistics page, so no
@@ -310,25 +418,72 @@ Purpose:
   (`rating.loops.run_problem_stats_loop`), on its own `STATS_INTERVAL` timer
 
 Canonical location:
-- `shared/services/arena_stats.py`
+- `shared/services/arena_problem_stats.py` owns per-problem queries and snapshot
+  persistence
+- `shared/services/arena_problem_stats_payload.py` owns the pure aggregation and
+  payload builders
+- `shared/services/arena_stats.py` owns per-user statistics only
 
 Main entrypoint:
 - `compute_all_problem_statistics(session) -> int` — rebuilds every row in
-  `arena_problem_statistics` (one JSON snapshot per problem with at least one judged
-  submission) and returns the number of problems written
+  `arena_problem_statistics` (one JSON snapshot per problem with at least one
+  non-owner submission) and returns the number of problems written
+
+Memory bound:
+- the rebuild walks the catalogue in batches of `PROBLEM_STATS_BATCH_SIZE`
+  (100) problems: it issues one `DELETE` up front, then for each batch loads
+  only that batch's submissions and solvers, builds the snapshots, and bulk
+  inserts them — all inside the caller's still-open transaction, so readers
+  never observe an empty or partial table. Peak memory therefore tracks the
+  busiest batch, not the deployment's whole submission history
+- the batch's submissions are read through a server-side cursor
+  (`session.stream()` + `AsyncResult.partitions()`, the repository's only use of
+  that pattern) so the driver never buffers a batch's full result set; the
+  cursor is fully consumed before any other statement runs on the session
+- both sizes are module constants rather than settings: the loop is a
+  single-replica background worker with a coarse interval and there is no
+  operator-facing behaviour to tune. Tests monkeypatch them
+- solvers whose first-AC submission cannot be matched are counted across all
+  batches and reported in one aggregated warning per rebuild
 
 Aggregation rules:
-- only judged submissions that count toward a problem are aggregated: the problem
-  owner's own submissions are excluded, and user roles do not affect the rule,
-  matching the rating and public solver-count rules
+- the problem owner's submissions and solves are excluded from every field; user
+  roles do not affect the rule, matching the rating and public solver-count rules
   (`shared/services/arena_query_helpers.counts_toward_problem_rating`)
-- verdict and language distributions cover those judged submissions (active = most
-  recent non-`SUPERSEDED` judgment per submission)
+- verdict and language distributions cover submissions with an active final verdict
+  (active = most recent non-`SUPERSEDED` judgment per submission)
 - per-language wall-time / peak-memory tables and the wall-time histogram
   (`HISTOGRAM_BINS = 20` bins over `[0, time_limit_ms]`) cover **AC submissions only**
+- `arena_problem_solvers` is authoritative for the solver population, so `solver_count`
+  and both milestones cover every non-owner row in it. The submission behind each row is
+  matched separately and best-effort (see below), and only affects the attempt count
+- `first_solver` and `last_solver` carry the user id, current display name, and UTC
+  first-AC judgment-completion timestamp. Equal timestamps use ascending user id as
+  a deterministic tie-break
+- `attempts_histogram` always carries the eight `ATTEMPT_BINS` ranges; attempts count
+  raw submissions through the submission that produced each solver's first AC. The
+  cutoff is the AC submission's creation time, not its later judgment-completion time
+- `median_attempts` is a float or `null`. Its population is **not** `solver_count`:
+  the median and `attempts_histogram` cover only solvers whose first-AC submission
+  could be identified, while `solver_count` counts every non-owner solver row, so
+  `solver_count` can exceed the histogram total. The UI shows the count beside the
+  median so a reader can judge the median's weight, not because it is the sample size
+- `submission_heatmap` counts every raw submission, including pending and unjudged
+  rows, by UTC day. Its sparse `days` list uses `YYYY-MM-DD`, and `first_date` /
+  `last_date` bound the series so the UI can size a calendar without scanning it
 
 Notes:
 - does not commit; the caller owns the transaction
+- `total_submissions` remains judged-only, so it can be smaller than the sum of the
+  heatmap counts
+- `arena_problem_solvers` does not store the submission id, so the first-AC submission
+  behind a solver row is recovered by matching the AC judgment's `finished_at` against
+  the row's `solved_at`. `autojudge/db/_arena_submission.py` writes both from one
+  `now` in a single transaction, which is what makes the match hold. A solver the match
+  misses is logged at warning level and still counted; it is never dropped, which would
+  silently disagree with `arena_problem_ratings.solved_users`
+- pending-only problems have a snapshot with empty judged distributions; the current
+  UI continues to show its existing empty state
 - the Arena read side is `arena/services/problem_stats_service.py`, which only reads
   the latest snapshot
 
@@ -393,7 +548,7 @@ Main entrypoints:
   active row
 - `counts_toward_problem_rating(user_id_col, owner_id) -> ColumnElement[bool]` —
   whether a submission counts toward problem rating; used by
-  `shared/services/arena_rating.py`, `shared/services/arena_stats.py`, and
+  `shared/services/arena_rating.py`, `shared/services/arena_problem_stats.py`, and
   `arena/services/problem_browse_service.py`
 - `is_excluded_from_problem_rating(user_id, owner_id) -> bool` — Python-side
   counterpart used by `arena/services/submission_service.py` and
@@ -404,11 +559,12 @@ Reused by:
   `arena/services/arena_problem_set_service.py`,
   `arena/services/arena_batch_feedback_service.py`,
   `arena/services/arena_problem_set_report_service.py`,
-  `shared/services/arena_stats.py`, and the badge siblings
+  `shared/services/arena_problem_stats.py`, and the badge siblings
   `shared/services/arena_badge_data.py`, `shared/services/arena_badge_rules.py`,
   `shared/services/arena_badge_rules_catalogue.py`,
-  `shared/services/arena_badge_rules_sets.py`, and
-  `shared/services/arena_badge_rules_sequences.py`
+  `shared/services/arena_badge_rules_sets.py`,
+  `shared/services/arena_badge_rules_sequences.py`, and
+  `shared/services/arena_badge_rules_cleancode.py`
 
 ---
 
@@ -423,9 +579,12 @@ Purpose:
 Canonical location:
 - `shared/services/arena_badges.py` — public API and the per-submission evaluator
 - `shared/services/arena_badge_data.py` — sibling: state/cursor access, the Accepted and
-  non-AC batch queries, per-(user, problem) history, and the badge-insert helper
-- `shared/services/arena_badge_rules.py` — sibling: aggregate/dynamic rules (streaks,
-  CLEAN_CODE, FULL_CLEAR, distinct-problem-count tiers)
+  non-AC batch queries, per-(user, problem) history, the all-AC metrics query, and the
+  badge insert/revoke helpers
+- `shared/services/arena_badge_rules.py` — sibling: aggregate rules (streaks, FULL_CLEAR,
+  distinct-problem-count tiers)
+- `shared/services/arena_badge_rules_cleancode.py` — sibling: the dynamic CLEAN_CODE rule
+  (top-5% ranking, minimum solver count, and revocation)
 - `shared/services/arena_badge_rules_catalogue.py` — sibling: catalogue aggregate rules
   (distinct-language tiers, FIRST_SOLVER, ROCK_CRACKER)
 - `shared/services/arena_badge_rules_sets.py` — sibling: problem-set scoped rules
@@ -449,8 +608,9 @@ Model:
   **full reconciliation** pass (`full_reconcile=True`) re-evaluates all relevant history.
   Correctness rests on the reconcile pass; every operation is idempotent (unique
   `(user_id, badge)`, advance-only/award-only logic, order-independent streak recompute), so
-  reprocessing an event is harmless. The watermark advances from the maximum `finished_at` seen
-  in either the AC or non-AC batch.
+  reprocessing an event is harmless. The ledger is append-only for every badge except
+  CLEAN_CODE, which the reconcile pass also revokes (see below). The watermark advances from
+  the maximum `finished_at` seen in either the AC or non-AC batch.
 - badge eligibility uses **only** the active-judgment selection
   (`active_arena_judgment_subquery`); it does **not** apply
   `counts_toward_problem_rating` by default. Rule-specific filters still apply,
@@ -458,8 +618,16 @@ Model:
 - event ordering is canonical `(submission.created_at, submission.id)`; per-submission badges use
   the AC's `created_at` in the submitter's timezone (via `user_timezone.py`), while the watermark
   cursor is the judgment `finished_at`.
-- CLEAN_CODE is award-only and recomputed per problem: a user qualifies whose best AC sits in the
-  top 5% by wall time **or** by memory. STRIKE badges use the user's **historical maximum**
+- CLEAN_CODE is the one **revocable** badge, and runs on the **full-reconcile pass only**
+  (`arena_badge_rules_cleancode.py`). It records a rank rather than an event, so a holder falls
+  out of it as faster solvers arrive. Each pass re-derives the whole holder set from all AC
+  history and both inserts and deletes: a problem needs at least 20 distinct solvers to rank
+  anyone, a qualifying user's best AC sits in the top 5% by wall time **and** by memory, and
+  ranking is ties-inclusive but never overflows the band, so a tied block wider than
+  `floor(0.05 * solvers)` qualifies nobody (which is what keeps quantized memory readings from
+  sweeping in half the field). The incremental pass skips it: it loads only the cycle's touched
+  problems, so it can neither rank a full population nor revoke on a partial view.
+  STRIKE badges use the user's **historical maximum**
   consecutive solve-day run (recomputed into `arena_users.current_streak` / `longest_streak` /
   `last_ac_date`). The distinct-problem-count tiers (PROBLEMS_10 / PROBLEMS_25 / PROBLEMS_100 /
   PROBLEMS_500) are award-only: each user in the batch is awarded every threshold their distinct
@@ -841,6 +1009,15 @@ implements that check and the two cannot diverge on it.
 
 See [PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md) for the wire format.
 
+### Additive `expected_difficulty` in format version 2
+
+`expected_difficulty` (integer `[1, 100]` or `null`) follows the same additive
+rule as `statement_language`: absent means no estimate, an out-of-range or
+non-integer value (booleans included) is a hard error, and only Arena stores it
+-- Contest parses it and writes it back as `null`. It rides in the flat
+top-level object rather than a nested one because, unlike the release policy,
+it means something on its own.
+
 ### Additive editorials in format version 2
 
 `PackageMetadata.editorial` holds an optional declaration naming the fixed
@@ -1189,6 +1366,10 @@ Reused by:
   using `iter_refresh_events` with `should_emit` filtering on owned submission ids
   and `emit_initial_ping=True`)
 
+Every route built on this loop -- and the two animator streams -- is wrapped in
+the concurrent-connection cap of `sse_connection_limit.py` (below), which is
+what bounds how many of these long-lived loops one client may hold open.
+
 Frontend counterpart:
 - `shared/static/js/live-feed-core.js` is the shared browser engine for both feeds
   (fetch/SSE/status/debounce/known-row highlight, overflow summary line, trailing-row
@@ -1210,6 +1391,20 @@ through the `static_shared_js` mount (`/static/shared-js`). Templates reference
 them via `request.url_for('static_shared_js', path='<file>.js')`.
 
 - `live-feed-core.js`: shared live-feed engine (see above).
+- `noca-sse.js`: the `NocaSse.open(url, handlers)` wrapper every plain SSE
+  consumer uses (`runs-sse.js`, `problems-sse.js`, `live-feed-core.js`,
+  `submission-status-watcher.js`; the animator has its own Live/Polling state
+  machine). The browser's `EventSource` retries a *network* failure on its own
+  but treats a non-200 answer -- the `429` the SSE connection lease returns
+  once a client IP or user holds its quota of streams -- as permanent
+  (`readyState === CLOSED`) and never retries, which left a refused page
+  silently frozen. The wrapper detects that closure, raises one page-level
+  "Live updates are unavailable" notice (`#noca-sse-banner`, styled in
+  `common.css`), retries with a capped backoff (5 s doubling to 60 s), and
+  clears the notice on the first successful reopen, calling the consumer's
+  `onRecovered` so it can refresh whatever it missed. Loaded by both
+  `_base.html` files; consumers fall back to a bare `EventSource` when it is
+  absent.
 - `flatpickr-init.js`: initializes date and datetime inputs marked with
   `data-fp-date` or `data-fp-datetime`; supports range-end, min-date, and modal
   options through `data-fp-*` attributes. Used by web and arena templates that
@@ -1261,10 +1456,33 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   escaped by the HTML parser and is decoded before parsing, while text held
   directly by an element is already decoded and must not be decoded twice. The
   `noca-markdown` class is also the CSS hook -- `shared/static/css/common.css`
-  styles rendered Markdown through `:where(.noca-markdown, .editor-preview)`
+  styles rendered Markdown through `:is(.noca-markdown, .editor-preview)`
   alone, so a new surface gets table borders, cell padding, GFM column
   alignment, and heading/table spacing by carrying the class rather than by
-  being added to a hand-maintained selector list. Every optional dependency is
+  being added to a hand-maintained selector list. That host is `:is()` rather
+  than the zero-specificity `:where()`, and the table-cell rules spell out the
+  `tr` and `th`/`td` types instead of `* > *`, because EasyMDE ships
+  `.editor-preview table td, .editor-preview table th { border: 1px solid #ddd;
+  padding: 5px }` and every page that mounts the editor loads `easymde.min.css`
+  after `common.css`. Under `:where()` plus `* > *` both selectors carried the
+  same two type selectors, so EasyMDE won on source order: the preview kept its
+  own light-gray borders in either theme and `::: table-border off` had no
+  visible effect there while working correctly on the published page.
+
+  The editor's *source* pane lost a tie of the same shape, with a stranger
+  symptom. CodeMirror puts every line in its own `pre` and sets
+  `.CodeMirror pre.CodeMirror-line { font-variant-ligatures: contextual }`
+  there, which outranks (0,2,1) anything `common.css` says about `.CodeMirror`
+  alone -- so contextual alternates were on for the element that actually holds
+  the characters, whatever the editor had been told. Inter carries a
+  case-sensitive asterisk (`asterisk.case`, larger and centred on cap height)
+  and a `calt` rule that swaps it in beside an uppercase letter, so in
+  `**Entrada**` the opening delimiter became a different glyph from the closing
+  one and the bold marker rendered visibly misaligned. `common.css` therefore
+  names the same `pre` with three classes, winning on specificity rather than on
+  load order; the editor's font family is deliberately left to EasyMDE's
+  `font: inherit`. Prose keeps the feature -- the rule is scoped to the source
+  pane, never to `.editor-preview` or a published page. Every optional dependency is
   feature-detected; a page missing Mermaid or KaTeX still renders Markdown, and
   a page missing `marked` leaves its containers untouched rather than blanking
   them. `window.NocaMarkdown` also exposes `toHtml()`, `enhance()`, `render()`,
@@ -1287,6 +1505,20 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   register its own `data-confirm` submit listener (two live copies would ask the
   same question twice), a coupling pinned by
   `tests/shared/test_confirm_submit_template_coupling.py`.
+- `submit-once.js`: the same shape for the other half of that courtesy -- a form
+  carrying `data-submit-once` is submitted at most once per page view. Its submit
+  controls are disabled one event-loop turn *after* the submit (a control disabled
+  during its own event is not sent), an element marked `data-submit-once-label`
+  inside one of them takes the attribute's busy wording, and `pageshow` restores
+  everything, because the back button serves the page from the bfcache with the
+  controls exactly as they were left. It listens for `submit`, which fires only
+  once the browser's own validation has passed, so a form refused for an empty
+  required field is never marked busy. Both modules load it from their
+  `_base.html` under the same single-copy rule, pinned by
+  `tests/shared/test_submit_once_template_coupling.py`; the walk behind both
+  contracts lives in `tests/shared/_template_coupling.py`. Its callers are the
+  privileged actions where a double post costs a second audit row: the Web and
+  Arena sign-in unlock forms and the Arena per-user unlock modal.
 - `judgment-actions.js`: the two remaining courtesies the judgment-data pages
   need from the browser -- a `data-clears-typed-rows` warning when an upload
   would discard typed rows, and the per-row replace trigger that opens its row's
@@ -1321,6 +1553,14 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   `arena/static/js/problem-statement-editor.js` only syncs on submit, while
   `web/static/js/problem-statement-editor.js` adds the web-only PDF/MD source
   switching (file input, "Replace with empty Markdown" button, `statement_source`).
+  The toolbar never offers images and offers EasyMDE's `link` action only when
+  `create({ allowLinks: true })` asks for it; the gate lives in the core so the
+  toolbar cannot disagree with the server-side validator
+  (`validate_md_content(..., allow_links=...)`) about which surface may link out.
+- `announcement-editor.js`: the announcement board's glue over that core (the
+  one `allowLinks: true` caller): mounts it on `#announcement-body-editor` from
+  `shared/template/_partials/announcement_form.html` and syncs the textarea when
+  `#announcement-form` submits. See `announcement_service.py` below.
 - `clipboard.js`: copies plain text through the modern Clipboard API with an
   HTTP-compatible fallback; exposes `window.NocaClipboard.copyText(text)`, which
   always returns a Promise.
@@ -1371,7 +1611,10 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   non-colour cue, so urgency is never signalled by colour alone.
 - `noca-echarts-theme.js`: registers the `noca-light` / `noca-dark` ECharts themes
   (axes, legend, tooltip, text, dataZoom, categorical palette) and hands out a
-  managed wrapper via `NocaECharts.create(el)`; consumed arena-side.
+  managed wrapper via `NocaECharts.create(el)` that owns the theme re-render and
+  the window-resize redraw, debounced and size-gated so a resize that leaves a
+  chart's box unchanged costs nothing; consumed by both arena and web (contest
+  reports).
 - `noca-presence.js`: presence and session-keepalive client — heartbeat POST to
   keep the current user marked online, plus online-dot polling over
   `.avatar-wrapper[data-user-id]` elements; consumed by **both** arena (paired
@@ -1388,6 +1631,101 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   polls no dots even were presence enabled. Web's element is emitted by
   `_base.html` from `web/template_globals.py::session_heartbeat_config`, aimed at
   `POST /session/heartbeat`, at `NOCA_JWT_EXPIRE_SECONDS / 4` (minimum 60 s).
+- `noca-form-draft.js`: **browser drafts for long forms**, so a Save that bounces
+  off an expired session (a deploy interrupting the request, a
+  `session_version` bump, the absolute cap, a slept laptop, a forced logout)
+  never loses the author's work. Loaded by both `_base.html` files; a form opts
+  in declaratively and the server side lives in `shared/services/form_draft.py`.
+
+  ```html
+  <form data-noca-draft="{{ view.draft_key }}" ...>      <!-- opt in; stable key -->
+  <form data-noca-draft-clear ...>                        <!-- logout: clear first -->
+  <input type="hidden" name="active_tab" data-noca-draft-ignore ...>
+  <div data-noca-draft-slot="edit-form"></div>            <!-- optional notice host -->
+  <div data-noca-draft-owner="{{ form_draft_owner(request) }}" hidden></div>
+  <div data-noca-draft-confirmed="{{ form_draft_confirmed(request) }}" hidden></div>
+  ```
+
+  Contract:
+  - **Key and owner.** Storage key `noca:form-draft:{owner}:{KEY}`. `KEY` names
+    the form (`problem_definition_draft_key`:
+    `arena-problem-definition:{problem_id}` / `...:new:{validator_type}`,
+    `web-problem-definition:{slug}:{problem_id}` / `...:new:{validator_type}`)
+    and is computed server-side so the template and the confirming route cannot
+    drift. `owner` is the opaque token both bases render for a live session
+    (`draft_owner_token`, a truncated digest of the login identity -- never a
+    username). A draft is only ever offered to the account that wrote it, and an
+    authenticated page load purges every other owner's drafts, so a shared
+    machine that changes hands without a logout leaves nothing behind. With no
+    owner element the module writes no drafts.
+  - **What is persisted.** `form.elements` in document order (covering the
+    `form="edit-form"`-associated controls of the detached editor forms), minus
+    files, buttons, disabled controls and anything marked
+    `data-noca-draft-ignore` (the return-state, `next_url`, `active_tab`,
+    `language_confirmed` and Web `statement_source` hidden inputs, which are
+    navigation or server state rather than authored content). Hidden inputs are
+    otherwise kept -- Arena's `category_ids` are dynamic hidden inputs. Payload
+    `{v: 1, savedAt, fields: [[name, value], ...], meta}`; `meta` is filled by
+    page scripts on the bubbling `noca:form-draft-collect` event (Arena stores
+    its selected category objects there, since the pills need names and colours
+    the hidden inputs lack).
+  - **When.** After ~1 s of debounced `input`/`change`; flushed on `pagehide`,
+    on the document becoming hidden, and unconditionally on `submit`. The
+    submit is **never** a clear: that is exactly the Save that then bounces.
+  - **Clearing.** Only three things remove a draft: the server confirming the
+    save landed (`confirm_form_draft` after the commit, rendered by the next
+    page as `data-noca-draft-confirmed`), an explicit **Discard**, or a logout
+    (`data-noca-draft-clear` removes every NOCA draft key and nothing else).
+    "Equal to the rendered form" is deliberately *not* a success signal: a
+    `422` re-render echoes the submitted values without saving them, and a
+    create redirects to the judgment pages.
+  - **Restore is a prompt.** On load a draft that differs from the rendered
+    form raises an `alert-warning` in the notice slot naming the draft's local
+    time and the limits (file inputs must be chosen again; drafts live in this
+    browser), with **Restore draft**, **Discard draft** and **Not now** (keeps
+    it for a later load). Restore writes each control (checkbox/radio checked iff
+    its `(name, value)` is present, repeated names in order, multi-selects),
+    dispatches `input` and `change` on every changed control -- so
+    `problem-edit-unsaved-guard.js` goes dirty -- and then a bubbling
+    `noca:form-draft-restored` (`detail.fields`, `detail.meta`) on the form.
+    The two `problem-statement-editor.js` wrappers push the restored textareas
+    back into EasyMDE (Web first replays its "Replace with empty Markdown"
+    transition when a non-empty statement is restored over a disabled PDF
+    editor), Arena rebuilds its category pills from `meta`, and Web rebuilds its
+    category chips and balloon picker from the restored hidden values.
+  - **Session probe.** When the page carries a `[data-noca-presence]`
+    heartbeat URL, a submit is held, the draft flushed, and the heartbeat
+    `POST`ed with `redirect: 'manual'`. `ok` re-submits once with the original
+    submitter (`requestSubmit`, so Arena's save/enable action survives); an
+    opaque redirect, `401` or `403` raises an `alert-danger` ("sign in again in
+    another tab, then Save") and sends nothing; a network or server failure
+    raises an `alert-warning` with **Save anyway**. The probe is an
+    enhancement, not the guarantee: the race between it and the real Save
+    remains, and the draft is what covers it. The unsaved-change guard decides
+    its "submitting" state only after the event has propagated, so a held
+    submit leaves `beforeunload` armed.
+  - **Storage failures** (quota, unavailable storage) raise one concise warning
+    per page and never block a Save.
+  - Pinned by `tests/shared/test_noca_form_draft_js.py` (Node contract),
+    `tests/shared/test_form_draft_template_coupling.py` (bindings on both
+    editors, both bases and every logout form) and
+    `tests/shared/test_form_draft_service.py`.
+- `htmx-poll-backoff.js`: **the client half of the per-actor read ceiling.**
+  Loaded by both `_base.html` files. A `429` on a *polling* htmx request parks
+  every poll on the page until the server's own `Retry-After` has passed
+  (clamped to 5-600 s, defaulting to 60 s when the header is missing or
+  nonsense), because a client that met a ceiling sized ten times above an honest
+  poller is one with too many timers running, and the worst thing it can do is
+  keep the same timer running into the refusal. Contract:
+  - **Only polls are parked.** Polling requests are recognised by the `every`
+    clause in their element's `hx-trigger`; a click, a form submit or any other
+    user-initiated request is never cancelled, because silently dropping
+    something a person asked for reads as a broken page while a paused
+    background refresh costs one stale minute.
+  - a non-`429` error, and a `429` on a user-initiated request, pause nothing;
+  - each pause dispatches `noca:poll-backoff` on the document (`detail.seconds`)
+    for a page that wants to say so in its own UI;
+  - pinned by `tests/js/htmx_poll_backoff.test.js`.
 - `submission-status-watcher.js`: the SSE + poll + reconcile engine behind Arena's
   two live submission-status surfaces (the profile submissions tab and the
   submission detail page), which previously implemented the same protocol twice.
@@ -1420,6 +1758,18 @@ the `static_shared_css` mount (`/static/shared-css`). Each module's stylesheet
 pulls it in with `@import url('/static/shared-css/common.css')` at the top
 (consistent with the absolute `/static/...` paths already used in `url(...)`
 references), so no per-template `<link>` is required.
+
+`common.css` also holds `.noca-form-draft-notice` (and its `-actions` row), the
+in-flow spacing for the notices `noca-form-draft.js` raises in the editor's
+notice slot; Bootstrap's `alert-*` classes supply the skin.
+
+Two hash-target row treatments live side by side and are deliberately different.
+`.noca-row-highlight` (paired with `highlight-row.js`) is a *transient* flash that
+scrolls the row into view and fades, for a redirect that lands on the row it just
+changed. `.noca-target-row:target > td` is a *persistent* mark with no script and
+no fade, for the announcement lists' Back flow: a reader who returns from a detail
+page to `…?page=N#announcement-<id>` finds their row still marked, however long
+they take to look.
 
 `common.css` currently holds the `.noca-icon-btn-group` segmented-button rules, the
 shared `live-feed-*` rules / `live-feed-row-flash` keyframes (paired with
@@ -1619,13 +1969,20 @@ Canonical location:
 Main entrypoints:
 - `wait_for_db(db_url, *, timeout_s, logger) -> None` — retries every 5 s; raises `RuntimeError` on timeout
 - `wait_for_valkey(valkey_url, *, timeout_s, logger) -> None` — retries every 5 s; raises `RuntimeError` on timeout
+- `wait_for_mailer(valkey_runtime, *, timeout_s, logger) -> None` — polls the `WorkerClass.MAILER` presence registry every 5 s until at least one mailer is live; raises `RuntimeError` on timeout. Web and Arena call it right after their Valkey runtime starts: they queue every email for the mailer and cannot send on their own, so a deployment without one must fail at startup rather than accept mail it will drop. Startup-only by design -- individual sends never check liveness, so a mailer restart refuses no request
 
 Notes:
 - passing `timeout_s=0` skips the wait and raises immediately on first failure (useful in tests)
 - `wait_for_db` runs early in the six module startup sequences that use a database:
   web, arena, autojudge, aiassistant, rating, and animator (healthmonitor has no DB)
-- `wait_for_valkey` runs in web, Arena, autojudge, AI assistant, animator, and
+- `wait_for_valkey` runs in web, Arena, autojudge, AI assistant, mailer, animator, and
   healthmonitor startup; the rating worker does not use Valkey
+- `wait_for_mailer` runs in web and Arena only. There is no startup cycle: the
+  stewards migrate the schema in their container *entrypoints*, before the app
+  (and this wait) starts, and the mailer's own `wait_for_migrations` clears on
+  that. For the same reason the compose sample must **not** give `web`/`arena` a
+  `depends_on` on the mailer's healthcheck -- the mailer only becomes healthy
+  after a steward migrated, and compose would never start the steward
 
 ---
 
@@ -1703,15 +2060,78 @@ Main types:
 
 Main entrypoints:
 - `EmailConfig.from_settings(settings) -> EmailConfig`
-- `EmailService.send_email(...) -> EmailResult`
-- `EmailService.get_provider_info() -> dict[str, str | None]`
+- `EmailService(config, logger, *, valkey_runtime=None)`
+- `async EmailService.send_email(..., actor_key=None, tier="user") -> EmailResult`
+- `EmailService.get_provider_info() -> dict[str, str | None]` (adds `delivery_mode`)
 - `EmailValidationService.is_valid(email) -> bool`
 - `EmailValidationService.normalize(email) -> str`
+
+Delivery contract (issue #155):
+- `send_email` is **async** and is the one door every outbound email goes
+  through; the **`mailer` worker is the only process that talks to a mail
+  provider**. A Web or Arena process holds a `QueueProvider` placeholder that
+  refuses to send, needs no `NOCA_SEND_EMAIL` / `NOCA_EMAIL_PROVIDER` /
+  `NOCA_SMTP_*` settings, and cannot deliver on its own
+- it does two things in a fixed order: charge the actor's budget (see
+  `email_budget.py` below; skipped when `actor_key` is `None`, which marks a
+  system-originated email such as the signup-reputation fan-out), then wrap
+  the rendered message as a `MailJob` (`shared/queue_schema.py`) and push it
+  through `ValkeyRuntime.enqueue_mail_job(job, ttl_seconds=...)`; the result is
+  `success=True, provider="queue"` with the job id as `message_id` --
+  "accepted for delivery", not "sent"
+- that enqueue is **never buffered**: unlike the other queue writes it has no
+  database row a reconciler could recover from, so an unreachable Valkey
+  raises `EmailProviderError` ("Mail queue unavailable") and the caller reports
+  "not sent" -- the UI never claims a message is queued when it is not
+- without a Valkey runtime (`EmailService(..., valkey_runtime=None)`) the
+  service keeps an in-process `MockProvider` outbox instead. That is a **test
+  double**, logged as such at construction, never a deployment mode; both
+  HTTP lifespans always pass their runtime
+- whether a queued job is really sent or only logged is the worker's decision
+  (`EmailConfig.worker_delivery_mode`, `create_worker_provider()` -- the one
+  place that builds an `SMTPProvider` and validates the SMTP settings)
+- every queued job hash carries `NOCA_EMAIL_QUEUE_JOB_TTL_SECONDS`; the worker
+  drops a job past it rather than deliver a stale credential, and a reaper
+  requeue keeps the original TTL
+- `EmailBudgetExceeded` (an `EmailProviderError`) is raised before anything is
+  queued when the actor is over budget; existing "not sent" handling covers it
+  without knowing about it
 
 Notes:
 - provider selection is environment-driven (`NOCA_SEND_EMAIL`, `NOCA_EMAIL_PROVIDER`, `NOCA_SMTP_*`)
 - `EmailValidationService` is the single public utility for email normalization in both the web and arena modules
 - arena user models and services import email validation from `shared.services.email_validation`
+
+---
+
+## `email_budget.py`
+
+Purpose:
+- the per-actor half of the outbound-email budget (issue #155): no single
+  session may flood the mail queue, while the mailer worker owns the global
+  pace at which the deployment talks to its provider
+
+Main types:
+- `EmailBudgetPolicy(enabled, window_seconds, user_max, admin_max)`
+- `EmailTier = Literal["user", "admin"]`
+
+Main entrypoints:
+- `async check_email_budget(runtime, *, actor_key, tier, policy) -> int` --
+  `0` when the email may proceed, otherwise the seconds until the window resets
+- `budget_key(tier=, actor_key=) -> str` -- `noca:email:budget:{tier}:{actor_key}`
+
+Notes:
+- a Valkey fixed window using the same Lua script as `request_rate_limit.py`
+  (`RATE_LIMIT_SCRIPT`), so every replica of a module shares the count; every
+  call is counted whatever the outcome
+- actor keys are chosen by the caller: `user:<id>` for a logged-in user,
+  `admin:<id>` / `uberadmin:<id>` for Web actors (`email_actor_key`),
+  `ip:<addr>` for pre-login flows, and `recipient:<addr>` for the password
+  reset (so N requesters cannot mail one victim); the tier decides the ceiling
+- **fails open** on any Valkey failure, with no process-local fallback: email
+  is best-effort, and the worker's global pacing still bounds the damage
+- knobs `NOCA_EMAIL_BUDGET_*`, unprefixed by module so one setting governs
+  Web and Arena alike; see [CONFIG.md](CONFIG.md)
 
 ---
 
@@ -1726,6 +2146,11 @@ Main types:
 
 Notes:
 - `EmailMessage` requires `to_email` and at least one body (`text_body` or `html_body`)
+- `EmailMessage.queued_at` / `delivery_attempt` are queue provenance set only by
+  `MailJob.to_message()` in the mailer worker (first-enqueue POSIX instant, 1-based
+  attempt that is being made); `None` for a message that did not come from the mail
+  queue (only the mock outbox test double). They are never sent to
+  the recipient -- the SMTP provider records them on the mbox audit copy only
 
 ---
 
@@ -1739,6 +2164,10 @@ Main types:
 - `SMTPProvider`
 - `MockProvider`
 - `EmailProviderError`
+- `EmailBudgetExceeded(EmailProviderError)` -- carries `actor_key` and
+  `retry_after_seconds`; raised by `EmailService.send_email`, never by a provider
+- `QueueProvider` -- the placeholder a producer holds; its `send` refuses, since
+  only the mailer delivers
 
 Main entrypoints:
 - `EmailProvider.send(message) -> EmailResult`
@@ -1774,7 +2203,12 @@ Notes:
 - a directory the service creates is set `0700` and each file `0600` (messages
   may contain OTPs, reset tokens, activation links); a pre-existing directory is
   left untouched (so a misconfigured path like `/var/log` is never chmod-ed);
-  added headers: `X-NOCA-SMTP-Relay`, `X-NOCA-Delivery-Date`, `X-NOCA-Recipients`
+  added headers: `X-NOCA-SMTP-Relay`, `X-NOCA-Delivery-Date`, `X-NOCA-Recipients`,
+  and -- for a message that went through the mailer queue -- `X-NOCA-Queued-At`
+  (first enqueue, ISO-8601 UTC), `X-NOCA-Queue-Seconds` (total wait across
+  retries) and `X-NOCA-Delivery-Attempt` (`1` first try, `2`+ after reaper
+  requeues). A message without queue provenance carries none of the three
+  (issue #164)
 - logging failures are swallowed (warning logged) so audit logging never turns a
   successful delivery into a failure
 
@@ -1813,6 +2247,45 @@ Reuse this module when:
 Do not reimplement:
 - password complexity checks
 - diceware generation
+
+---
+
+## `random_username_service.py`
+
+Purpose:
+- generate a random pseudonymous ``animal-adjetivo-NNN`` username from the shared
+  ``shared/animais.txt`` and ``shared/adjetivos.txt`` word lists (issue #121)
+
+Canonical location:
+- `shared/services/random_username_service.py`
+
+Main entrypoints:
+- `generate_username() -> str` — e.g. `"tigre-astuto-074"`
+
+Notes:
+- pure word-list generator: no database access, no notion of uniqueness; a caller
+  needing a globally unique handle (`arena.services.username_service`) must retry
+  on collision and rely on the database's `UNIQUE` constraint as the backstop
+- output is always lowercase ASCII: **the source word lists are Title-Case and
+  carry diacritics** (`Alce`, `Camaleão`, `Ágil`), and it is this module's
+  `unicodedata` NFD + combining-mark stripping that folds them — the same idiom as
+  `arena.services.admin_category_service.normalize_slug`. Any other reader of
+  these lists must fold them the same way; the `arena_users.username` backfill
+  migration inlines that folding for exactly this reason, since a frozen
+  migration cannot import this module
+- the trailing number is drawn from `secrets.randbelow`, zero-padded to three
+  digits (`000`-`999`), giving 50 × 50 × 1000 = 2 500 000 handles; two digits
+  would give 250 000, thin enough to make collision retry bite early
+- the longest handle the current lists can produce is 27 characters
+  (`rinoceronte-inteligente-000`), well inside `arena_users.username`'s
+  `String(64)`
+- both word lists are loaded once per process (`functools.lru_cache`)
+
+Reuse this module when:
+- generating a random pseudonymous handle in any runtime module
+
+Do not reimplement:
+- animal/adjective word-list loading or accent stripping for usernames
 
 ---
 
@@ -1922,7 +2395,14 @@ Main entrypoints on `ImageProcessingService`:
 - `process_base64(...) -> ImageProcessingResult`
 - `crop_to_aspect_ratio(image, aspect_width=2, aspect_height=3) -> Image.Image`
 - `generate_placeholder(...) -> bytes`
-- `build_image_response(image_data, mime_type="image/png", *, cache_directive="public") -> Response`
+- `build_image_response(image_data, mime_type="image/png", *, cache_directive="public", request=None) -> Response`
+  — every response carries a strong content-derived `ETag`; pass the `request` and a matching
+  `If-None-Match` is answered with a bodyless `304` carrying the same `Cache-Control` and `ETag`
+  (through Starlette's own `StaticFiles.is_not_modified` / `NotModifiedResponse`, not a parser of
+  its own). The tag is content-derived rather than caller-supplied because only the avatar route
+  has a revision to offer; affiliation logos have nothing to version by, and a tag from the bytes
+  alone is correct for every caller and cannot go stale when a source switches. Before this the
+  helper set only `Cache-Control`, so "must revalidate" meant "download again" (#199)
 - `image_validation(...) -> ImageBasicMetadata`
 - `convert_to(content, output_format="PNG") -> bytes`
 
@@ -2041,6 +2521,13 @@ Main entrypoints:
   scoreboard cache variant
 - `purge_contest_with_client(client, targets) -> ContestValkeyPurgeResult` —
   raw-client strict purge used by the runtime and integration tests
+- `ValkeyRuntime.scan_keys(pattern) -> list[str] | None` and
+  `ValkeyRuntime.delete_keys_counted(keys) -> int | None` — the two
+  **non-swallowing** siblings of `delete`, for rare administrative operations
+  (the lockout reset) that must know whether the store answered: `None` means
+  Valkey could not, so a caller never mistakes an outage for "nothing there".
+  `SCAN` is O(keyspace) and is never used on a request hot path. The raw-client
+  protocol lives in `valkey_service/key_scan.py`
 - `ContestValkeyPurgeError` — reports unavailable, failed, or unverifiable
   cleanup without degrading to best-effort behavior
 - `create_valkey_pool(valkey_url: str) -> ConnectionPool`
@@ -2057,8 +2544,9 @@ Main entrypoints:
   authoritative `/snapshot`; buffered/best-effort like `publish_verdict`
 - `ValkeyRuntime.publish_revelation(event) -> bool` and
   `ValkeyRuntime.iter_revelation_events(contest_id, scope, *, on_subscribed=None)
-  -> AsyncGenerator[RevealStateChangedEvent]` — reveal-ceremony projection
-  pub/sub (see "Reveal ceremony persistence and projection pub/sub")
+  -> AsyncGenerator[RevelationEvent]` — reveal-ceremony pub/sub, carrying both
+  invalidation nudges and transient media cues (see "Reveal ceremony persistence
+  and projection pub/sub")
 - `ValkeyRuntime.fenced_save_reveal_state(*, lock_key, state_key, token,
   state_json, ttl_seconds) -> int | None` — token-fenced reveal-state write
   (`1` saved, `0` ownership lost, `None` unavailable)
@@ -2073,12 +2561,18 @@ Main entrypoints:
 - `ValkeyRuntime.set_reporting(key, value, *, ex) -> bool` — atomic `SET … EX` reporting delivery success for auditing
 - `ValkeyRuntime.get_and_delete(key) -> str | None` — atomically consumes a
   string key with `GETDEL`
+- `ValkeyRuntime.hmget_many(keys, fields) -> list[list[str | None]] | None` —
+  the same hash fields from many keys in one non-transactional pipeline, rows
+  in request order. Unlike `hmget`, a missing client, a recoverable error, or
+  a reply that does not pair with the request returns `None` rather than rows
+  of `None`, so a caller that caches the result (the health monitor's
+  `/uptime.json`) can tell an outage from an empty history
 - Queue key constants: `QUEUE_PENDING_KEY`, `QUEUE_PRIORITY_KEY`, `QUEUE_INFLIGHT_KEY`, `QUEUE_INFLIGHT_TIMES_KEY`, `QUEUE_JOB_HASH_PREFIX`, `QUEUE_RESULTS_CHANNEL`, `QUEUE_SUBMISSIONS_CHANNEL`
 
 Worker presence:
-- `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `web`, `arena`,
-  and `animator`. The first three are worker classes shown on the Arena admin
-  dashboard; `web`, `arena`, and `animator` are presence-only HTTP server
+- `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `mailer`, `web`,
+  `arena`, and `animator`. The first four are worker classes shown on the Arena
+  admin dashboard; `web`, `arena`, and `animator` are presence-only HTTP server
   classes published from each server's lifespan and read by the health monitor.
   They never
   appear in the Arena dashboard worker cards or pause UI (the dashboard
@@ -2190,7 +2684,10 @@ Reveal ceremony persistence and projection pub/sub (`revelation.py` + `reveal_sc
 - **Fenced state write.** `fenced_save_state_script()` returns the single Lua source used by `ValkeyRuntime.fenced_save_reveal_state(lock_key, state_key, token, state_json, ttl_seconds)`: it writes the state with `EX` **only while the lock still holds the caller's token**, returning `1` on a fenced write, `0` on lost ownership, and `None` when Valkey is unavailable. This is what lets the animator reveal store keep a single writer per scope safely even if a lock lease expires; the lock's compare-and-delete release only guards *release*, not the write.
 - **`RevealStateChangedEvent`** (`shared/reveal_schema.py`) is a versioned (`event_version: Literal[1]`), `extra="forbid"` **invalidation nudge**, not a projection payload: `{contest_id, scope, command, phase, focused_team_id, revealed_count, frozen_count, published_at}`. `shared` cannot import the animator's derived team/problem views, and broadcasting them would give subscribers a second, race-prone source of truth — so every event means only "the ceremony under this `contest_id`/`scope` changed; refetch the authoritative projection/state." Consumers must **never** render the event's own fields as authoritative state. Missed events are harmless because state is always reloadable. `RevealPhase` and `RevealCommand` literals live here too; `animator.models.reveal_session` re-imports `RevealPhase` rather than redeclaring it.
 - **Publish semantics.** `ValkeyRuntime.publish_revelation(event) -> bool` and the raw `publish_revelation_with_client(client, event) -> int`. The bool `True` means **the `PUBLISH` command reached Valkey**, explicitly *including* the case where it reached zero subscribers (Valkey's integer subscriber count, `0` included, is success); `False` is returned only on a recoverable transport error or when no client is connected. Unlike `publish_verdict`, revelation publishes are deliberately **not** buffered through `PendingCommand`: replaying a stale ceremony frame after a reconnect is worse than dropping it, since every event is only an invalidation signal.
-- **Subscriber.** `ValkeyRuntime.iter_revelation_events(contest_id, scope, *, on_subscribed=None) -> AsyncGenerator[RevealStateChangedEvent]` follows the verdict-channel own-client / reconnect-return style and validates each frame inside a per-message guard, so a malformed or foreign-version payload is logged and skipped rather than escaping to the caller.
+- **`RevealMediaCueEvent`** is the channel's *second* payload and a different kind of thing: a versioned, `extra="forbid"` **presentation cue** — `{contest_id, scope, action ("show"/"hide"), team_id, published_at}` — asking every projector on that scope to raise or lower a team's media overlay. It is neither a nudge nor a snapshot: nothing durable is written when it is published, and it is **never replayed**, so a projector that was disconnected simply never sees it and the operator presses the button again. That is the deliberate trade: persisting a piece of screen decoration in the ceremony state would cost a `state_version` bump and a "Rebuild state" for every ceremony in flight. Because it is not authoritative, a consumer that cannot parse it must drop it and keep going — which is exactly what an animator replica older than this field does, and why the feature needed no lockstep deploy.
+- **Discrimination is by shape, not by a tag field.** `parse_revelation_event(data) -> RevealStateChangedEvent | RevealMediaCueEvent | None` (aliased `RevelationEvent`) tries each model in turn and returns `None` when a frame matches neither. Both models forbid extras and their required fields are disjoint, so a frame cannot be mis-assigned. Adding an `event_kind` discriminator to `RevealStateChangedEvent` would be the **breaking** change: an already-deployed replica's `extra="forbid"` would reject every new nudge and silently freeze its projectors mid-ceremony.
+- **Ownership-fenced publish.** `fenced_publish_script()` backs `ValkeyRuntime.fenced_publish_revelation(*, controller_key, token, event)`: the ownership check and the `PUBLISH` are one Lua transaction, returning `-1` when the caller does not hold the scope's controller lease, the subscriber count (`0` included, an ordinary success) when it published, and `None` when Valkey was unavailable — deliberately distinct from `-1`, so an outage is never read as an ownership decision. Nothing is written, so this is not a fence in the lost-update sense; it applies the same guarantee to an action whose only effect *is* the publication. A caller that verified ownership itself and then published in a second round trip would leave a window in which the lease expires, or a takeover lands, yet the former controller still reaches the projectors. Used by the animator's team-media cue, the one publication that is not preceded by a durable write.
+- **Subscriber.** `ValkeyRuntime.iter_revelation_events(contest_id, scope, *, on_subscribed=None) -> AsyncGenerator[RevelationEvent]` follows the verdict-channel own-client / reconnect-return style and parses each frame through `parse_revelation_event` inside a per-message guard, so a malformed, foreign-version, or simply unrecognized payload is logged and skipped rather than escaping to the caller. That guard is also what makes adding a future frame shape safe.
 - **Subscription-established signal.** The optional `on_subscribed` callback fires exactly once, immediately after the `SUBSCRIBE` completes — the instant from which no publication can be missed. A consumer that must tell *its* clients "you are covered now" cannot derive that moment from the first yielded event, because a quiet channel may never produce one; the animator's spectator SSE stream uses it to emit its `reveal_ready` event, closing the window between an SSE response starting (which fires the browser's `open`) and the subscription actually existing. When the runtime has no client or subscription setup fails, the generator ends without invoking the callback; consumers must observe termination separately and must not announce coverage.
 
 Arena AI review queue helpers (used by `aiassistant/`):
@@ -2204,6 +2701,17 @@ Arena AI review queue helpers (used by `aiassistant/`):
 - `get_ai_review_job_hash(client_or_runtime, submission_id) -> dict[str, str] | None` — retrieves job metadata hash at `ai:job:<submission_id>`
 - `get_ai_review_queued_ids(client_or_runtime) -> set[str]` — union of `ai:queue:pending` and `ai:queue:inflight`; used by the reconciler to detect submissions flagged `submit_to_ai` whose queue job was lost after commit
 - AI review queue constants: `QUEUE_AI_REVIEW_PENDING_KEY`, `QUEUE_AI_REVIEW_INFLIGHT_KEY`, `QUEUE_AI_REVIEW_INFLIGHT_TIMES_KEY`, `QUEUE_AI_REVIEW_JOB_HASH_PREFIX`
+Outbound mail queue helpers (filled by `EmailService`, drained by `mailer/`):
+- `enqueue_mail_job(client_or_runtime, job, *, ttl_seconds) -> None` — HSET the `MailJob` at `mail:job:<job_id>` **with an `EXPIRE`** and LPUSH the id onto `mail:queue:pending`, one pipeline; the TTL is the credential-at-rest bound. Through the runtime it is **never buffered**: `ValkeyRuntime.enqueue_mail_job` raises `MailQueueUnavailableError` when Valkey is unreachable, so the producer reports the message as not sent
+- `dequeue_mail_job_id(client_or_runtime) -> str | None` — one Lua script moves the id from `mail:queue:pending` to `mail:queue:inflight` **and** records the dispatch time in `mail:queue:inflight:times`, so a crash cannot strand a job the reaper never sees
+- `requeue_stale_mail_job(client_or_runtime, job_id, *, max_requeue_count) -> str` — one Lua script that requeues a stale job with `requeue_count + 1` only while it is still inflight and its hash still exists (`requeued`), drops it past the cap (`dropped`), cleans an expired one (`expired`) or leaves a completed one alone (`not_inflight`); the hash keeps its original TTL. The runtime answers `unavailable` during an outage
+- `remove_from_mail_inflight(client_or_runtime, job_id) -> None`
+- `complete_mail_job(client_or_runtime, job_id) -> None` — atomically removes pending and inflight entries, the dispatch time, and the hash
+- `get_stale_mail_job_ids(client_or_runtime, stale_threshold_s) -> list[str]`
+- `get_mail_job_hash(client_or_runtime, job_id) -> dict[str, str] | None` — `None` once the TTL expired the hash; through the runtime an outage also answers `None` but flips `is_available`, which the worker checks before treating `None` as "nothing to deliver"
+- `ValkeyRuntime.get_mail_queue_size() -> int | None` — pending + inflight, for the Arena dashboard card
+- inflight removal and completion are buffered `PendingCommand`s replayed after an outage; the enqueue deliberately is not (see above)
+- Mail queue constants: `QUEUE_MAIL_PENDING_KEY`, `QUEUE_MAIL_INFLIGHT_KEY`, `QUEUE_MAIL_INFLIGHT_TIMES_KEY`, `QUEUE_MAIL_JOB_HASH_PREFIX`
 - `AI_BATCH_TURNAROUND_STATS_KEY = "ai:batch:turnaround:stats"` — persistent
   JSON statistics for the 100 most recent successful platform-key reviews.
   `AIBatchTurnaroundStats` defines the versioned payload with average, median,
@@ -2236,25 +2744,401 @@ Notes:
 
 ---
 
+## `single_flight_cache.py`
+
+Purpose:
+
+- a process-local, keyed, single-flight TTL cache for read paths that are
+  anonymous, expensive, and re-requested far more often than their inputs
+  change
+
+Provides:
+
+- `SingleFlightCache[K, T](clock=time.monotonic)`:
+  - `get(key, build, *, ttl_seconds)` → `(value, seconds_left)` — returns the
+    live value or builds it once; concurrent misses on one key wait on a
+    per-key `asyncio.Lock` and share the first caller's build; a build that
+    raises caches nothing and re-raises, so an outage is never pinned for a TTL
+  - `peek(key)` — the live value without building, or `None`
+  - `invalidate(key)`, `invalidate_where(predicate)` (which also sweeps expired
+    entries), `clear()`, `len()`
+
+Behavior notes:
+
+- **Per-key TTL, chosen per call.** The caller decides the lifetime at `get`
+  time, which is what lets one cache hold entries with different rules (a
+  running contest's snapshot for seconds, an ended one's for a minute).
+- **Bounded maps.** Expired entries are evicted on read and by
+  `invalidate_where`; per-key locks are dropped once nobody waits on them, so
+  both maps stay bounded by live keys rather than keys ever seen.
+- **Process-local by design.** A multi-replica deployment builds once per
+  replica, which is bounded and needs no shared state.
+
+Consumers:
+
+- Health monitor `healthmonitor/services/uptime_cache.py` —
+  `UptimeHistoryCache` is a single-key view over it for `/uptime.json`
+- Animator `animator/services/feed_cache.py` — `AnimatorFeedCache`, three keyed
+  caches for `/snapshot`, `/meta`, and the reveal ceremony dataset
+
+---
+
+## `request_rate_limit.py`
+
+Purpose:
+- the one generic "throttle this request per client IP" primitive, shared by
+  every HTTP module; the foundation the rate-limit audit builds on
+- Valkey-backed fixed-window counters so every replica of a module shares one
+  window, with a process-local fallback when Valkey is unavailable
+- trusted IPv4/IPv6 network bypass, evaluated before any Valkey or fallback access
+
+Canonical location:
+- `shared/services/request_rate_limit.py`
+
+Main entrypoints:
+- `make_ip_rate_limit_dependency(*, bucket, max_requests, window_seconds, trusted_networks=(), enabled=True, valkey_getter=None, detail=...) -> Callable`
+  — builds a `Depends`-ready async dependency for one bucket, owning its own
+  process-local fallback so two buckets never share counters
+- `enforce_ip_rate_limit(request, *, policy, fallback_limiter, valkey_getter=None, detail=...) -> None`
+  — the per-IP entrypoint for wrappers that supply their own fallback instance:
+  keys on the proxy-corrected client IP and honors the policy's trusted networks
+- `enforce_key_rate_limit(request, *, policy, fallback_limiter, key, valkey_getter=None, detail=...) -> None`
+  and `check_rate_limit(...) -> (allowed, retry_after)` — the **keyed core** every
+  limiter is built on: `key` is any stable identity (a user id for per-account
+  budgets), namespaced under `noca:ratelimit:{bucket}:`. Trusted networks are an
+  IP concept and are *not* consulted here. `check_rate_limit` returns the verdict
+  instead of raising, for form routes that answer with a flash and redirect
+- `make_user_rate_limit_dependency(*, policy_getter, user_key_getter,
+  detail=..., fallback_limiter=None, methods=frozenset({"GET", "HEAD"}))
+  -> Callable`
+  — builds a `Depends`-ready **per-account** limiter for the loose ceilings on
+  authenticated reads and polled partials. The policy is rebuilt per request, so
+  a settings change (or a test's monkeypatch) takes effect without rebuilding
+  the dependency; the key is `user:{id}` when `user_key_getter` resolves an
+  account and `ip:{client_ip}` otherwise, so an anonymous caller still has a
+  ceiling and it is a shared one. Trusted networks apply only to that anonymous
+  key: exempting an address must not lift a logged-in account's ceiling. The
+  default method set counts only `GET` and `HEAD`, so router-level attachment
+  cannot block a form submission or administrative action. Machine-driven
+  non-GET polls can opt into an explicit method set
+- `RateLimitPolicy` — bucket, ceiling, window, trusted networks, enable switch
+- `InMemoryRateLimiter` — process-local fixed-window fallback; `allow()` returns
+  `(allowed, retry_after_seconds)`
+- `parse_trusted_cidrs(raw) -> tuple[IPv4Network | IPv6Network, ...]` — one-time
+  conversion of a validated comma-separated CIDR setting into network objects
+
+Contract:
+- key format `noca:ratelimit:{bucket}:{client_ip}`; the bucket is a trusted
+  application constant (for example `health:web`), never user input
+- fixed window: one atomic Lua `INCR` + `EXPIRE`-on-first-hit per request,
+  returning the count and the remaining TTL, so `Retry-After` on a `429` is the
+  time left in the current window rather than the full window length
+- client IP is `request.client.host` only — the proxy-corrected address after
+  Uvicorn's `NOCA_FORWARDED_ALLOW_IPS` processing. `X-Forwarded-For` is never
+  read (see `docs/ARCHITECTURE.md` §4). A request with no client counts under
+  `unknown`
+- fallback triggers: no Valkey client, a client that cannot run a script, a
+  `None` or malformed script result, or a
+  recoverable `ValkeyError` / `ConnectionError` / `TimeoutError` / `OSError`
+  (logged at warning, never raised). The fallback is **per process**: across
+  replicas the effective ceiling becomes `max_requests` per replica, so it is a
+  degraded mode rather than an equivalent one
+- `max_requests` and `window_seconds` are normalized to at least `1`
+- configuration: each route bucket that adopts the limiter defines its own
+  module-prefixed `NOCA_<MODULE>_<BUCKET>_RATE_LIMIT_MAX_REQUESTS` /
+  `_WINDOW_SECONDS` settings in that module's `config.py`, documented in
+  `docs/CONFIG.md` and that module's `.env.<module>.full` template
+
+Consumers:
+- `health_rate_limit.py` (below) — the three public `/health` routes
+- Web `GET /problem-set/{slug}.zip` (bucket `web:problem-set`) and
+  `GET /c/{slug}/live/feed.json` (bucket `web:live-feed`), both in
+  `web/services/public_rate_limits.py` under `NOCA_WEB_PUBLIC_RATE_LIMIT_*` —
+  route-level `Depends` that run before the contest gate query, so a `429`
+  never confirms a slug or a release state
+- Arena `POST /submissions/{id}/request-ai-review` (bucket `arena:ai-review`,
+  `arena/services/ai_review_request_service.py`, knobs
+  `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_*`) — the first **keyed** consumer: counted per
+  *user id* through `check_rate_limit`, not per IP, and answered as a flash +
+  redirect by the form route rather than a `429`
+- Arena `POST /auth/signup` uses two buckets. The `arena:signup-requests`
+  flood guard runs in a custom `APIRoute` wrapper, so it rejects before FastAPI
+  parses form fields or multipart files. The `arena:signup` attempt limit runs
+  inside the handler after free validation and before the account workflow.
+  Both refusals render the signup form with a flash
+- Health monitor `GET /`, `/refresh`, and `/uptime.json` (one shared bucket
+  `healthmon:public`, `healthmonitor/dependencies.py`, knobs
+  `NOCA_HEALTHMON_RATE_LIMIT_*`) — a router-level `Depends`, since every
+  caller is anonymous and a JSON `429` is acceptable for an HTMX poll
+- Animator `GET /c/{slug}/meta`, `/snapshot`, `/reveal/state`, and the team
+  media routes `/teams/{team_id}/photo` and `/audio` (one shared
+  bucket `animator:public`, `animator/dependencies.py`, knobs
+  `NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_*`) — a route-level `Depends` that runs
+  before the contest gate on purpose: the answer depends on the client IP
+  alone, so a `429` cannot probe the non-enumerating `404`, and a flood is
+  stopped ahead of the gate's own query
+- Web's polled partials and contest reads (bucket `web:user-read`,
+  `web/services/user_read_rate_limit.py`, knobs `NOCA_WEB_USER_READ_RATE_LIMIT_*`)
+  and Arena's (bucket `arena:user-read`,
+  `arena/dependencies/user_read_rate_limit.py`, knobs
+  `NOCA_ARENA_USER_READ_RATE_LIMIT_*`) — the **per-account** consumers, attached
+  at *router* level so a `GET` partial added to one later inherits the ceiling.
+  State-changing methods are ignored; Arena's POST-based presence polls opt in
+  explicitly. Both
+  resolve the account from the session the auth layer has already validated, so
+  the dependency does no I/O of its own, and both are deliberately generous
+  (300/minute by default, roughly ten times the fastest honest poller): the
+  point is to stop one actor multiplying a bounded cost, never to refuse a
+  partial to somebody reading normally. Each module's `docs/ROUTES.md` lists
+  which routers carry it
+- further per-route adoption is tracked by the rate-limit audit issue #158;
+  this module deliberately applies itself to nothing on its own
+- long-lived SSE streams are bounded by a different primitive,
+  `sse_connection_limit.py` below: a request counter cannot express "how many
+  streams does this client hold open right now"
+
+---
+
+## `rejudge_cooldown.py`
+
+The per-problem cooldown behind the two mass "rejudge all" admin actions --
+Web's limit-change-batch `rejudge-all` and Arena's `POST /admin/problems/{id}/rejudge-all`
+(issue #156). A bulk rejudge places one autojudge job per submission on the
+queue, so a repeated click stacks N jobs per click ahead of contestants' work.
+Both routes are idempotent at the row level (a submission already being
+rejudged is skipped), but idempotency alone still re-runs the selection and the
+row locking; the cooldown refuses the repeat before any of that.
+
+- `acquire_rejudge_cooldown(runtime, *, module, problem_id, ttl_seconds) -> int`
+  -- one atomic Lua script (`SET key 1 NX EX ttl`, else the remaining `PTTL`)
+  on `noca:rejudge:cooldown:{module}:{problem_id}`. Returns `0` when this call
+  opened the window (proceed) and otherwise the seconds until it closes
+  (refuse, and say so). `ttl_seconds == 0` disables the rule.
+- `release_rejudge_cooldown(runtime, *, module, problem_id)` -- best-effort
+  delete, called when the action queued zero jobs or its transaction failed:
+  there is nothing on the queue to protect, and holding the window would only
+  make the admin wait to retry.
+- `reset_local_windows()` -- test isolation for the fallback below.
+
+Design points:
+
+- keyed per **problem**, not per actor: the thing being protected is the
+  queue, and two admins clicking is the same flood as one; the `admin_action`
+  audit row the route writes records who acted
+- **fails open to a process-local window** when Valkey is unavailable (the
+  runtime's `eval` answers `None`, or the runtime has no `eval` at all), as
+  `request_rate_limit.py` does -- a double click on the same replica is still
+  refused during an outage, while across replicas the window is then per
+  replica. This is deliberately not fail-closed (contrast the Arena geocoder
+  gate): the caller is an authenticated admin, and refusing every rejudge
+  during a Valkey blip would be worse than allowing one
+- applied to the batch-wide / problem-wide actions only; Web's per-language
+  rejudge consumes its rows once and is not subject to it
+- knobs: `NOCA_WEB_REJUDGE_COOLDOWN_SECONDS`, `NOCA_ARENA_REJUDGE_COOLDOWN_SECONDS`
+  (default 300, `0` disables), see [CONFIG.md](CONFIG.md)
+
+---
+
+## `announcement_service.py`
+
+The platform announcement board (#138): the global notices an UberAdmin (Web) or
+an Arena Admin publishes about the platform itself. It is *not* the per-contest
+clarification announcement judges post inside a contest -- that stays in
+`clarifications` and `web/services/clarification_service`.
+
+One shared `announcements` table (`shared/db_schema/announcement.py`) serves both
+surfaces, and its `domain` column (`AnnouncementDomain`: `web` | `arena`) is the
+whole scoping rule: every function takes a `domain` and puts it in the `WHERE`,
+so an id published on one surface is simply absent on the other -- a Web-only or
+Arena-only install never shows the other product's notices, and neither surface
+can read or delete the other's rows.
+
+- `create_announcement(session, *, domain, title, body, required, published_by_id,
+  published_by_label) -> AnnouncementRow` -- strips and validates (title required
+  and at most 256 characters; body required and passed through
+  `validate_md_content(body, allow_links=True)`, so LaTeX, Mermaid and external
+  links are accepted while raw HTML and images are refused and the 512 KB cap
+  applies), inserts, and leaves the commit to the caller. Every failure is one
+  `ValueError` carrying the user-facing messages. `required` is part of the
+  contract because Arena sets it from its form's checkbox; Web always passes `False`.
+- `list_announcements(session, *, domain, page) -> Pagination[AnnouncementRow]` --
+  newest first, fixed `PAGE_SIZE` of 25, page clamped through `clamp_page`.
+- `get_announcement(session, *, domain, announcement_id) -> AnnouncementRow | None`
+- `delete_announcement(session, *, domain, announcement_id) -> bool` -- whether a
+  row was actually removed; routes check it *before* auditing, so a concurrent
+  deletion cannot leave a warning-level audit row for a deletion that never happened.
+- `record_announcement_published(...)` / `record_announcement_deleted(...)` -- thin
+  wrappers over `admin_audit.record_admin_action` (`target_type="announcement"`,
+  actions `publish` at info and `delete` at **warning**, since deletion is
+  irreversible and the audit row is the only record of who retracted what). They
+  exist so every publishing surface audits identically instead of re-deriving the
+  metadata shape.
+
+Design points:
+
+- **No update function, by design.** A published announcement is immutable; the
+  only retraction is deletion. The module, the routes, and the management partial
+  all lack an edit path, and the tests assert it at each layer.
+- **Publisher is a snapshot, not a foreign key.** Web's UberAdmin is an
+  `uber_admins` row and Arena's Admin is an `arena_users` row, so no single FK can
+  cover both; the table stores an opaque `published_by_id` (told apart by
+  `domain`) plus `published_by_label` captured at publish time, exactly as
+  `security_events.actor_user_id` / `actor_label` do. An FK with `SET NULL` would
+  erase the attribution the moment the account was removed, and an immutable
+  notice should outlive its author's account.
+- Low-churn reference table on the server-wide autovacuum defaults; no per-table
+  tuning migration (`202609010004_add_announcements`).
+
+Shared templates (both apps resolve `shared/template` after their own):
+
+- `_partials/announcement_list.html` -- public list body; context `pagination`,
+  `detail_url_name` (the wrapping app's detail endpoint), optional `table_class`,
+  `empty_text`. Every title link carries `?page=<current>`; every row is
+  `id="announcement-<id>"` with `noca-target-row`.
+- `_partials/announcement_detail.html` -- context `announcement`, `back_url`
+  (`<list>?page=<N>#announcement-<id>`); the body is an escaped `text/plain`
+  source blob bound to `data-noca-markdown`, rendered by the single pipeline, so
+  the wrapping page loads Marked, DOMPurify, KaTeX and Mermaid.
+- `_partials/announcement_admin_list.html` -- management list in the Admin List
+  Page layout; context `pagination`, `new_url`, `delete_url_name`,
+  `detail_url_name`, optional `heading_class`, `table_class`. Delete is a per-row
+  `data-confirm` form; there is no edit control.
+- `_partials/announcement_form.html` -- create form hosting the statement editor
+  (`announcement-editor.js`); context `create_url`, `back_url`, `form`
+  (`title`, `body`, and `required` where offered), `errors`, and the optional
+  `allow_required` switch that renders the "users must acknowledge" checkbox
+  with its cannot-be-changed note. Arena passes it; Web does not, so the Web
+  form is unchanged.
+
+---
+
+## `announcement_acknowledgment_service.py`
+
+The mandatory half of the announcement board (#184): an Arena announcement
+published with `required` must be acknowledged by every user, and
+`arena_announcement_acknowledgments` (`shared/db_schema/announcement.py`,
+migration `202609010005`) records who did. Absence means pending -- the
+`clarification_reads` shape: composite PK `(announcement_id, user_id)`,
+written once, never updated, removed only by cascade when the announcement or
+the user is deleted (deleting an announcement takes its acknowledgments with
+it, by decision on #138). Arena-only: Web never sets `required`.
+
+- `has_required_announcements(session) -> bool` -- whether any required Arena
+  announcement exists at all: the user-independent half of the question below,
+  one `EXISTS` over `(domain, required)`. Arena caches its answer per process
+  (`arena/services/required_announcement_cache.py`) so the common page load,
+  with nothing required, runs no query.
+- `pending_required_announcement(session, *, user_id) -> PendingRequiredAnnouncement | None`
+  -- the oldest required Arena announcement with no ledger row for the user,
+  plus a window count of how many are pending (the pop-up's "1 of N"), in **one**
+  query. Its cost is bounded by the number of *required* announcements (each
+  one a PK probe into the ledger), never by the number of users or
+  acknowledgments, which is why there is no *per-user* cache in front of it: a
+  Valkey round trip is not cheaper than the query, and a "nothing pending"
+  marker would need a publication-generation scheme to invalidate every user on
+  publish. Only the existence answer above is cached, and only in-process.
+- `acknowledge_announcement(session, *, user_id, announcement_id) -> bool` --
+  `False` when the id is not a required Arena announcement (the route answers
+  `404`); otherwise idempotent: an existing row is left alone, and the insert
+  runs inside a savepoint that absorbs the `IntegrityError` a concurrent
+  duplicate raises. `ON CONFLICT DO NOTHING` says the same thing but is
+  dialect-bound, and the suite runs on SQLite. No commit; the caller commits.
+
+Consumers: the Arena app-level dependency `load_pending_required_announcement`
+(`arena/dependencies/required_announcements.py`) through the existence cache in
+`arena/services/required_announcement_cache.py`, the `_base.html` modal partial
+`_partials/_announcement_required_modal.html`, and `POST
+/announcements/{id}/acknowledge`. The shared admin-list partial marks required
+rows with a "Required" badge.
+
+---
+
+## `sse_connection_limit.py`
+
+Purpose:
+- cap the number of **concurrent** SSE connections one client IP -- and, on
+  authenticated streams, one user -- may hold open, across a module's event
+  routes, so connection exhaustion cannot be bought for the price of opening
+  sockets
+
+Canonical location:
+- `shared/services/sse_connection_limit.py`
+
+Main entrypoints:
+- `SseSlotPolicy(bucket, max_per_ip, max_per_user, ttl_seconds, trusted_networks=(), enabled=True)`
+- `sse_connection_slots(request, *, policy, user_id=None, valkey_getter=None, detail=…)`
+  — an `asynccontextmanager` that holds the slots for the duration of the block
+
+Contract:
+- **Lease, not window.** Keys are gauges at `noca:sse:{bucket}:ip:{address}` and
+  `noca:sse:{bucket}:user:{id}`; acquisition is one atomic Lua script (`INCR`,
+  roll back with `DECR` and answer `0` when over the ceiling, else `EXPIRE`),
+  release is another (`DECR`, then `DEL` at zero, so a counter is never negative
+  or persistent -- releasing after an expiry, or a key that never existed, is
+  harmless). Both go through `ValkeyRuntime.eval`, exactly like the request
+  limiter.
+- **Renewal.** While the block is open a background task re-`EXPIRE`s every held
+  key at a third of `ttl_seconds` (default 600 s → every 200 s), so a legitimately
+  long stream never loses its lease while a process that dies mid-stream leaks a
+  slot for at most one TTL. The task is cancelled on release.
+- **Order and rollback.** The IP slot is taken first, then the user slot when a
+  `user_id` is given; a refused user slot gives the IP slot back before the
+  `429` is raised.
+- **Refusal** is `HTTPException(429, headers={"Retry-After": "5"})`, raised
+  before any response header is committed.
+- **Fail-open.** When Valkey cannot answer (`eval` returns `None`, or raises a
+  recoverable error) the stream is admitted and the outage logged at warning;
+  nothing is ever refused *because* Valkey is down. There is deliberately no
+  in-memory fallback gauge: the animator's process ceiling is the
+  Valkey-independent floor, and the other streams need Valkey to carry anything.
+- **Wiring.** Modules wrap it in a FastAPI *yield* dependency. A yield
+  dependency's teardown runs only after the response body finishes, which for a
+  streamed response is exactly "the client disconnected", so `StreamingResponse`
+  (Web, Arena) and `EventSourceResponse` (animator) get identical
+  acquire-before-handler / release-on-disconnect semantics, and the `429` is an
+  ordinary pre-handler response. Trusted networks and `enabled=False` make the
+  dependency a no-op. The client IP is always the proxy-corrected
+  `request.client.host`, never a forwarded header.
+
+Consumers (one bucket per module, shared by all of that module's streams):
+- Web (`web/services/sse_limits.py`, bucket `web:sse`, knobs `NOCA_WEB_SSE_*`):
+  `GET /c/{slug}/live/events` (IP) and `GET /c/{slug}/runs/events` (IP + actor id,
+  `User` or `UberAdmin`)
+- Arena (`arena/dependencies/sse_limits.py`, bucket `arena:sse`, knobs
+  `NOCA_ARENA_SSE_*`): `GET /live/events` and `GET /user/submissions/status/events`
+  (IP + `ArenaUser.id`, resolved through the short-lived
+  `get_streaming_arena_user`; an anonymous request holds only the IP slot)
+- Animator (`animator/dependencies.py`, bucket `animator:sse`, knobs
+  `NOCA_ANIMATOR_SSE_*`): `GET /c/{slug}/events` and `GET /c/{slug}/reveal/events`
+  (IP only; both anonymous). The same dependency first takes a slot on the
+  process-wide `animator/services/sse_capacity.py` gauge
+  (`NOCA_ANIMATOR_MAX_SSE_CLIENTS`, `503` when full), which does not depend on
+  Valkey at all. It runs before the contest gate so a `429`/`503` cannot probe the
+  non-enumerating `404`.
+
+---
+
 ## `health_rate_limit.py`
 
 Purpose:
-- shared public `/health` endpoint rate limiting for Web, Arena, and the
-  animator (`animator/routes/health.py` enforces it on `/health`)
-- Valkey-backed fixed-window counters with a process-local fallback when
-  Valkey is unavailable
-- trusted CIDR bypass for local container and load-balancer health checks
+- compatibility layer over `request_rate_limit.py` for the public `/health`
+  endpoints of Web, Arena, the animator (`animator/routes/health.py`), and the
+  health monitor (`healthmonitor/dependencies.py`, bucket `health:healthmonitor`)
+- keeps the settings object and entrypoint the routes already use, so the
+  generic limiter's introduction changed no route code
 
 Canonical location:
 - `shared/services/health_rate_limit.py`
 
 Main entrypoints:
 - `HealthRateLimitSettings` — compact settings object consumed by route
-  dependencies
-- `InMemoryHealthRateLimiter` — process-local fallback fixed-window limiter
+  dependencies (`enabled`, `window_seconds`, `max_requests`, `trusted_cidrs`
+  as the raw comma-separated string)
+- `InMemoryHealthRateLimiter` — alias of `InMemoryRateLimiter`
 - `enforce_health_rate_limit(request, *, module, settings, fallback_limiter) -> None`
-  — raises `HTTPException(429)` with `Retry-After` when a public caller exceeds
-  the configured `/health` limit
+  — builds a `RateLimitPolicy` under bucket `health:{module}` (keys such as
+  `noca:ratelimit:health:web:{client_ip}`), parses the trusted CIDRs, and
+  delegates to `enforce_ip_rate_limit` with the health-specific `429` detail
 
 ---
 
@@ -2300,12 +3184,41 @@ Key types and functions:
 - `bucket_visible_pending_submissions(submissions, judgments, *, freeze_at_seconds,
   viewer_sees_frozen)` — groups unresolved submissions by team/problem using the
   same freeze-visibility rule consumed by `compute_icpc` and animator pending lists
+- `standing_score_key(standing)` — the canonical ranking key
+  `(-problems_solved, total_time, last_accepted_minutes)`. `compute_icpc` both
+  sorts with it and decides shared ranks by comparing it, so the order and the
+  tie test cannot disagree about what makes two teams equal. A team with no
+  solves substitutes a sentinel that sorts it last within its group
 - `penalizing_verdicts(accept_pe, ce_adds_penalty)` — returns the canonical
   ordered `Verdict` members that count as failed attempts. Both `compute_icpc`
   and participant-facing rules summaries consume this helper, so displayed
   rules cannot drift from scoreboard behavior
 - `compute_icpc(contest, teams, problems, submissions, judgments, freeze_at_seconds, viewer_sees_frozen)` — pure standings calculation; honors per-contest `wa_penalty`, `accept_pe`, and `ce_adds_penalty`, the strict freeze predicate (`timestamp_seconds > freeze_at_seconds`), pending cells, position-based tied ranks, and first-balloon marking ordered by `(timestamp_seconds, created_at, id)`
-- `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname` or `is_first_balloon`
+- `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname`, `is_first_balloon`, or `last_accepted_minutes`
+
+### Ranking rules
+
+`compute_icpc` ranks teams on three keys, in order:
+
+1. **Most problems solved.** A problem is solved by its first accepted
+   submission; `accept_pe` decides whether `PE` counts as accepted.
+2. **Lowest total time.** Each solved problem contributes the contest minute of
+   its accepted submission plus `wa_penalty` minutes for every penalizing
+   attempt *before* it. Attempts after the solve, and every attempt on a problem
+   the team never solved, contribute nothing. Which verdicts penalize comes from
+   `penalizing_verdicts`, so `ce_adds_penalty` and `accept_pe` govern `CE` and
+   `PE` here too.
+3. **Earliest last accepted submission.** `TeamStanding.last_accepted_minutes`
+   holds the contest minute of the team's *latest* solve, and the team that
+   finished earlier ranks higher. It is `None` for a team that solved nothing,
+   which sorts last within its group — only teams tied at zero solves and zero
+   total time can carry it, so the value is uniform wherever it applies.
+
+Teams equal on all three keys **share a rank number**, and the next distinct team
+takes its position-based rank (`1, 1, 3`), so no arbitrary order is ever
+presented as a ranking. Contest minutes are **truncated** from seconds by
+`shared.timing.icpc_minutes_from_seconds`: a solve at 60 min 45 s scores 60
+penalty minutes, not 61.
 
 Notes:
 - web behavior is unchanged: `web/services/scoreboard/` keeps only query, cache, and orchestration code and re-exports the DTOs from here
@@ -2343,7 +3256,8 @@ Notes:
 ## `auth_rate_limit.py`
 
 Purpose:
-- provide Valkey-backed authentication throttling shared by Web and Arena
+- provide Valkey-backed authentication throttling shared by Web, Arena, and
+  the animator's operator-token gate
 
 Canonical location:
 - `shared/services/auth_rate_limit.py`
@@ -2351,23 +3265,209 @@ Canonical location:
 Key types and functions:
 - `AuthRateLimitSettings` — shared throttle settings
 - `InMemoryAuthRateLimiter` — process-local fallback when Valkey is not
-  available (defined in `auth_rate_limit_fallback.py`, re-exported here)
+  available (defined in `auth_rate_limit_fallback.py`, re-exported here).
+  Every instance self-registers in a process-wide **weak** registry, so
+  `reset_all_fallback_limiters_matching(predicate)` and
+  `fallback_lock_ttls_matching(predicate)` can reach every limiter of the
+  process (the administrative unlock below) without each module handing its
+  private instance around; `reset_matching(predicate)` and
+  `lock_ttls_matching(predicate)` are the per-instance halves
 - `build_auth_throttle_identity(...)` — builds IP and account throttle keys
 - `check_auth_throttle(...)`, `record_auth_failure(...)`, and
-  `reset_auth_throttle(...)` — lifecycle helpers for auth flows
+  `reset_auth_throttle(..., include_ip=True)` — lifecycle helpers for auth
+  flows; `include_ip=False` clears only the account counters, for buckets
+  whose identifier the caller chooses (a token or a claim inside it), where a
+  success the attacker can produce at will must not wipe the IP cap
+- `record_auth_failure(..., ip_distinct_accounts=N)` — gate the *IP* lock on
+  the failures having also spanned `N` **distinct** account identifiers, on top
+  of the raw ceiling (both must be exceeded). For post-credential steps only,
+  where the caller has already proved a password and the account bucket is
+  therefore the real cap: there the raw IP count no longer describes an
+  attacker, it describes one person fumbling — and charges every other user
+  behind the same NAT address for it. Arena's login 2FA step passes
+  `NOCA_AUTH_RATE_LIMIT_2FA_IP_DISTINCT_ACCOUNTS` (default 3); `action="login"`
+  and `action="signup"` deliberately do not, because there an attempt needs no
+  credential and the address is the only thing worth counting. The identifiers
+  are the same HMAC hashes the account bucket keys on, held in a per-IP set
+  bounded at `DISTINCT_SET_MAX_MEMBERS` (64) that expires with the failure
+  window; counting, set membership and the lock decision happen in one Lua
+  script, so concurrent failures cannot read a stale set size and disagree
+
+Arena's successful login-2FA path calls `reset_auth_throttle(...,
+include_ip=False)`. It clears the successful account's counter but preserves
+the aggregate IP failures and distinct-account set, so a successful controlled
+account cannot reset spray history for other accounts.
 
 Notes:
 - keys include module, auth action, ASGI client IP, and an HMAC hash of the
   normalized account identifier
+- **the identifier is the caller's to choose, and Web's two login forms choose
+  differently.** `/login` passes the typed name, because an UberAdmin username
+  is global; `/c/{slug}/login` passes `{contest_id}:{username}`
+  (`web.services.lockout_admin_service.contest_login_identifier`), because a
+  contest login is unique only per contest — on the bare name one contest's
+  failures would lock that name out of every contest, and an administrative
+  unlock could never be finer than the name either. Since
+  `normalize_identifier` strips and casefolds the *whole* string, any composite
+  identifier must strip its parts before joining them, or the same typed name
+  hashes two ways
 - helpers intentionally use `request.client.host`; they don't trust raw
   `X-Forwarded-For`
 - **fail-open**: every Valkey call is wrapped so that a `ValkeyError`/`OSError`
   is logged and falls back to the in-memory limiter — a Valkey outage never
   500s a login page
-- Web applies this to `/login` and `/c/{slug}/login`; Arena applies it to
-  login, 2FA, password reset, and signup, plus IP-scoped abuse caps on the
-  email-resend actions (`resend_activation`, `resend_parental_consent`,
-  `update_parental_email`) via `arena.routes.auth_common.enforce_resend_throttle`
+- Web applies this to `/login` and `/c/{slug}/login`, and — through
+  `web/services/password_confirm_throttle.py`, one `password-confirm` bucket
+  keyed by actor and IP — to the seven password-reconfirmation routes
+  (`/profile/password`, contest `start-now`/`end-now`, uberadmin contest
+  `remove` and hash `export`, and the two `/uberadmin/lockouts` unlocks);
+  Arena applies it to
+  login, 2FA, password reset, and signup, to the session-gated secret oracles
+  keyed by user id + IP (`2fa_confirm` for the TOTP setup confirmation, whose
+  lockout also voids the tentative secret, and `password_verify`, which is the
+  single bucket for **every** Arena route that re-verifies the acting account's
+  own password: `POST /auth/change-password`,
+  `POST /user/profile/2fa/disable`, `POST /admin/problems/{id}/rejudge-all`,
+  `POST /admin/problems/{id}/delete`, the seven password-confirmed actions in
+  `admin_users_actions.py`, and
+  `POST /classes/{class_id}/problem-sets/{problem_set_id}/delete` — one budget,
+  so rotating between them cannot multiply the guess allowance; all via
+  `arena.routes.auth_throttle`), to the token-redeeming links
+  (`token_redeem`, shared by `GET /auth/activate` and
+  `GET /auth/parental-consent` via `arena.routes.auth_token_redeem`, which
+  perform their action on the `GET` and so count only a *rejected* token; the
+  bucket is keyed by the token's unverified `sub` so tamperings of one link
+  share a budget, the lock refuses bad tokens only so a genuine link still
+  redeems while locked, and a success clears the account counter with
+  `include_ip=False` so one's own valid link cannot wipe the IP guessing
+  budget), plus IP-scoped abuse caps on the email-resend
+  actions (`resend_activation`, `resend_parental_consent`,
+  `update_parental_email`) and the pending-session writes
+  (`update_date_of_birth`, `accept_terms`) via
+  `arena.routes.auth_common.enforce_resend_throttle`
+- Animator applies it, IP-only (`identifier=None`, so no account bucket and no
+  HMAC secret), to the operator-token gate of every `/c/{slug}/control/*` and
+  controller-lease route (`animator/dependencies.py::resolve_operator_scope`,
+  identity `module="animator"`, `action="control"`, knobs
+  `NOCA_ANIMATOR_CONTROL_LOCKOUT_*`, where the lockout duration doubles as the
+  failure window). It is checked after the contest gate and kill switch, so it
+  cannot probe the two `404`s, and a locked address gets the **same generic
+  `403`** a bad credential gets — no `429`, no `Retry-After` — audited as
+  `outcome=throttled`; a valid token resets the counter, and scope or
+  ownership refusals are not counted
+
+---
+
+## `auth_lockout_admin.py`
+
+Purpose:
+- let an administrator lift an authentication lockout held by *someone else*
+  -- a user in any bucket, or an IP address in any bucket -- which
+  `reset_auth_throttle` cannot do, since it only knows the identity of the
+  request that just succeeded
+
+Canonical location:
+- `shared/services/auth_lockout_admin.py`
+
+Key types and functions:
+- `LockoutSubject(modules, ip=None, identifier_hashes=frozenset())` — what to
+  clear. `modules` names the key modules the caller may touch (Arena passes
+  `("arena",)`, Web passes `("web", "animator")`) and the predicate refuses
+  everything else, so the authorization boundary is in the subject, not in
+  the caller's discipline
+- `parse_lockout_key(key) -> LockoutKey | None` — exact parser of
+  `auth:rate-limit:{module}:{action}:{ip|acct}:{subject}:{failures|lock}`;
+  the suffix is split from the right so an IPv6 subject keeps its colons.
+  The suffix must be one the *scope* can carry: `accounts` -- the
+  distinct-account set that gates an IP lock on failures spanning several
+  accounts -- is parseable under `ip` and refused under `acct`. That pairing
+  is the whole mechanism, since the account glob matches the shape and only
+  the re-parse refuses it
+- **An address unlock clears that address's distinct-account set; an account
+  unlock never does.** Unlocking an address is the operator asserting the
+  address is not spraying, which is exactly the claim the set holds evidence
+  for: left behind, it would already satisfy the gate while the failure
+  counter restarted at zero, so the next burst would re-lock on
+  `max_failures` alone and re-reach the verdict the operator just rejected.
+  Unlocking an *account* asserts nothing about the address its failures came
+  from, which is shared with everyone behind it. The success resets draw the
+  same line for a different reason: an ordinary login clears the set through
+  `include_ip=True`, while 2FA deliberately keeps it, because a 2FA success
+  is one an attacker can produce at will with an account they control and an
+  audited admin unlock is not. Valkey and the process-local fallback must
+  agree here -- `_SCOPE_SUFFIXES` and `InMemoryAuthRateLimiter.reset_matching`
+  are the two halves, and a change to one without the other makes the same
+  unlock leave different state in the two backends
+- `validate_ip(raw) -> str` — canonical `ipaddress` form; refuses the
+  `unknown` no-client sentinel, which names everyone in that state
+- `account_identifier_hashes(identifiers, *, secret) -> frozenset[str]` —
+  hashes raw identifiers exactly as the throttle does, dropping blanks
+- `unlock(store, subject) -> UnlockResult`, with the `unlock_ip(...)` and
+  `unlock_account_hashes(...)` wrappers
+- `describe_lockouts(store, subject) -> list[ActiveLockout]` — the live locks
+  and their TTLs, from Valkey and from this process's fallback. One row **per
+  bucket**: `ActiveLockout` carries the `subject` the key is scoped on, and the
+  rows are deduplicated on `(module, action, scope, subject)` rather than on the
+  action alone. A subject naming several accounts under one action — Web's
+  per-contest `contest-login` buckets, one hash per contest — must therefore
+  stay several rows, or two contests' locks would collapse into one and neither
+  could be named. Hashes are one-way, so *labelling* a row is the caller's job
+  (Web's `ResolvedLogin.contest_labels`); this only says which bucket it was limiters
+- `LockoutStoreUnavailableError` — carries `fallback_entries_removed`
+
+Notes:
+- **`SCAN`, not a registry.** Buckets are discovered with
+  `auth:rate-limit:{module}:*:ip:{ip}:*` / `…:acct:{hash}:*`, so a bucket added
+  later is covered the day it lands; every scanned key is re-parsed exactly
+  before it is touched, so a glob can never over-match. `SCAN` is O(keyspace);
+  this is a rare, password-confirmed admin action, not a request-path primitive
+- **fails closed**, unlike the throttle itself: the process-local fallback
+  limiters are cleared first (cheap, and exactly the state that matters during
+  an outage), then the store is scanned and the keys deleted with a counted
+  `DEL`; if Valkey cannot answer either call, `LockoutStoreUnavailableError`
+  is raised **after** the fallback clearing, so the operator is told the shared
+  lock may still be in force rather than left believing it is gone. A `store`
+  of `None` (a process with no runtime) is treated the same way
+- an account unlock leaves IP buckets alone and vice versa: an address is
+  shared by more than one person, so the two are separate operator decisions
+- limitations, stated on purpose: the fallback state of **other** replicas
+  cannot be reached (it exists only during a Valkey outage and expires with the
+  lockout TTL); `token:<token>` and password-reset-by-token buckets are not
+  re-derivable from a user and are IP-bounded, so the IP unlock covers them;
+  rotating `JWT_SECRET_KEY` orphans every account bucket, old and new alike
+
+---
+
+## `auth_lockout_flow.py`
+
+Purpose:
+- the operator-facing half of the lockout reset, shared by the Web and Arena
+  routes so an unlock is run, recorded, and reported identically on both sides
+
+Canonical location:
+- `shared/services/auth_lockout_flow.py`
+
+Key types and functions:
+- `perform_audited_unlock(request, session, flash, *, module, actor_user_id,
+  actor_label, subject, action, target_type, target_id) -> UnlockResult | None`
+  — runs `unlock`, writes the `admin_action` row (`action=unlock_ip` or
+  `unlock_account`, **warning** severity, `detail` carrying the key count, the
+  fallback count, and the `module/action` buckets touched) in the same
+  transaction, commits, and flashes the outcome. When the store could not
+  answer it flashes the fail-closed wording, records
+  `detail=outcome=valkey_unavailable fallback_removed=N`, and returns `None`
+- `describe_or_unavailable(request, subject)` — status for a page, as
+  `(locks, unavailable)`, so a template renders *Status unknown* rather
+  than *Not locked*
+- `summarize(result)`, `unavailable_message(n)`, `format_remaining(seconds)`,
+  `parse_identifier_hash(raw)`, `lockout_store(request)`
+
+Notes:
+- the Web (`/uberadmin/lockouts`, `uberadmin_lockouts.py`) and Arena
+  (`/admin/dashboard/lockouts`, `admin_dashboard_lockouts.py`;
+  `POST /admin/users/{id}/unlock`, `admin_users_lockout.py`) routes are thin:
+  password reconfirmation through their module's own helper, subject
+  construction through their module's `lockout_admin_service`, then this flow
 
 ---
 
@@ -2454,9 +3554,12 @@ Notes:
 - cell values are flattened to one line and a leading `=`, `+`, `-`, or `@` is
   prefixed with an apostrophe, so attacker-influenced fields (user agent,
   metadata) cannot become spreadsheet formulas
-- the routes open their own session for the stream rather than using the
-  request-scoped dependency, because FastAPI closes `yield` dependencies before
-  a streaming body is consumed
+- the streams read through the **request-scoped** session. FastAPI closes `yield`
+  dependencies only after the whole response has been sent, streaming body included
+  (`fastapi/routing.py`: the dependency stack wraps `await response(...)`); the older
+  belief that it closed them first made both routes open a second session, so every
+  export held two pool connections for its whole duration (#198). A structural test,
+  `tests/test_no_nested_request_sessions.py`, now fails any route that does that
 
 ---
 
@@ -2513,8 +3616,10 @@ Notes:
   rows when the referenced actor still exists
 - currently wired to destructive/privilege actions: Arena user role change,
   activate/deactivate, disable-2FA, `toggle_email_confirmed`
-  (`arena/routes/admin_users_actions.py`, with `severity="warning"`), and
-  problem/affiliation/category deletes;
+  (`arena/routes/admin_users_actions.py`, with `severity="warning"`),
+  problem/affiliation/category deletes, and the sign-in lockout resets
+  (`unlock_ip` / `unlock_account`, warning severity on both Web and Arena,
+  through `auth_lockout_flow.perform_audited_unlock`);
   Web uberadmin enable/disable, contest problem/user deletes, and contest
   start-now/end-now state changes, plus animator settings and credential
   changes and sensitive contest backup exports
@@ -2600,14 +3705,86 @@ whole change exists to prevent.
   reads a single test case. Two Saves that both snapshot the live directory would each stage a
   complete replacement, and the loser would silently reinstate what the winner replaced. A create
   has no row to lock: it inserts and flushes first
-- `open_save_swap(session, *, domain, problem_id, testcase_dir)` — advances the generation fence
-  and opens the swap
+- `open_save_swap(session, *, domain, problem_id, testcase_dir)` — advances the generation fence,
+  invalidates the public export cache, and opens the swap. It is the single production caller of
+  `bump_artifact_generation`, and is reached by the definition editor's Save, problem creation, and
+  every file-changing test-case action, so bumping the cache counter here covers all three at once
 - `stage_test_cases(swap, desired, *, interactive)` — builds the complete directory in staging,
   with no exception for a single small case
 - `abandon_swap(session, swap)` — the window `commit_with_edit_swap` does not cover: a failure
   between staging and promotion rolls back and drops the staging paths, with no quarantine to
   restore because nothing was promoted. The cleanup is cancellation-shielded so both operations
   complete even when request cancellation caused the failure
+
+## `problem_export_cache.py`
+
+- `shared/services/problem_export_cache.py` (moved from `web/services/` in #204)
+
+Purpose:
+- keep the per-problem downloads reachable by every participant from rebuilding an artifact on every request. Web serves `GET /c/{slug}/problems/{label}/export` from it (`NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH`); Arena serves `GET /problems/{n}/export` **and** `GET /problems/{n}/sample-testcases.zip` from it (`NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH`), as two artifacts of one problem under distinct suffixes (`PUBLIC_PACKAGE_SUFFIX`, `SAMPLE_CASES_SUFFIX`) that share one generation. Each artifact is built once and reused until the problem changes
+
+Main entrypoints:
+- `export_cache_dir(pack_path) -> Path` — the `problem-export/` subdirectory of the configured root, so one setting and one mount back both package caches
+- `ensure_cached_export(cache_dir, problem_id, generation, build) -> Path` — returns a verified, *current* cached package, building it via the async `build` callable on a miss; concurrent builds of one problem are serialized by a per-problem `anyio.Lock` with a double-checked test inside the lock
+- `cached_export_path(cache_dir, problem_id) -> Path` — the canonical per-problem location (`<problem_id>-public.zip`)
+- `discard_cached_export(cache_dir, problem_id) -> None` — drops the package and its sidecar; called when a problem is removed on its own and when its contest is permanently removed. Removing nothing is a normal outcome, so a missing file is not an error
+
+Do not reimplement:
+- the integrity and freshness contract: the sidecar records both the SHA-256 of the archive **and** the `public_export_generation` it was built from, and a hit requires both to match. Publishing is atomic (temp sibling + `os.replace`), so no reader observes a half-written archive and a failed rebuild leaves the previous entry intact
+
+Notes:
+- unlike [`problem_set_cache.py`](#problem_set_cachepy), this caches a problem that is **still being edited** — the Limits tab stays open while a contest runs — so it cannot rely on a gate that only opens once a contest is over. Invalidation is the counter, read fresh from PostgreSQL on the request, which is what lets every replica detect its own stale copy with no cross-replica messaging
+- the counter is `problems.public_export_generation`, bumped by `shared/services/public_export_generation.py`. It is deliberately **not** `artifact_generation`; see that module for why conflating them corrupts crash recovery
+- the key is one canonical path per problem, overwritten in place. A generation-keyed filename would leave a new, never-collected file behind on every save
+- an unusable sidecar — missing, unparseable, wrong types, wrong digest length — is treated as a miss, so a damaged entry rebuilds rather than failing the request
+- the recorded generation is bounded only by the column: JSON and Python integers are arbitrary precision, so the full `BigInteger` range round-trips exactly and no upper bound is checked. None is needed for correctness — a recorded value that does not equal the row's current one is a miss whatever it is (negative, out of range, or merely outdated), so it rebuilds
+- that covers malformed and stale sidecars, **not tampering**. The digest establishes that the sidecar matches the archive beside it, which catches corruption; it says nothing about whether that archive is current. Freshness rests entirely on the generation, so editing a stale entry's generation to the row's current value — leaving its correct digest alone — is accepted as a hit. That is not a hole to close: the cache directory is trusted storage, and anyone able to rewrite a sidecar can replace the archive itself, which no check could detect either
+- verifying the digest re-reads the archive on each hit. Our own publish is atomic so it cannot tear; the check guards against corruption from outside, and it remains far cheaper than rebuilding the package
+- the directory is created at Web startup when configured; **in production Web refuses to start without the setting**, because this route is contestant-facing during a live contest
+
+## `public_export_generation.py`
+
+- `shared/services/public_export_generation.py`
+
+The cache key for a problem's contestant-facing package.
+`problems.public_export_generation` answers one question: is a cached public export still the
+current one? A cached ZIP records the counter value it was built from in its sidecar and is served
+only while that value still equals the row's, so every replica detects its own stale copy by reading
+PostgreSQL rather than by being told.
+
+- `bump_public_export_generation(session, domain, problem_id)` — a plain atomic
+  `UPDATE ... = ... + 1 RETURNING`, inside the caller's transaction so a rolled-back edit
+  invalidates nothing. No journal, no swap, no filesystem ordering: the only reader is a cache that
+  rebuilds on a mismatch
+
+The column is a `BigInteger`, so the counter runs to `2**63 - 1` — one increment per save of one
+problem, which even at a save every second is ~292 billion years, so the bound is not reachable. The
+behaviour *at* it is still worth recording, because it is the safe one: PostgreSQL raises
+`NumericValueOutOfRangeError` rather than wrapping, and the bump runs inside the caller's
+transaction, so the save is refused. A wrap would be much worse than a refused edit — a negative
+value could coincide with what a cache sidecar already records, pinning a stale package as current
+indefinitely.
+
+**It is deliberately not `artifact_generation`, and the two must never be merged.** That counter is
+the edit journal's crash-recovery fence: recovery reads `stored >= expected` as proof that a Save's
+filesystem promotion committed, and that inference holds only while every bump corresponds to a real
+filesystem Save. The bump runs inside the caller's open transaction, so a Save that crashes before
+commit rolls back, releases the problem row's lock, and reverts the value — letting a transaction
+blocked behind it compute the very integer the crashed Save's journal recorded as its expected
+value. Recovery cannot tell those apart, and would keep promoted artifacts whose database changes
+never landed. Nothing downstream infers filesystem-commit state from the counter in this module, so
+the same coincidence costs one stale cache read, corrected by the next bump.
+
+Call it wherever a mutation changes the public package. `open_save_swap` covers every
+file-changing path; the seven Contest actions that deliberately skip the edit-swap machinery
+because they touch no file (the sample/secret toggle, validator upload and removal, and sample
+interaction create, delete, update and reorder) each call it directly, immediately before their own
+commit. In the interaction-create route that means **after** its per-item loop, which rolls the
+transaction back on a rejected row.
+
+The column exists on both `problems` and `arena_problems` so the bump can stay inside the
+domain-agnostic `open_save_swap`. Only Web wires a cache to it today; see
+[web/docs/SERVICES.md](../web/docs/SERVICES.md) under `problem_export_cache.py`.
 
 ## `testcase_files.py`
 
@@ -2625,7 +3802,8 @@ Key functions / constants:
 - `save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir) -> (in_size, out_size | None)` — normalize to LF and write a case **directly in the live directory**, returning on-disk byte sizes. Not atomic and not undoable: this is the satellite routes' historical behavior, and the editor's Save path must not use it
 - `write_testcase_files_into(base, ordinal, in_bytes, out_bytes)`, `delete_testcase_files_in(base, ordinal)`, `reorder_testcase_files_in(base, ordinal_map)` — the same operations against an already-resolved directory, which is how a Save writes into its staging copy
 - `copy_testcase_files_into(problem_id, testcase_dir, destination) -> int` — seed a staging directory with the problem's current files, using hardlinks where supported and durable streamed copies as the fallback, so a Save materializes the complete desired directory without mutating live inodes
-- `read_testcase_preview`, `read_testcase_full`, `read_testcase_sizes`
+- `read_testcase_preview` (reads only its `max_bytes` prefix from disk), `read_testcase_full`, `read_testcase_sizes`
+- `read_testcase_output_prefix(problem_id, ordinal, testcase_dir, max_bytes) -> (text, truncated)` — the participant-facing read: at most `max_bytes` of the `.out` file plus whether more remained, so a page never loads an unbounded test file and never holds more of a secret answer than it can show
 - `delete_testcase_files`, `delete_all_testcase_files`, `renumber_testcase_files`, `reorder_testcase_files`
 
 Notes:
@@ -2766,6 +3944,32 @@ Notes:
   enabled and `JWT_EXPIRE_SECONDS / 4` (minimum 60 s) otherwise
 
 ---
+
+## `form_draft.py`
+
+Purpose:
+- the server-side half of the browser form-draft contract implemented by
+  `shared/static/js/noca-form-draft.js` (see the Shared static JS section).
+
+Key functions:
+- `problem_definition_draft_key(module, *, contest_id, problem_id, validator_type)`:
+  the stable key of a problem definition editor, computed once by the view
+  builders (`ProblemDefinitionView.draft_key`) and again by the confirming save
+  route, so the two can never name different drafts.
+- `draft_owner_token(*identity)`: the opaque, 16-hex-digit owner token both
+  `_base.html` files render for a live session (`form_draft_owner` template
+  global; Web digests audience + contest + subject, Arena audience + subject).
+  Any missing part yields `None`, so a page with no session scopes nothing.
+- `confirm_form_draft(request, key)`: called **after the commit** of the four
+  problem-definition saves (Arena create/update, Web create/edit including the
+  limits-only path). Appends the key to the signed Starlette session both HTTP
+  modules already run, bounded to the last eight, so it survives the redirect a
+  successful save answers with. Never called on a `422` branch.
+- `pop_confirmed_form_drafts(request)`: reads and forgets the list, rendered by
+  the `form_draft_confirmed` template global as `data-noca-draft-confirmed`.
+
+Both session helpers are no-ops without `SessionMiddleware`, so a bare test app
+renders normally.
 
 ## `session_keepalive.py`
 

@@ -21,17 +21,34 @@
     min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    /* Chromium lets the table's full height leak into the *viewport's*
+       scrollable overflow even though this box and the page both clip it:
+       `document.scrollingElement.scrollHeight` reports the whole table, and
+       the `overflow: hidden` viewport then accepts a programmatic scroll it
+       should refuse. Any latent scroll request -- a focus, scroll restoration
+       on reload, a resize such as opening DevTools or going fullscreen on the
+       projector -- lands the page offset into that phantom space, with the
+       header gone, the footer mid-screen, and no way to wheel back. Paint
+       containment ends the leak: nothing inside this scroller can contribute
+       overflow to an ancestor. Sticky headers are unaffected. */
+    contain: paint;
 }
 
+/* `table-layout: fixed` with EVERY column sized: the browser then distributes
+   spare width across the columns on a wide screen and only overflows (into
+   `.animator-board-scroll`) when the board genuinely cannot fit. Leaving one
+   column unsized would let it collapse to zero once the sized columns exhaust
+   the table, which is exactly what happens at high problem counts. */
 .animator-scoreboard {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: var(--noca-type-body);
 }
 
 .animator-scoreboard th,
 .animator-scoreboard td {
-    padding: 0.4rem 0.6rem;
+    padding: 0.3rem 0.6rem;
     border-bottom: 1px solid var(--noca-border);
     white-space: nowrap;
     text-align: center;
@@ -58,6 +75,7 @@
 .animator-scoreboard th[scope="row"] {
     position: relative;
     text-align: left;
+    width: 22ch;
     max-width: 22ch;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -112,6 +130,7 @@
 
 .animator-col-solved,
 .animator-col-time {
+    width: 5rem;
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 600;
 }
@@ -124,9 +143,13 @@
     max-width: var(--animator-problem-column-width);
 }
 
-/* Balloon/star artwork is an <img> served by the animator /assets route, with
-   the problem letter baked into the SVG. The source viewBox is taller than it
-   is wide, so height drives the size and width follows the aspect ratio. */
+/* HEADER ARTWORK ONLY. The balloon is served by the animator /assets route as an
+   SVG with the problem letter baked in; its viewBox is taller than it is wide, so
+   height drives the size and width follows the aspect ratio.
+
+   Never put this class on the in-cell first-solve star: this rule pins a header
+   size, and it loads after common.css, so at equal specificity it would win on
+   source order and defeat `.noca-cell-first-mark`'s 1em sizing. */
 .animator-balloon {
     display: inline-block;
     width: auto;
@@ -150,13 +173,18 @@
     z-index: 1;
 }
 
+/* Sized from `--animator-medal-watermark-size`, which is deliberately larger
+   than the row: centred vertically and pulled past the inline end, the artwork
+   is clipped on all four sides by the team cell's `overflow: hidden`. The
+   inline-end offset is a proportion of the size so the same fraction hangs off
+   the edge whatever the token is set to. */
 .animator-medal-watermark {
     position: absolute;
     z-index: 0;
     top: 50%;
-    inset-inline-end: -2.8rem;
-    width: 7rem;
-    height: 7rem;
+    inset-inline-end: calc(var(--animator-medal-watermark-size) * -0.4);
+    width: var(--animator-medal-watermark-size);
+    height: var(--animator-medal-watermark-size);
     opacity: 0.25;
     object-fit: contain;
     pointer-events: none;
@@ -215,11 +243,16 @@
 }
 
 /* ── Problem cell states ───────────────────────────────────────────────── */
+/* No `font-size` here on purpose. This cell holds the numbers an audience reads
+   from the back of a room, and `--noca-type-body` is the floor for that; the row
+   is compacted by removing the in-cell artwork, the old 5rem floor and surplus
+   padding, never by typesetting the data smaller. */
 .animator-cell {
     box-sizing: border-box;
     width: var(--animator-problem-column-width);
     min-width: var(--animator-problem-column-width);
     max-width: var(--animator-problem-column-width);
+    padding: 0.3rem 0.25rem;
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     vertical-align: middle;
     transition-property: background-color, box-shadow;
@@ -227,37 +260,49 @@
     transition-timing-function: ease;
 }
 
-/* The same compact stack used by Web's scoreboard: result artwork, solve time,
-   and attempt penalty occupy stable lines without changing column width. */
-.noca-problem-cell-inner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 5rem;
-}
+/* `.noca-problem-cell-inner` and `.noca-cell-note` are defined once in
+   shared/static/css/common.css (imported by animator.css), shared with the Web
+   scoreboard. The former in-cell balloon artwork is gone: a problem's balloon
+   lives in the column header, and only a first solve carries an inline mark. */
 
-.animator-cell-result-balloon {
-    display: block;
-    width: 23px;
-    height: 35px;
-}
+/* A solved cell is tinted with the PROBLEM's own balloon colour, not with a
+   semantic green: what the cell reports is which balloon that team won, and the
+   colour says which. Semantic green would have said only "solved", which the
+   column position and the minute already say.
 
+   Kept deliberately weak. Three things still have to read on top of it: the
+   ceremony's focused-row background, the six `--flash-*` inset rings, and the
+   first-solve outline. `--noca-success` is the fallback for a problem whose
+   stored colour failed validation, and the mix is against `--noca-surface`, which
+   is theme-scoped, so the tint flips with the theme without a dark override. */
 .animator-cell--solved {
-    background-color: transparent;
+    background-color: color-mix(in srgb, var(--noca-cell-balloon, var(--noca-success)) 20%, var(--noca-surface));
 }
 
+/* An unsolved attempt and a pending judgment have no balloon to name, so here
+   the colour IS the semantics -- but held far below the solved tint. At a higher
+   saturation these read as though they were themselves balloon colours, which on
+   this board is the one thing a state tint must never do. The glyph (`-3`, `?`)
+   is what names the state; the wash only groups it. */
 .animator-cell--attempted {
-    background-color: transparent;
+    background-color: color-mix(in srgb, var(--noca-danger) 8%, var(--noca-surface));
 }
 
 .animator-cell--pending {
-    background: var(--bs-warning-bg-subtle);
-    color: var(--bs-warning-text-emphasis);
+    background-color: color-mix(in srgb, var(--noca-warning) 8%, var(--noca-surface));
 }
 
+/* The first-solve ring takes the problem's own balloon colour, so the ring, the
+   star inside the cell and the balloon in the column header all read as the same
+   object -- the balloon that team actually wins. Brand green is only the fallback
+   for a problem whose stored colour failed validation.
+
+   The consequence to know: a pale balloon (the suggested palette includes white
+   and silver) rings faintly against the solved tint. The signal is deliberately
+   not carried by this ring alone -- the star glyph has a contrast halo and the
+   cell keeps its visually-hidden "first solve" text. */
 .animator-cell--first {
-    outline: 2px solid var(--noca-brand);
+    outline: 2px solid var(--noca-cell-balloon, var(--noca-brand));
     outline-offset: -2px;
 }
 

@@ -18,10 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
-from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
+from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services.problem_browse_service import get_latest_problems, list_enabled_problems_paginated
-from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers
+from shared.db_schema.arena import arena_problem_category_map, arena_problem_ratings, arena_problem_solvers
 from shared.enumerations import (
     ArenaRole,
     CustomValidatorActiveState,
@@ -147,7 +147,8 @@ async def test_public_problem_list_excludes_owner_from_aggregate_stats(
     assert pagination.total == 1
     item = pagination.items[0]
     assert item.id == problem.id
-    assert item.rating == 5.0
+    assert item.difficulty.state == "unknown"
+    assert item.difficulty.value is None
     assert item.solved == 2  # judge and admin count; only the owner is excluded
     assert item.ac_rate == 0.0
     assert item.is_solved is True
@@ -172,7 +173,7 @@ async def test_public_problem_list_resolves_owner_and_free_text_authors(
     authors_by_problem = {item.id: item.author_name for item in pagination.items}
     assert authors_by_problem[owner_problem.id] == owner.nome
     assert authors_by_problem[external_problem.id] == "Guest Writer"
-    assert all(item.rating is None and item.ac_rate is None for item in pagination.items)
+    assert all(item.difficulty.value is None and item.ac_rate is None for item in pagination.items)
 
     external_search = await list_enabled_problems_paginated(
         session,
@@ -207,6 +208,42 @@ async def test_public_problem_list_searches_statement_source_and_literal_wildcar
 
     assert [item.id for item in statement_search.items] == [statement_problem.id]
     assert [item.id for item in literal_search.items] == [source_problem.id]
+
+
+@pytest.mark.asyncio
+async def test_public_problem_list_filters_categories_with_or_semantics(
+    session: AsyncSession,
+) -> None:
+    """Selecting multiple categories returns problems linked to any of them."""
+    owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    graphs = ArenaCategory(name="Graphs", slug="graphs")
+    dynamic_programming = ArenaCategory(name="Dynamic Programming", slug="dp")
+    session.add_all([graphs, dynamic_programming])
+    both = await _make_problem(session, owner, arena_number=421, title="Both Categories")
+    graphs_only = await _make_problem(session, owner, arena_number=422, title="Graphs Only")
+    dp_only = await _make_problem(session, owner, arena_number=423, title="DP Only")
+    await _make_problem(session, owner, arena_number=424, title="Uncategorized")
+    await session.flush()
+    await session.execute(
+        arena_problem_category_map.insert(),
+        [
+            {"problem_id": both.id, "category_id": graphs.id},
+            {"problem_id": both.id, "category_id": dynamic_programming.id},
+            {"problem_id": graphs_only.id, "category_id": graphs.id},
+            {"problem_id": dp_only.id, "category_id": dynamic_programming.id},
+        ],
+    )
+    await session.flush()
+
+    pagination = await list_enabled_problems_paginated(
+        session,
+        page=1,
+        category_slugs=[graphs.slug, dynamic_programming.slug],
+    )
+
+    assert [item.arena_number for item in pagination.items] == [421, 422, 423]
+    assert pagination.total == 3
+    assert len({item.id for item in pagination.items}) == 3
 
 
 @pytest.mark.asyncio

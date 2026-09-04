@@ -161,6 +161,93 @@
     padding-top: var(--arena-space-md);
 }
 
+.arena-avatar-source-form {
+    max-width: 44rem;
+}
+
+.arena-avatar-source-form fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.arena-avatar-source-form legend {
+    margin-bottom: 0.25rem;
+    color: var(--arena-on-surface);
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.arena-avatar-source-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 var(--arena-space-md);
+}
+
+.arena-avatar-source-choice {
+    display: grid;
+    grid-template-columns: auto 1.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 3.5rem;
+    padding: 0.65rem 0.75rem;
+    color: var(--arena-on-surface);
+    background: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    cursor: pointer;
+}
+
+.arena-avatar-source-choice:hover {
+    border-color: var(--arena-outline);
+}
+
+.arena-avatar-source-choice:focus-within {
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-avatar-source-choice:has(.form-check-input:checked) {
+    background: color-mix(in srgb, var(--arena-primary) 8%, var(--arena-surface-container-lowest));
+    border-color: var(--arena-primary);
+}
+
+.arena-avatar-source-choice.is-disabled {
+    color: var(--arena-on-surface-variant);
+    background: var(--arena-surface-container-low);
+    cursor: not-allowed;
+    opacity: 0.72;
+}
+
+.arena-avatar-source-choice .form-check-input {
+    margin: 0;
+}
+
+.arena-avatar-source-icon {
+    display: inline-grid;
+    place-items: center;
+    color: var(--arena-primary);
+}
+
+.arena-avatar-source-name,
+.arena-avatar-source-description {
+    display: block;
+}
+
+.arena-avatar-source-name {
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.arena-avatar-source-description {
+    margin-top: 0.1rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
 .arena-profile-security-actions .collapse.show,
 .arena-profile-security-actions .collapsing {
     margin-top: 0.25rem;
@@ -180,6 +267,10 @@
 }
 
 @media (max-width: 575.98px) {
+    .arena-avatar-source-choices {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .arena-profile-settings-list {
         grid-template-columns: minmax(0, 1fr);
     }

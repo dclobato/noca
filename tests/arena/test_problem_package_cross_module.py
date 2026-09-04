@@ -95,10 +95,12 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
     )
     assert arena_side.problem.editorial == "# Editorial\n\nAdd the two values.\n"
     assert arena_side.problem.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
+    assert arena_side.problem.expected_difficulty == 70
     exported = await _arena_export(session, arena_side.problem.id, author)
     arena_metadata = _metadata(exported)
     assert arena_metadata.validator_type is ProblemValidatorType.STANDARD
     assert arena_metadata.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
+    assert arena_metadata.expected_difficulty == 70
 
     imported = await import_problem_from_zip(
         session,
@@ -117,6 +119,8 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
     # rather than inventing a policy the problem never carried.
     round_tripped = await _contest_export(session, contest, imported.problem.id)
     assert _metadata(round_tripped).editorial_release_policy is None
+    # The author estimate is Arena-only in the same way: parsed, then exported as null.
+    assert _metadata(round_tripped).expected_difficulty is None
 
 
 # ── Interactive problems keep their kind, and their inputs-only cases ─────────
@@ -278,6 +282,7 @@ def _standard_package() -> bytes:
                 {
                     "format_version": 2,
                     "validator_type": "standard",
+                    "expected_difficulty": 70,
                     "title": "Stale",
                     "editorial": {
                         "member": "editorial.md",

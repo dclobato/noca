@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% block title_suffix %}&mdash; Reveal{% endblock %}
+{% block title_suffix %}— Reveal{% endblock %}
 {# The projector fills the window exactly: the board scrolls, the page never does. #}
 {% block main_class %}animator-root ceremony-root{% endblock %}
 {% block extra_head %}
@@ -27,7 +27,6 @@
          data-photo-base="{{ photo_base }}"
          data-audio-base="{{ audio_base }}"
          data-balloon-base="{{ balloon_base }}"
-         data-star-base="{{ star_base }}"
          data-medal-base="{{ medal_base }}"
          data-phase="none">
         <header class="animator-header">
@@ -43,14 +42,25 @@
                 <span id="ceremony-status"
                       class="animator-state"
                       role="status"
-                      aria-live="polite">Loading ceremony state&hellip;</span>
+                      aria-live="polite">Loading ceremony state…</span>
             </p>
+            {# Addressed to the operator standing at this machine, never to the
+               room: a remotely opened overlay has no user activation behind it,
+               so the browser refuses to start the clip until this page has been
+               clicked once. Kept at the operational label size for exactly that
+               reason -- it is not presentation copy. #}
+            <p id="ceremony-audio-hint"
+               class="ceremony-audio-hint"
+               role="status"
+               aria-live="polite"
+               hidden>Audio is blocked on this display — click anywhere on this page once to allow it.</p>
         </header>
         <div id="ceremony-empty" class="ceremony-empty">The ceremony has not started yet.</div>
         <div class="ceremony-board-scroll" hidden>
             <table id="ceremony-board" class="animator-scoreboard ceremony-board">
                 <caption class="visually-hidden">
-                    Reveal standings, ranked by problems solved and penalty time. Select a team name to see its photo.
+                    Reveal standings, ranked by problems solved, then penalty time, then earliest last
+                    accepted solution. Select a team name to see its photo.
                 </caption>
                 <thead>
                     <tr id="ceremony-header-row">
@@ -81,5 +91,6 @@
     <script src="{{ request.url_for('animator_static_js', path='ceremony-transport.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='ceremony-render.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='team-media-modal.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='ceremony-media-cue.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='ceremony.js') }}?v={{ app_version }}"></script>
 {% endblock %}

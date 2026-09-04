@@ -33,6 +33,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.routing import NoMatchFound
 
 from shared.enumerations import ALL_CONTEST_ROLES, RoleEnum
+from shared.services.form_draft import draft_owner_token, pop_confirmed_form_drafts
 from web.access_matrix import (
     ACCESS_ACTORS,
     ACCESS_AREAS,
@@ -243,6 +244,40 @@ def session_heartbeat_config(request: Request) -> dict[str, object] | None:
     }
 
 
+def form_draft_owner(request: Request) -> str | None:
+    """Return the opaque draft-owner token for ``_base.html``, or ``None``.
+
+    Gated on the validated token for the same reason ``session_heartbeat_config``
+    is: which drafts a page may offer must not depend on which context key a
+    route happened to pass. The token digests the audience, contest, and
+    subject, so two contests' accounts with the same username never share it.
+
+    Args:
+        request: The request being rendered.
+
+    Returns:
+        The token for ``data-noca-draft-owner``, or ``None`` with no live session.
+    """
+    state = getattr(request, "state", None)
+    validation = getattr(state, "validated_token", None)
+    if validation is None or not validation.valid:
+        return None
+    contest_id = (validation.extra_data or {}).get("contest_id") or "-"
+    return draft_owner_token("web", validation.aud, str(contest_id), validation.sub)
+
+
+def form_draft_confirmed(request: Request) -> str:
+    """Return the confirmed draft keys for ``data-noca-draft-confirmed``.
+
+    Args:
+        request: The request being rendered.
+
+    Returns:
+        Space-separated keys, or ``""`` when no save was just confirmed.
+    """
+    return pop_confirmed_form_drafts(request)
+
+
 def template_globals() -> dict[str, object]:
     """Return the globals every web template surface relies on.
 
@@ -266,6 +301,8 @@ def template_globals() -> dict[str, object]:
         "is_current_destination": is_current_destination,
         "nav_url": nav_url,
         "session_heartbeat_config": session_heartbeat_config,
+        "form_draft_owner": form_draft_owner,
+        "form_draft_confirmed": form_draft_confirmed,
     }
 
 

@@ -32,17 +32,10 @@
                 </p>
             </div>
         {% endif %}
-        {% if is_output_mismatch %}
-            <div class="arena-output-compare">
-                <div>
-                    <p class="arena-output-compare-label text-danger">{{ output_label }}</p>
-                    <pre class="arena-output-pre">{% if test_result.stdout_excerpt %}{{ test_result.stdout_excerpt | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
-                </div>
-                <div>
-                    <p class="arena-output-compare-label text-success">Expected output</p>
-                    <pre class="arena-output-pre">{% if test_result.expected_output %}{{ test_result.expected_output | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
-                </div>
-            </div>
+        {% if is_output_mismatch and test_result.output_diff %}
+            {% with diff=test_result.output_diff %}
+                {% include "_partials/_submission_output_diff.html" %}
+            {% endwith %}
         {% endif %}
         {% if test_result.stderr_excerpt %}
             <div class="mt-2">

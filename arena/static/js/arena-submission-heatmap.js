@@ -1,11 +1,17 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 "use strict";
 
+// Annual calendar heatmap over NocaECharts. Two entry points share one render
+// path: init(containerId, dataUrl) fetches a {heatmap, range_start, range_end}
+// payload (profile pages, auto-bound through [data-arena-submission-heatmap]),
+// and render(containerId, payload, options) draws a payload the page already
+// holds (the problem statistics page). options.formatDate overrides the date
+// label in the tooltip; options.emptyMessage overrides the empty-state text.
 var ArenaSubmissionHeatmap = (function () {
     var _instances = {};
     var CELL_SIZE = 13;
@@ -59,18 +65,18 @@ var ArenaSubmissionHeatmap = (function () {
         return TOP_MARGIN + DAY_ROWS * (CELL_SIZE + 1) + 4;
     }
 
-    function _emptyOption() {
+    function _emptyOption(message) {
         return {
             graphic: [{
                 type: "text",
                 left: "center",
                 top: "middle",
-                style: { text: "No submissions yet.", fontSize: 14, fill: _palette().label },
+                style: { text: message || "No submissions yet.", fontSize: 14, fill: _palette().label },
             }],
         };
     }
 
-    function _buildOption(payload) {
+    function _buildOption(payload, formatDate) {
         var data = payload.heatmap || [];
         var rangeStart = payload.range_start;
         var rangeEnd = payload.range_end;
@@ -84,6 +90,7 @@ var ArenaSubmissionHeatmap = (function () {
         var pal = _palette();
 
         return {
+            aria: { enabled: true },
             tooltip: {
                 backgroundColor: pal.tooltipBg,
                 borderColor: pal.tooltipBorder,
@@ -91,7 +98,8 @@ var ArenaSubmissionHeatmap = (function () {
                 formatter: function (params) {
                     var count = params.value[1];
                     var label = count === 1 ? "1 submission" : count + " submissions";
-                    return params.value[0] + "<br/><strong>" + label + "</strong>";
+                    var day = formatDate ? formatDate(params.value[0]) : params.value[0];
+                    return day + "<br/><strong>" + label + "</strong>";
                 },
             },
             visualMap: {
@@ -125,24 +133,41 @@ var ArenaSubmissionHeatmap = (function () {
         };
     }
 
-    function init(containerId, dataUrl) {
+    function _create(containerId) {
         if (typeof echarts === "undefined") {
             console.error("ArenaSubmissionHeatmap: echarts is not loaded.");
-            return;
+            return null;
         }
-
         _dispose(containerId);
-
         var container = document.getElementById(containerId);
         if (!container) {
             console.error("ArenaSubmissionHeatmap: container #" + containerId + " not found.");
-            return;
+            return null;
         }
-
         var mgr = NocaECharts.create(container);
         _instances[containerId] = mgr;
+        return { container: container, mgr: mgr };
+    }
 
-        mgr.showLoading();
+    function _renderPayload(instance, payload, options) {
+        var opts = options || {};
+        instance.mgr.hideLoading();
+        if (!payload || !payload.heatmap || payload.heatmap.length === 0) {
+            instance.mgr.render(function (chart) { chart.setOption(_emptyOption(opts.emptyMessage), true); });
+            return;
+        }
+        var w = _computeContainerWidth(payload.range_start, payload.range_end);
+        var h = _computeContainerHeight();
+        instance.container.style.width = w + "px";
+        instance.container.style.height = h + "px";
+        instance.mgr.resize({ width: w, height: h });
+        instance.mgr.render(function (chart) { chart.setOption(_buildOption(payload, opts.formatDate), true); });
+    }
+
+    function init(containerId, dataUrl) {
+        var instance = _create(containerId);
+        if (!instance) return;
+        instance.mgr.showLoading();
 
         fetch(dataUrl)
             .then(function (response) {
@@ -150,22 +175,18 @@ var ArenaSubmissionHeatmap = (function () {
                 return response.json();
             })
             .then(function (payload) {
-                mgr.hideLoading();
-                if (!payload.heatmap || payload.heatmap.length === 0) {
-                    mgr.render(function (chart) { chart.setOption(_emptyOption(), true); });
-                    return;
-                }
-                var w = _computeContainerWidth(payload.range_start, payload.range_end);
-                var h = _computeContainerHeight();
-                container.style.width = w + "px";
-                container.style.height = h + "px";
-                mgr.resize({ width: w, height: h });
-                mgr.render(function (chart) { chart.setOption(_buildOption(payload), true); });
+                _renderPayload(instance, payload);
             })
             .catch(function (err) {
-                mgr.hideLoading();
+                instance.mgr.hideLoading();
                 console.error("ArenaSubmissionHeatmap: failed to load data.", err);
             });
+    }
+
+    function render(containerId, payload, options) {
+        var instance = _create(containerId);
+        if (!instance) return;
+        _renderPayload(instance, payload, options);
     }
 
     function initDeclaredCharts() {
@@ -180,5 +201,5 @@ var ArenaSubmissionHeatmap = (function () {
         initDeclaredCharts();
     }
 
-    return { init: init, dispose: _dispose };
+    return { init: init, render: render, dispose: _dispose };
 }());

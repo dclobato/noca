@@ -93,6 +93,9 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     valkey_runtime = MagicMock()
     valkey_runtime.get = AsyncMock(return_value=None)
+    # The routers under test now carry the per-user read ceiling, which runs a
+    # counter script; answering ``None`` sends it to its local fallback.
+    valkey_runtime.eval = AsyncMock(return_value=None)
     app.state.valkey_runtime = valkey_runtime
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(

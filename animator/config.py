@@ -19,7 +19,7 @@ accidental ``NOCA_NOCA_ANIMATOR_*`` double prefix).
 import logging
 from ipaddress import ip_address, ip_network
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
@@ -113,6 +113,23 @@ class Settings(BaseSettings):
             "reveal control routes are disabled regardless of operator secrets."
         ),
     )
+    CONTROL_LOCKOUT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ANIMATOR_CONTROL_LOCKOUT_ENABLED",
+        description="Lock a client IP out of the operator-token gate after repeated credential failures.",
+    )
+    CONTROL_LOCKOUT_FAILURES: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_CONTROL_LOCKOUT_FAILURES",
+        description="Credential failures from one IP, inside one lockout window, that trigger the lockout.",
+    )
+    CONTROL_LOCKOUT_SECONDS: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_CONTROL_LOCKOUT_SECONDS",
+        description="Lockout duration in seconds; also the window the failures are counted in.",
+    )
     REVEAL_TTL_MARGIN_SECONDS: int = Field(
         default=3600,
         ge=60,
@@ -137,6 +154,16 @@ class Settings(BaseSettings):
         le=1200,
         validation_alias="NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS",
         description="Recommended seconds between controller lease heartbeats.",
+    )
+    PROJECTOR_PRESENCE_TTL_SECONDS: int = Field(
+        default=30,
+        ge=5,
+        le=600,
+        validation_alias="NOCA_ANIMATOR_PROJECTOR_PRESENCE_TTL_SECONDS",
+        description=(
+            "Lifetime in seconds of one projector's presence entry for a ceremony scope; renewed "
+            "at a third of this value while its /reveal/events stream is open."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -184,6 +211,103 @@ class Settings(BaseSettings):
         ge=0,
         le=300,
         description="Seconds to wait for PostgreSQL and Valkey before aborting startup (0 = no wait)",
+    )
+
+    # ------------------------------------------------------------------
+    # Public feed caching
+    # ------------------------------------------------------------------
+    SNAPSHOT_CACHE_SECONDS: int = Field(
+        default=5,
+        ge=1,
+        le=3600,
+        validation_alias="NOCA_ANIMATOR_SNAPSHOT_CACHE_SECONDS",
+        description=(
+            "Seconds a built /snapshot response is served from the per-process cache while "
+            "the contest runs; verdict and submission events drop it earlier (default 5 s)."
+        ),
+    )
+    SNAPSHOT_CACHE_ENDED_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        le=86400,
+        validation_alias="NOCA_ANIMATOR_SNAPSHOT_CACHE_ENDED_SECONDS",
+        description="Seconds a /snapshot response is cached once the contest has ended (default 60 s).",
+    )
+    META_CACHE_SECONDS: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        validation_alias="NOCA_ANIMATOR_META_CACHE_SECONDS",
+        description="Seconds a built /meta response is served from the per-process cache (default 30 s).",
+    )
+    REVEAL_DATASET_CACHE_SECONDS: int = Field(
+        default=300,
+        ge=1,
+        le=86400,
+        validation_alias="NOCA_ANIMATOR_REVEAL_DATASET_CACHE_SECONDS",
+        description=(
+            "Seconds a ceremony's frozen dataset stays cached per process between reveal "
+            "commands and spectator state reads; a new start-reveal or restart always "
+            "reloads it (default 300 s)."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Public feed rate limiting (/meta, /snapshot, /reveal/state)
+    # ------------------------------------------------------------------
+    PUBLIC_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_ENABLED",
+        description="Enable per-IP rate limiting of the anonymous /meta, /snapshot and /reveal/state feeds.",
+    )
+    PUBLIC_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_MAX_REQUESTS",
+        description="Feed requests accepted per client IP in each fixed window, shared by the three routes.",
+    )
+    PUBLIC_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for public feed rate limiting.",
+    )
+    PUBLIC_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from public feed rate limiting.",
+    )
+
+    # ------------------------------------------------------------------
+    # SSE connection limits (concurrent streams per IP / per user)
+    # ------------------------------------------------------------------
+    SSE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ANIMATOR_SSE_LIMIT_ENABLED",
+        description="Cap the number of SSE streams one client may hold open at once.",
+    )
+    SSE_MAX_PER_IP: int = Field(
+        default=100,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_SSE_MAX_PER_IP",
+        description="Concurrent SSE streams allowed per client IP across this module's event routes.",
+    )
+    SSE_CONNECTION_TTL_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_SSE_CONNECTION_TTL_SECONDS",
+        description="Lease lifetime of one held SSE slot in Valkey; renewed while the stream is open.",
+    )
+    SSE_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        validation_alias="NOCA_ANIMATOR_SSE_TRUSTED_CIDRS",
+        description="Comma-separated CIDRs exempt from the SSE connection caps.",
+    )
+    MAX_SSE_CLIENTS: int = Field(
+        default=2000,
+        ge=1,
+        validation_alias="NOCA_ANIMATOR_MAX_SSE_CLIENTS",
+        description="Process-wide ceiling on open SSE clients across /events and /reveal/events (503 when full).",
     )
 
     # ------------------------------------------------------------------
@@ -264,10 +388,10 @@ class Settings(BaseSettings):
             raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot combine '*' with specific IPs/CIDRs.")
         return normalized
 
-    @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
+    @field_validator("SSE_TRUSTED_CIDRS", mode="after")
     @classmethod
-    def normalize_health_rate_limit_trusted_cidrs(cls, v: str) -> str:
-        """Normalize trusted CIDRs for health endpoint rate-limit bypass."""
+    def normalize_sse_trusted_cidrs(cls, v: str) -> str:
+        """Normalize trusted CIDRs for the SSE connection-cap bypass."""
         normalized_parts: list[str] = []
         for raw_part in v.split(","):
             part = raw_part.strip()
@@ -277,12 +401,36 @@ class Settings(BaseSettings):
                 ip_network(part, strict=False)
             except ValueError as exc:
                 raise ValueError(
-                    f"NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS must contain valid CIDRs only. Invalid value: '{part}'"
+                    f"NOCA_ANIMATOR_SSE_TRUSTED_CIDRS must contain valid CIDRs only. Invalid value: '{part}'"
                 ) from exc
             normalized_parts.append(part)
         normalized = ",".join(normalized_parts)
         if not normalized:
-            raise ValueError("NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS cannot be empty.")
+            raise ValueError("NOCA_ANIMATOR_SSE_TRUSTED_CIDRS cannot be empty.")
+        return normalized
+
+    @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", "PUBLIC_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
+    @classmethod
+    def normalize_rate_limit_trusted_cidrs(cls, v: str, info: ValidationInfo) -> str:
+        """Normalize trusted CIDRs for the health and public-feed rate-limit bypass."""
+        env_name = (
+            "NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS"
+            if info.field_name == "HEALTH_RATE_LIMIT_TRUSTED_CIDRS"
+            else "NOCA_ANIMATOR_PUBLIC_RATE_LIMIT_TRUSTED_CIDRS"
+        )
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            try:
+                ip_network(part, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"{env_name} must contain valid CIDRs only. Invalid value: '{part}'") from exc
+            normalized_parts.append(part)
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError(f"{env_name} cannot be empty.")
         return normalized
 
     @field_validator("LOG_LEVEL")

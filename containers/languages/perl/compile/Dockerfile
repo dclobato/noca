@@ -11,9 +11,9 @@
 # artifact_is_source=True: the source .pl file is the artifact injected into
 # the run container; no compiled output is produced.
 #
-# Pinned family: perl:5.42.2-slim-bookworm (Debian bookworm slim)
+# Pinned family: perl:5.42.2-slim-trixie (Debian trixie slim)
 
-FROM perl:5.42.2-slim-bookworm
+FROM perl:5.42.2-slim-trixie
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

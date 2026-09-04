@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -36,6 +36,17 @@
                         <div>
                             <div class="fw-semibold">Security Events</div>
                             <div class="text-muted small">Auth throttles, redactions and token mismatches</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_lockouts") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="lock_open") }}</span>
+                        <div>
+                            <div class="fw-semibold">Sign-in lockouts</div>
+                            <div class="text-muted small">Unlock a user or an address early</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>
@@ -98,6 +109,17 @@
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>
                 </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_terms") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="gavel") }}</span>
+                        <div>
+                            <div class="fw-semibold">Terms of Service</div>
+                            <div class="text-muted small">Require every user to accept the terms again</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
             </div>
             <h2 class="h6 text-uppercase text-muted mb-3">Content</h2>
             <div class="row g-3">
@@ -108,6 +130,17 @@
                         <div>
                             <div class="fw-semibold">Manage categories</div>
                             <div class="text-muted small">Problem categories used across the catalogue</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_announcement_list") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="campaign") }}</span>
+                        <div>
+                            <div class="fw-semibold">Manage announcements</div>
+                            <div class="text-muted small">Platform-wide notices shown to every Arena user</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>

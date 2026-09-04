@@ -161,6 +161,21 @@ def test_banner_renders_the_five_rule_answers() -> None:
     assert "CE — PE counts as accepted" in markup
 
 
+def test_banner_states_the_ordered_ranking_keys() -> None:
+    """The three ranking keys render in tie-break order, plus the shared-rank rule."""
+    markup = _render_dashboard(build_contest_rules_summary(_contest()))
+
+    assert "Ranking" in markup
+    first = markup.index("Most problems solved")
+    second = markup.index("Lowest total time")
+    third = markup.index("Earliest last accepted solution")
+    assert first < second < third, "keys must render in the order they are applied"
+    assert "Teams tied on all three share a rank." in markup
+    # An ordered list, not prose: the sequence is the information.
+    assert "noca-dashboard-rank-keys" in markup
+    assert markup.count("<li>") >= 3
+
+
 def test_banner_says_when_printing_is_unavailable() -> None:
     rules = build_contest_rules_summary(_contest(allow_print_requests=False))
 

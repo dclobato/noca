@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,10 +25,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from arena.config import settings
 from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.user_read_rate_limit import arena_user_poll_rate_limit
 from arena.models.arena_users import ArenaUser
 from shared.services.user_presence import get_users_online_map, mark_user_online
 
-router = APIRouter(prefix="/arena/presence", tags=["arena-presence"])
+router = APIRouter(
+    prefix="/arena/presence", tags=["arena-presence"], dependencies=[Depends(arena_user_poll_rate_limit)]
+)
 
 CurrentArenaUser = Annotated[ArenaUser | None, Depends(get_current_arena_user)]
 

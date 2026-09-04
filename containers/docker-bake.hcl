@@ -33,7 +33,7 @@ variable "BAKE_NO_CACHE" {
 }
 
 variable "JUDGE_ISOLATE_TAG" {
-  default = "v2.6"
+  default = "v2.7"
 }
 
 group "release" {
@@ -43,6 +43,7 @@ group "release" {
     "autojudge",
     "rating",
     "aiassistant",
+    "mailer",
     "healthmonitor",
     "animator",
     "landingpage",
@@ -271,6 +272,23 @@ target "aiassistant" {
         "${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant",
         "${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant:${VERSION}",
       ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant"]
+    ) : [],
+  )
+}
+
+target "mailer" {
+  inherits = ["_app-consumer"]
+  dockerfile = "containers/mailer/Dockerfile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}mailer",
+      "${REPO}${NAME_SEPARATOR}mailer:${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}mailer"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}mailer",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}mailer:${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}mailer"]
     ) : [],
   )
 }

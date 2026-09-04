@@ -160,18 +160,59 @@ def read_testcase_preview(
     testcase_dir: Path,
     max_bytes: int = 80,
 ) -> tuple[str, str]:
-    """Read a short preview (first ``max_bytes`` bytes) of one test-case pair."""
+    """Read a short preview (first ``max_bytes`` bytes) of one test-case pair.
+
+    Only the prefix is read from disk, so a list page showing a hundred cases
+    never loads a hundred whole files.
+    """
     in_path = get_testcase_path(problem_id, ordinal, "in", testcase_dir)
     out_path = get_testcase_path(problem_id, ordinal, "out", testcase_dir)
+    in_data, _ = _read_prefix(in_path, max_bytes)
+    out_data, _ = _read_prefix(out_path, max_bytes)
+    return in_data.decode("utf-8", errors="replace"), out_data.decode("utf-8", errors="replace")
+
+
+def read_testcase_output_prefix(
+    problem_id: str,
+    ordinal: int,
+    testcase_dir: Path,
+    max_bytes: int,
+) -> tuple[str, bool]:
+    """Read at most ``max_bytes`` of one case's expected output.
+
+    This is the read the participant-facing pages use: it bounds both the time a
+    request spends on the filesystem and how much of a secret case's answer can
+    ever reach a page, whatever the file's size.
+
+    Args:
+        problem_id: Owning problem id.
+        ordinal: 1-based test-case ordinal.
+        testcase_dir: Domain-specific test-case root.
+        max_bytes: Upper bound on bytes read; must be positive.
+
+    Returns:
+        The decoded prefix (empty when the ``.out`` is missing) and whether the
+        file holds more bytes than were read.
+    """
+    out_path = get_testcase_path(problem_id, ordinal, "out", testcase_dir)
+    data, truncated = _read_prefix(out_path, max_bytes)
+    return data.decode("utf-8", errors="replace"), truncated
+
+
+def _read_prefix(path: Path, max_bytes: int) -> tuple[bytes, bool]:
+    """Return the first ``max_bytes`` of ``path`` and whether more remained.
+
+    A missing file reads as empty and not truncated. One extra byte is requested
+    so truncation is detected without a second ``stat`` call.
+    """
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
     try:
-        in_data = in_path.read_bytes()[:max_bytes].decode("utf-8", errors="replace")
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
     except FileNotFoundError:
-        in_data = ""
-    try:
-        out_data = out_path.read_bytes()[:max_bytes].decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        out_data = ""
-    return in_data, out_data
+        return b"", False
+    return data[:max_bytes], len(data) > max_bytes
 
 
 def read_testcase_full(problem_id: str, ordinal: int, testcase_dir: Path) -> tuple[str, str]:

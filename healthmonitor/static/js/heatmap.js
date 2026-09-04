@@ -183,7 +183,7 @@
     });
 
     fetch(region.dataset.healthmonUptimeUrl, {
-      cache: "no-store",
+      cache: "default",
       headers: { Accept: "application/json" },
     })
       .then(function (response) {

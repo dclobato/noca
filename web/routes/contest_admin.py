@@ -21,7 +21,6 @@ from web.routes.contest_admin_helpers import (
     _build_contest_admin_counters,
     _end_contest_now,
     _html,
-    _is_actor_password_valid,
 )
 from web.services.contest_service import ensure_contest_has_sites
 from web.services.judging_service import (
@@ -29,12 +28,14 @@ from web.services.judging_service import (
     remove_chief_judge,
     set_chief_judge,
 )
+from web.services.password_confirm_throttle import confirm_password, render_lockout
 from web.services.problem_set_cache import discard_cached_archive
 from web.services.scoreboard import ScoreboardService
+from web.services.user_read_rate_limit import web_user_read_rate_limit
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/c/{slug}/admin", tags=["contest_admin"])
+router = APIRouter(prefix="/c/{slug}/admin", tags=["contest_admin"], dependencies=[Depends(web_user_read_rate_limit)])
 
 _score_service = ScoreboardService()
 
@@ -94,6 +95,16 @@ async def counters(
     )
 
 
+def _lockout_response(request: Request, ctx: ContestAdminContext, retry_after_seconds: int) -> Response:
+    """The shared ``429`` page, pointing back at this contest's dashboard."""
+    return render_lockout(
+        request,
+        retry_after_seconds=retry_after_seconds,
+        back_url=f"/c/{ctx.contest.login_slug}",
+        back_label="Back to the dashboard",
+    )
+
+
 @router.post("/start-now", response_model=None, name="contest_start_now")
 async def start_contest_now(
     request: Request,
@@ -102,7 +113,12 @@ async def start_contest_now(
     password: str = Form(""),
 ) -> Response:
     if not ctx.contest.is_running and not ctx.contest.is_past:
-        if not _is_actor_password_valid(ctx.actor, password):
+        confirmation = await confirm_password(
+            request, ctx.session, actor=ctx.actor, password=password, action="start_now"
+        )
+        if confirmation.locked:
+            return _lockout_response(request, ctx, confirmation.retry_after_seconds)
+        if not confirmation.ok:
             flash("Password confirmation is incorrect.", FlashCategory.DANGER)
             return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
         try:
@@ -134,7 +150,12 @@ async def end_contest_now(
     password: str = Form(""),
 ) -> Response:
     if ctx.contest.is_running:
-        if not _is_actor_password_valid(ctx.actor, password):
+        confirmation = await confirm_password(
+            request, ctx.session, actor=ctx.actor, password=password, action="end_now"
+        )
+        if confirmation.locked:
+            return _lockout_response(request, ctx, confirmation.retry_after_seconds)
+        if not confirmation.ok:
             flash("Password confirmation is incorrect.", FlashCategory.DANGER)
             return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
         _end_contest_now(ctx.contest, now=datetime.now(UTC))

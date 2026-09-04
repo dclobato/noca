@@ -98,7 +98,7 @@ function makeAudio(behavior) {
   return el;
 }
 
-function build(behavior, photoKind = "photo", photoBehavior = "ok", audioEnabled = true) {
+function build(behavior, photoKind = "photo", photoBehavior = "ok", audioEnabled = true, blockedMessage) {
   const photoEl = makeEl();
   const originalSetAttribute = photoEl.setAttribute;
   photoEl.setAttribute = function (name, value) {
@@ -151,6 +151,9 @@ function build(behavior, photoKind = "photo", photoBehavior = "ok", audioEnabled
     deps.audioEl = audioEl;
     deps.statusEl = statusEl;
     deps.audioBase = "/c/x/teams";
+  }
+  if (blockedMessage !== undefined) {
+    deps.blockedMessage = blockedMessage;
   }
   const modal = modalApi.createTeamModal(deps);
   return {
@@ -224,6 +227,35 @@ async function testBlockedAutoplayKeepsControls() {
   // native controls must remain available.
   assert.strictEqual(audioEl.getAttribute("hidden"), null);
   assert.strictEqual(statusEl.textContent, modalApi.BLOCKED_MESSAGE);
+}
+
+async function testBlockedMessageIsOverridableAndResolvedPerOpen() {
+  // One dialog serves two audiences for the life of the page. On a click it is
+  // read by the person who clicked, and "press play" is the right instruction;
+  // opened by an operator's remote cue it is read by a room that cannot reach
+  // the keyboard, where instructing them is worse than useless. Which audience
+  // is reading therefore depends on *this* open, not on construction — hence a
+  // function, resolved at the moment the status is written.
+  let remote = false;
+  const { modal, statusEl } = build("blocked", "photo", "ok", true, () =>
+    remote ? "Audio is muted on this display." : null,
+  );
+
+  modal.onShow(trigger("t1"));
+  assert.strictEqual(await modal.onShown(), "blocked");
+  assert.strictEqual(statusEl.textContent, modalApi.BLOCKED_MESSAGE, "a local open keeps the default copy");
+
+  remote = true;
+  modal.teardown();
+  modal.onShow(trigger("t2"));
+  assert.strictEqual(await modal.onShown(), "blocked");
+  assert.strictEqual(statusEl.textContent, "Audio is muted on this display.");
+
+  // A plain string still works, and an absent dep still falls back.
+  const fixed = build("blocked", "photo", "ok", true, "Muted.");
+  fixed.modal.onShow(trigger("t1"));
+  await fixed.modal.onShown();
+  assert.strictEqual(fixed.statusEl.textContent, "Muted.");
 }
 
 async function testMissingClipHidesThePlayer() {
@@ -386,6 +418,7 @@ async function testMissingTriggerIsIgnored() {
   await testAutoplaySucceeds();
   await testControlsStayHiddenUntilAudioIsKnown();
   await testBlockedAutoplayKeepsControls();
+  await testBlockedMessageIsOverridableAndResolvedPerOpen();
   await testMissingClipHidesThePlayer();
   await testBlockedAutoplayBeforeMissingClipDoesNotFlash();
   await testTeardownStopsEverything();

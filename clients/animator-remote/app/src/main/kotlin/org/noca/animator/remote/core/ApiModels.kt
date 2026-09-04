@@ -178,6 +178,8 @@ data class ControllerLeaseResponse(
     val status: String,
     @SerialName("lease_ttl_seconds") val leaseTtlSeconds: Int,
     @SerialName("heartbeat_interval_seconds") val heartbeatIntervalSeconds: Int,
+    /** Open projector streams in this scope; `null` when the server could not tell. */
+    @SerialName("projector_count") val projectorCount: Int? = null,
     @SerialName("server_time") val serverTime: String? = null,
 )
 

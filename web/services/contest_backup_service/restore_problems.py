@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,7 +40,6 @@ from web.services.problem_service.files import save_md_statement, save_problem_s
 
 from .models import RestoreState
 from .serialization import build_insert_values
-from .strategy import strategy_for_backup_problem
 from .validation import ArchiveIndex, read_member_bytes
 
 
@@ -60,13 +59,9 @@ async def restore_problems(
         new_id = str(uuid.uuid4())
         state.problem_map[problem["id"]] = new_id
         state.created_problem_ids.append(new_id)
+        # ``validator_type`` needs no override: the only supported archive version
+        # states it, and validation refused the archive otherwise.
         overrides: dict[str, object] = {"id": new_id, "contest_id": contest_id}
-        if problem.get("validator_type") is None:
-            # Only a version-1 archive can omit it; version 2 makes it mandatory,
-            # so validation has already refused an archive that reaches here
-            # without one. See strategy_for_backup_problem for why the explicit
-            # value always wins when present.
-            overrides["validator_type"] = strategy_for_backup_problem(problem, entry["custom_validator"])
         await session.execute(
             insert(problems_t),
             [build_insert_values(problems_t, problem, overrides=overrides)],

@@ -217,6 +217,7 @@ def _build_app(session: AsyncSession, admin_user: ArenaUser) -> FastAPI:
         ("/admin/dashboard/login-history", "arena_admin_dashboard_login_history"),
         ("/admin/dashboard/submissions", "arena_admin_dashboard_submissions"),
         ("/admin/dashboard/security-events", "arena_admin_dashboard_security_events"),
+        ("/admin/dashboard/terms", "arena_admin_dashboard_terms"),
     ]:
         app.add_api_route(path, lambda: Response("stub"), name=name)  # type: ignore[arg-type]
 

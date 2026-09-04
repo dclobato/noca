@@ -12,13 +12,20 @@
 #
 # Single source of truth for the patched isolate binary.
 # Bump JUDGE_ISOLATE_TAG here to upgrade isolate across all run images.
+#
+# The rules.c awk patch below back-fills SYS_quotactl_fd, which bookworm's kernel
+# headers predate. Trixie's headers are expected to define it already, in which
+# case the injected #if guards make the patch a no-op. If a future isolate tag
+# moves the <sys/syscall.h> include the awk anchor targets, the patch stops
+# applying and the build fails at compile time on an undeclared SYS_quotactl_fd
+# rather than producing a subtly wrong binary — verify at the first trixie build.
 
-FROM debian:bookworm-slim AS isolate-builder
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS isolate-builder
 
-ARG JUDGE_ISOLATE_TAG=v2.6
+ARG JUDGE_ISOLATE_TAG=v2.7
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
         build-essential \
         ca-certificates \
         curl \
@@ -43,7 +50,7 @@ RUN curl -fsSL "https://github.com/ioi/isolate/archive/refs/tags/${JUDGE_ISOLATE
     && mv isolate-src/rules.c.patched isolate-src/rules.c \
     && make -C isolate-src isolate
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 

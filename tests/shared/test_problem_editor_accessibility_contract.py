@@ -60,13 +60,18 @@ def test_validator_status_and_category_search_expose_live_state() -> None:
     validator = _read("shared/template/_partials/validator_status_badge.html")
     metadata = _read("arena/template/_partials/problem_tab_metadata.html")
     category_script = _read("arena/static/js/admin-problem-form.js")
+    # The ARIA state machine is the shared `.arena-combo` controller, used by
+    # the category picker and the Source/Author/License comboboxes alike.
+    combo_controller = _read("arena/static/js/arena-combo-listbox.js")
 
     assert 'role="status"' in validator
     assert 'aria-live="polite"' in validator
     assert 'role="combobox"' in metadata
     assert 'role="listbox"' in metadata
     assert 'aria-activedescendant=""' in metadata
-    assert 'inputEl.setAttribute("aria-expanded"' in category_script
+    assert 'input.setAttribute("aria-expanded", "true")' in combo_controller
+    assert 'input.setAttribute("aria-expanded", "false")' in combo_controller
+    assert 'input.setAttribute("aria-activedescendant", activeOption.id)' in combo_controller
     assert "Could not load categories. Try again." in category_script
 
 

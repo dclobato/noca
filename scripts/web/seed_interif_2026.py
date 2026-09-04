@@ -123,7 +123,7 @@ async def seed_interif_2026(
     fixture = await load_interif_2026_contest(session, uberadmin)
     contest = fixture.contest
     contest.active = True
-    contest.release_scoreboard_after_end = True
+    contest.release_scoreboard_after_end = False
     contest.release_problem_set_after_end = True
     contest.stop_updating_scoreboard = 140
     contest.stop_answers_after = 160

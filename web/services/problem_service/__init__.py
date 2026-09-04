@@ -69,8 +69,10 @@ from .profiling import (
     get_profiling_runs_for_problem,
 )
 from .queries import (
+    ContestProblemRef,
     get_active_languages,
     get_contest_languages,
+    get_contest_problem_refs,
     get_contest_problems,
     get_problem_definition_in_contest,
     get_problem_in_contest,
@@ -105,6 +107,8 @@ __all__ = [
     "get_active_profiling_run_for_problem",
     "get_active_statement_path",
     "get_contest_languages",
+    "ContestProblemRef",
+    "get_contest_problem_refs",
     "get_contest_problems",
     "get_language_limits_map",
     "get_md_statement_path",

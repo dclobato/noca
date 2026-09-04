@@ -96,11 +96,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         """Stub dashboard endpoint."""
         return HTMLResponse("dashboard")
 
-    @stubs.get("/user/profile/complete", name="arena_user_profile_completion")
-    async def stub_profile_completion(request: Request) -> HTMLResponse:
-        """Stub profile completion endpoint."""
-        return HTMLResponse("profile completion")
-
     @stubs.get("/live", name="arena_live")
     @stubs.get("/status", name="arena_status")
     async def stub_status(request: Request) -> HTMLResponse:
@@ -143,8 +138,6 @@ async def _create_active_user(
     session: AsyncSession,
     email: str = "user@test.example",
     password: str = "StrongPass1!",
-    *,
-    complete_profile: bool = True,
 ) -> ArenaUser:
     """Create and persist an active, email-confirmed ArenaUser for login tests.
 
@@ -170,37 +163,15 @@ async def _create_active_user(
         usa_2fa=False,
         precisa_trocar_senha=False,
         session_version=1,
-        affiliation_id="test-affiliation" if complete_profile else None,
-        preferred_language_id="python" if complete_profile else None,
-        country_code="BR" if complete_profile else None,
+        affiliation_id="test-affiliation",
+        preferred_language_id="python",
+        country_code="BR",
         prefered_language="en-US",
     )
     user.password = password
     session.add(user)
     await session.flush()
     return user
-
-
-@pytest.mark.asyncio
-async def test_login_incomplete_profile_overrides_safe_next(session: AsyncSession) -> None:
-    """Completed password login prioritizes the profile completion notice."""
-    app = _build_arena_app(session)
-    await _create_active_user(session, complete_profile=False)
-    await session.commit()
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post(
-            "/auth/login",
-            data={
-                "email": "user@test.example",
-                "password": "StrongPass1!",
-                "next": "/submissions/sub-1",
-            },
-            follow_redirects=False,
-        )
-
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/user/profile/complete")
 
 
 async def _create_inactive_user(

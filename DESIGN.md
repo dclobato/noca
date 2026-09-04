@@ -442,7 +442,10 @@ Flatpickr integration.
 Tables prioritize alignment and scan speed. Dense operational tables use
 `0.875rem` body text, `0.75rem` uppercase headers, compact cell padding, subtle
 row separators, and a restrained hover surface. Responsive wrappers provide
-horizontal scrolling instead of collapsing meaningful columns unpredictably.
+horizontal scrolling instead of collapsing meaningful columns unpredictably. The
+contest scoreboard is the reference implementation of this density; see
+`docs/PADROES_UI.md` for its cell contract and the fixed column layout that lets
+a wide board fill the screen instead of scrolling sideways.
 
 ### Navigation
 
@@ -463,7 +466,14 @@ constraints, samples, and submission.
 
 Scoreboards and ceremonies treat rank movement, verdict transitions, pending
 state, and operator control as signature components. Motion must explain change,
-remain bounded, and honor `prefers-reduced-motion`.
+remain bounded, and honor `prefers-reduced-motion`. Rank movement is slow and
+symmetrically eased so a room can follow a row the whole way rather than notice
+afterwards that it arrived.
+
+A cell's status is never carried by color alone: a state pairs its tint with a
+glyph, an outline, and visually-hidden wording. Projected data does not go below
+`--noca-type-body` — a distance-read surface is compacted by removing artwork and
+padding, never by typesetting the numbers smaller.
 
 ## Do's and Don'ts
 

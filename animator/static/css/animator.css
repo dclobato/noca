@@ -18,9 +18,34 @@
 }
 
 .animator-root {
-    --animator-problem-column-width: 5.25rem;
-    --animator-row-motion-duration: 1s;
-    --animator-row-motion-easing: ease;
+    /* Sized against the widest real second line, `+9 (180')`, at the 0.8em note
+       step of the presentation body size — not shrunk to the smallest value the
+       text would survive. Projector data never drops below `--noca-type-body`
+       (DESIGN.md), so where a column runs short it is widened, not typeset
+       smaller. Inherited by `.ceremony-root`, so both surfaces share one value. */
+    --animator-problem-column-width: 4.75rem;
+    /* The medal watermark is deliberately larger than the cell that holds it and
+       is clipped by `.animator-col-team`'s `overflow: hidden` on BOTH axes -- it
+       runs off the inline end and past the top and bottom of the row. That
+       overflow is the effect, not a side effect: a medal cropped by its own row
+       reads as a watermark behind the team rather than an icon beside it.
+       Compacting the row therefore must NOT shrink this to fit; a value that
+       merely fitted would stop overflowing vertically and lose the effect. A
+       token rather than a literal only so the two consumers cannot disagree. */
+    --animator-medal-watermark-size: 7rem;
+    /* Rank movement is the live board's one piece of storytelling: a row rising
+       past its neighbours is the event an audience is watching for, so it has to
+       be followable rather than merely correct. At 1s the travel registered as a
+       jump, and compacting the rows shortened it further -- the same rank change
+       now covers about half the distance. Five seconds lets an eye track a row
+       from where it was to where it lands. The cell highlights stay on their own
+       0.45s timing, so a verdict still lands crisply while the row glides. */
+    --animator-row-motion-duration: 5s;
+    /* Symmetric ease-in-out: the row eases away from where it was, covers the
+       distance in the middle of the travel, and settles into its new place. The
+       previous `ease` was front-loaded, so a row appeared to leap and then creep.
+       Both animator surfaces share this curve; only the duration differs. */
+    --animator-row-motion-easing: cubic-bezier(0.65, 0, 0.35, 1);
     min-height: 0;
     flex: 1 1 auto;
     overflow: auto;
@@ -236,6 +261,11 @@
     animation: animator-live-dot-glow 2s ease-in-out infinite;
 }
 
+/* `data-status="waiting"` is deliberately given no rule of its own: an ended,
+   still-frozen board is not streaming and must not look like it is, so it keeps
+   the base pill -- neutral surface, muted solid dot, no glow, no animation. Add
+   a rule here only to make it quieter, never louder. */
+
 .animator-connection[data-status="reconnecting"] {
     background: var(--bs-warning-bg-subtle);
     color: var(--bs-warning-text-emphasis);
@@ -277,6 +307,22 @@
     padding: 2rem 0;
     font-size: var(--noca-type-title);
     color: var(--bs-secondary-color);
+}
+
+/* Operator-facing, not audience-facing. It sits inside a presentation header
+   but deliberately uses the operational Label step: the person who can act on
+   it is standing at this keyboard, and The Distance Rule says a reader at a
+   keyboard gets the operational ramp even inside the Animator. */
+.ceremony-audio-hint {
+    margin: 0.25rem 0 0;
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--noca-state-frozen);
+}
+
+.ceremony-audio-hint[hidden] {
+    display: none;
 }
 
 .animator-error {

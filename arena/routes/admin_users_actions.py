@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -32,6 +32,7 @@ from arena.routes.admin_user_route_support import (
     _check_self_guard,
     _choose_redirect,
     _get_target_or_404,
+    confirm_admin_password,
 )
 from arena.services import admin_user_service, user_ai_credit_service, user_security_notification_service, user_service
 from shared.age_check import AgeStatus
@@ -55,9 +56,16 @@ async def admin_user_change_role(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Change the role of an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     if await _check_self_guard(admin, target, "change the role of", flash):
         return _choose_redirect(request, user_id, nav)
@@ -99,9 +107,16 @@ async def admin_user_toggle_active(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the active/inactive status of an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     if await _check_self_guard(admin, target, "deactivate", flash):
         return _choose_redirect(request, user_id, nav)
@@ -137,9 +152,16 @@ async def admin_user_force_pw_change(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the forced password-change flag for an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     logger.info(
         "Admin %s (%s) force_pw_change on %s (%s)",
@@ -155,9 +177,10 @@ async def admin_user_force_pw_change(
     flash(msg, FlashCategory.SUCCESS)
     if not was_required and target.precisa_trocar_senha:
         try:
-            sent = user_security_notification_service.send_admin_password_change_required_email(
+            sent = await user_security_notification_service.send_admin_password_change_required_email(
                 target,
                 request.app.state.email_service,
+                admin_id=admin.id,
             )
         except Exception:
             logger.exception("Failed to send forced password-change notification to %s", target.email_normalizado)
@@ -178,9 +201,16 @@ async def admin_user_toggle_can_edit(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the problem-base edit privilege for an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     logger.info(
         "Admin %s (%s) toggle_can_edit on %s (%s)",
@@ -207,9 +237,16 @@ async def admin_user_toggle_ranking_visible(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the public-ranking visibility flag for an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     logger.info(
         "Admin %s (%s) toggle_ranking_visible on %s (%s)",
@@ -238,9 +275,16 @@ async def admin_user_toggle_public_profile(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the public-profile opt-in flag for an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     logger.info(
         "Admin %s (%s) toggle_public_profile on %s (%s)",
@@ -290,9 +334,16 @@ async def admin_user_disable_2fa(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Disable two-factor authentication for an Arena user (hidden state fields restore navigation context)."""
-    if not admin.check_password(confirm_password):
-        flash("Incorrect password.", FlashCategory.DANGER)
-        return _choose_redirect(request, user_id, nav)
+    blocked = await confirm_admin_password(
+        request,
+        session,
+        flash,
+        admin=admin,
+        password=confirm_password,
+        failure_response=_choose_redirect(request, user_id, nav),
+    )
+    if blocked is not None:
+        return blocked
     target = await _get_target_or_404(user_id, session)
     logger.info(
         "Admin %s (%s) disable_2fa on %s (%s)", admin.id, admin.email_normalizado, target.id, target.email_normalizado
@@ -313,9 +364,10 @@ async def admin_user_disable_2fa(
     flash("2FA disabled.", FlashCategory.SUCCESS)
     if was_enabled:
         try:
-            sent = user_security_notification_service.send_admin_2fa_disabled_email(
+            sent = await user_security_notification_service.send_admin_2fa_disabled_email(
                 target,
                 request.app.state.email_service,
+                admin_id=admin.id,
             )
         except Exception:
             logger.exception("Failed to send 2FA-disabled notification to %s", target.email_normalizado)
@@ -376,6 +428,17 @@ async def admin_user_change_date_of_birth(
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return _choose_redirect(request, user_id, nav)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        actor_label=admin.email_normalizado,
+        action="change_date_of_birth",
+        target_type="arena_user",
+        target_id=target.id,
+        detail=f"age_status={status.name}",
+    )
     await session.commit()
     if status == AgeStatus.BLOCKED:
         flash("Date of birth updated. The underage account was deactivated.", FlashCategory.WARNING)
@@ -420,6 +483,17 @@ async def admin_user_change_personal_info(
         admin.email_normalizado,
         target.id,
         target.email_normalizado,
+    )
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        actor_label=admin.email_normalizado,
+        action="change_personal_info",
+        target_type="arena_user",
+        target_id=target.id,
+        detail=f"age_status={status.name}",
     )
     await session.commit()
     if status == AgeStatus.BLOCKED:
@@ -534,8 +608,12 @@ async def admin_user_topup_credits(
         )
         await user_ai_credit_service.top_up_ai_credits(target, qty, session, admin_id=str(admin.id))
         await session.commit()
-        if not user_security_notification_service.send_ai_credits_topped_up_email(
-            target, request.app.state.email_service, quantity=qty, balance=target.ai_backend_credits
+        if not await user_security_notification_service.send_ai_credits_topped_up_email(
+            target,
+            request.app.state.email_service,
+            quantity=qty,
+            balance=target.ai_backend_credits,
+            admin_id=admin.id,
         ):
             logger.warning("AI credits top-up notification email failed for user %s", target.id)
         flash(
@@ -584,31 +662,4 @@ async def admin_user_toggle_email_confirmed(
     )
     await session.commit()
     flash("Email confirmed." if target.email_confirmado else "Email confirmation cleared.", FlashCategory.SUCCESS)
-    return _choose_redirect(request, user_id, nav)
-
-
-@router.post("/users/{user_id}/toggle-parental-consent", name="arena_admin_user_toggle_parental_consent")
-async def admin_user_toggle_parental_consent(
-    request: Request,
-    user_id: str,
-    flash: FlashDep,
-    nav: Annotated[NavState, Depends()],
-    admin: ArenaUser = Depends(require_arena_admin),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Toggle the parental-consent flag for an Arena user (hidden state fields restore navigation context)."""
-    target = await _get_target_or_404(user_id, session)
-    logger.warning(
-        "Admin %s (%s) toggle_parental_consent on %s (%s)",
-        admin.id,
-        admin.email_normalizado,
-        target.id,
-        target.email_normalizado,
-    )
-    await admin_user_service.admin_toggle_parental_consent(target, session)
-    await session.commit()
-    flash(
-        "Parental consent granted." if target.consentimento_responsavel else "Parental consent revoked.",
-        FlashCategory.SUCCESS,
-    )
     return _choose_redirect(request, user_id, nav)

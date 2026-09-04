@@ -79,8 +79,10 @@ class ArenaProblem(ArenaBase):
     notes: Mapped[str | None]
     license: Mapped[str | None]
     statement_language: Mapped[StatementLanguage | None]
+    expected_difficulty: Mapped[int | None]
     validator_type: Mapped[ProblemValidatorType]
     artifact_generation: Mapped[int]
+    public_export_generation: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
@@ -260,19 +262,6 @@ class ArenaRatingProblem(ArenaBase):
         if self.solved_users == 0:
             return 0.0
         return self.total_tries_before_solve / self.solved_users
-
-    @property
-    def display_rating(self) -> float:
-        """Problem difficulty on the 0.1–10.0 user-facing scale.
-
-        Divides the internal [1, 100] integer rating by 10 to produce the
-        display value. Use this property wherever the rating is shown to users
-        or returned in API responses.
-
-        Returns:
-            float: Display rating between 0.1 and 10.0 (or 0.0 for unrated).
-        """
-        return self.rating / 10.0
 
     @property
     def rating_confidence(self) -> int:

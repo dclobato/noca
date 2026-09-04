@@ -192,7 +192,33 @@
     }
   };
 
-  // EasyMDE — restricted toolbar (text + formatting only; no link/image)
+  /**
+   * Build the restricted toolbar: text and formatting only, never images.
+   *
+   * Links are refused by default -- the statement validator rejects them -- and
+   * are added only for a surface whose validator allows them (`allowLinks`),
+   * such as the announcement board. The gate lives here so the toolbar and the
+   * server-side rule cannot disagree about which button exists.
+   *
+   * @param {boolean} allowLinks Whether to offer EasyMDE's link action.
+   * @returns {Array} EasyMDE toolbar definition.
+   */
+  function buildToolbar(allowLinks) {
+    var toolbar = [
+      'bold', 'italic', 'heading', '|',
+      'quote', 'unordered-list', 'ordered-list', '|',
+      'code', 'horizontal-rule'
+    ];
+    if (allowLinks) toolbar.push('link');
+    return toolbar.concat([
+      '|',
+      tableButton(), alignmentButton('left'), alignmentButton('center'),
+      alignmentButton('right'), '|',
+      'preview'
+    ]);
+  }
+
+  // EasyMDE — restricted toolbar (text + formatting only; no image, link opt-in)
   function create(options) {
     options = options || {};
     var textareaId = options.textareaId || 'stmt-md-editor';
@@ -209,14 +235,7 @@
       autoDownloadFontAwesome: false,
       forceSync: true,
       indentWithTabs: false,
-      toolbar: [
-        'bold', 'italic', 'heading', '|',
-        'quote', 'unordered-list', 'ordered-list', '|',
-        'code', 'horizontal-rule', '|',
-        tableButton(), alignmentButton('left'), alignmentButton('center'),
-        alignmentButton('right'), '|',
-        'preview'
-      ],
+      toolbar: buildToolbar(options.allowLinks === true),
       spellChecker: false,
       status: ['lines', 'words', 'cursor'],
       tabSize: 4,

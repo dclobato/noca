@@ -15,6 +15,7 @@ exposed. Response builders live in :mod:`animator.services.contest_feed_service`
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -114,12 +115,46 @@ class PendingSubmissionResponse(BaseModel):
     created_at: str
 
 
+# The four sentences the activity rail can compose. Named so the builder can
+# annotate its choice and mypy checks it against this model's field.
+RecentEventKind = Literal["submitted", "verdict", "balloon", "first"]
+
+
+class RecentEventResponse(BaseModel):
+    """One past contest event, for seeding a freshly loaded activity rail.
+
+    Carries the *parts* of the sentence rather than the sentence: the client
+    composes the wording so a seeded backlog and the live SSE stream cannot drift
+    into two vocabularies. ``key`` is the same identity the live handlers use
+    (``submission:<id>`` / ``verdict:<judgment_id>``), so a page that seeds and
+    then receives the same event renders it once.
+
+    Attributes:
+        key: Stable de-duplication identity shared with the live stream.
+        minute: Contest minute the submission was made at.
+        kind: ``submitted`` (still unjudged), ``first`` (first solve of the
+            problem), ``balloon`` (this team's solve), or ``verdict`` (any other
+            judged result).
+        team_name: Short team name.
+        problem_label: Spreadsheet-style problem label.
+        verdict: Verdict code, present on every judged kind and ``None`` for
+            ``submitted``.
+    """
+
+    key: str
+    minute: int
+    kind: RecentEventKind
+    team_name: str
+    problem_label: str
+    verdict: str | None = None
+
+
 class ScoreboardSnapshotResponse(BaseModel):
     """Full scoreboard snapshot plus a refresh version token.
 
     Before the contest starts every payload field is empty -- no problem labels,
-    no balloon colors, no standings, no pending submissions -- because the
-    problem set is a contest secret until then. ``has_started`` carries that
+    no balloon colors, no standings, no pending submissions, no recent events --
+    because the problem set is a contest secret until then. ``has_started`` carries that
     state explicitly so a client renders the pre-start banner rather than
     mistaking the gate for a contest with no teams.
     """
@@ -133,6 +168,7 @@ class ScoreboardSnapshotResponse(BaseModel):
     balloon_colors: list[str]
     standings: list[TeamStandingResponse]
     pending_submissions: list[PendingSubmissionResponse] = []
+    recent_events: list[RecentEventResponse] = []
 
 
 # ----------------------------------------------------------------------------

@@ -110,6 +110,22 @@ arena_search_indexes = (
         postgresql_using="gin",
     ).ddl_if(dialect="postgresql"),
     Index(
+        "ix_arena_users_username_trgm",
+        arena_users.c.username,
+        postgresql_ops={"username": "gin_trgm_ops"},
+        postgresql_using="gin",
+    ).ddl_if(dialect="postgresql"),
+    # Partial, like the nullable problem columns: only accounts that required
+    # parental consent hold a guardian address. ILIKE is strict, so a NULL can
+    # never match and the predicate costs the admin search nothing.
+    Index(
+        "ix_arena_users_email_responsavel_legal_trgm",
+        arena_users.c.email_responsavel_legal,
+        postgresql_ops={"email_responsavel_legal": "gin_trgm_ops"},
+        postgresql_using="gin",
+        postgresql_where=arena_users.c.email_responsavel_legal.is_not(None),
+    ).ddl_if(dialect="postgresql"),
+    Index(
         "ix_arena_affiliations_name_fts_gin",
         text("to_tsvector('simple'::regconfig, coalesce(name, ''))"),
         _table=arena_affiliations,

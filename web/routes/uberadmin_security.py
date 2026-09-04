@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.pagination_service import effective_per_page, parse_page
 from shared.services.security_events import (
@@ -20,6 +21,7 @@ from shared.services.security_events import (
     list_security_events_paginated,
 )
 from shared.services.security_events_export import csv_filename, stream_security_events_csv
+from web.database import get_db
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
 
@@ -43,6 +45,7 @@ async def security_events(
     event_type: str = Query(""),
     page: str | None = None,
     per_page: str | None = None,
+    session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """Render paginated Web security events with an optional event-type filter."""
     event_type_filter = event_type.strip() or None
@@ -52,15 +55,14 @@ async def security_events(
         allowed=_ALLOWED_PER_PAGE,
         default=_DEFAULT_PER_PAGE,
     )
-    async with request.app.state.db_session() as session:
-        filter_values = await list_security_event_filter_values(session, module=_VIEWER_MODULE)
-        events = await list_security_events_paginated(
-            session,
-            page=resolved_page,
-            per_page=resolved_per_page,
-            module=_VIEWER_MODULE,
-            event_type=event_type_filter,
-        )
+    filter_values = await list_security_event_filter_values(session, module=_VIEWER_MODULE)
+    events = await list_security_events_paginated(
+        session,
+        page=resolved_page,
+        per_page=resolved_per_page,
+        module=_VIEWER_MODULE,
+        event_type=event_type_filter,
+    )
 
     return _templates(request).TemplateResponse(
         request,
@@ -84,13 +86,13 @@ async def security_events(
 async def security_events_csv(
     request: Request,
     uberadmin: UberAdmin = Depends(get_uberadmin),
+    session: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Download every Web security event as CSV, ignoring the on-screen filters."""
 
     async def _stream() -> AsyncIterator[str]:
-        async with request.app.state.db_session() as session:
-            async for chunk in stream_security_events_csv(session, module=_VIEWER_MODULE):
-                yield chunk
+        async for chunk in stream_security_events_csv(session, module=_VIEWER_MODULE):
+            yield chunk
 
     filename = csv_filename("web-security-events")
     return StreamingResponse(

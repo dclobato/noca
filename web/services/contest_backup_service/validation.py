@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -170,9 +170,10 @@ def validate_manifest(manifest: Any, index: ArchiveIndex) -> dict[str, Any]:
         raise ContestBackupError("manifest.json must be a JSON object.")
     if manifest.get("format_version") not in SUPPORTED_FORMAT_VERSIONS:
         supported = ", ".join(str(version) for version in SUPPORTED_FORMAT_VERSIONS)
+        noun = "version" if len(SUPPORTED_FORMAT_VERSIONS) == 1 else "versions"
         raise ContestBackupError(
             f"Unsupported backup format version {manifest.get('format_version')!r}; "
-            f"this server restores versions {supported}."
+            f"this server restores {noun} {supported}."
         )
     try:
         validated = _ManifestModel.model_validate(manifest, strict=True)

@@ -5,6 +5,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 import logging
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,7 +28,9 @@ from shared.services.security_events import record_request_security_event
 from web.config import settings
 from web.models.users import UberAdmin, User
 from web.services.contest_service import get_contest_by_slug
-from web.services.session_service import build_logout_redirect_url
+from web.services.lockout_admin_service import contest_login_identifier
+from web.services.password_confirm_throttle import auth_rate_limit_settings
+from web.services.session_service import build_logout_redirect_url, safe_contest_next_url
 
 logger = logging.getLogger(__name__)
 
@@ -237,13 +240,14 @@ async def login_post(
 
 
 @router.get("/c/{slug}/login", response_class=HTMLResponse)
-async def contest_login_get(request: Request, slug: str) -> HTMLResponse:
+async def contest_login_get(request: Request, slug: str, next: str | None = None) -> HTMLResponse:  # noqa: A002
+    """Render the contest login form, carrying a safe same-contest return page."""
     async with request.app.state.db_session() as session:
         contest = await get_contest_by_slug(slug=slug, session=session)
     return _templates(request).TemplateResponse(
         request,
         "auth/contest_login.html",
-        {"contest": contest},
+        {"contest": contest, "next_url": safe_contest_next_url(slug, next, default="") or ""},
     )
 
 
@@ -254,16 +258,25 @@ async def contest_login_post(
     flash: FlashDep,
     identifier: str = Form(""),
     password: str = Form(""),
+    next_url: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     auth_service = request.app.state.auth_service
+    # Re-validated here rather than trusted from the form: the hidden field is
+    # as forgeable as the query it came from.
+    safe_next = safe_contest_next_url(slug, next_url, default=None)
     async with request.app.state.db_session() as session:
         contest = await get_contest_by_slug(slug=slug, session=session)
         throttle_settings = _rate_limit_settings()
+        # Contest-scoped, not the bare name: a contest login is unique only per
+        # contest, so a bare-name bucket is shared by every contest carrying it --
+        # five failures against the least important contest on the deployment would
+        # lock that name out of the one that is running. The contest *id* and not
+        # the slug, because a slug can be renamed while a lock is live.
         throttle_identity = build_auth_throttle_identity(
             request,
             module="web",
             action="contest-login",
-            identifier=identifier,
+            identifier=contest_login_identifier(contest.id, identifier),
             settings=throttle_settings,
         )
         throttle_check = await check_auth_throttle(
@@ -287,7 +300,7 @@ async def contest_login_post(
             return _templates(request).TemplateResponse(
                 request,
                 "auth/contest_login.html",
-                {"contest": contest},
+                {"contest": contest, "next_url": safe_next or ""},
                 status_code=429,
                 headers={
                     "Retry-After": str(throttle_check.retry_after_seconds or settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS)
@@ -324,7 +337,10 @@ async def contest_login_post(
             )
             await session.commit()
             flash("Invalid username or password.", FlashCategory.DANGER)
-            return RedirectResponse(url=str(request.url_for("contest_login_get", slug=slug)), status_code=303)
+            login_url = str(request.url_for("contest_login_get", slug=slug))
+            if safe_next:
+                login_url = f"{login_url}?next={quote(safe_next, safe='/?=&%')}"
+            return RedirectResponse(url=login_url, status_code=303)
         await reset_auth_throttle(
             request,
             throttle_identity,
@@ -343,7 +359,7 @@ async def contest_login_post(
         )
         await session.commit()
 
-    response = RedirectResponse(url=f"/c/{slug}", status_code=303)
+    response = RedirectResponse(url=safe_next or f"/c/{slug}", status_code=303)
     response.set_cookie(
         "noca_access_token",
         token,
@@ -356,15 +372,8 @@ async def contest_login_post(
 
 
 def _rate_limit_settings() -> AuthRateLimitSettings:
-    """Build auth-throttle settings from Web config."""
-    return AuthRateLimitSettings(
-        enabled=settings.AUTH_RATE_LIMIT_ENABLED,
-        window_seconds=settings.AUTH_RATE_LIMIT_WINDOW_SECONDS,
-        ip_max_failures=settings.AUTH_RATE_LIMIT_IP_MAX_FAILURES,
-        account_max_failures=settings.AUTH_RATE_LIMIT_ACCOUNT_MAX_FAILURES,
-        lockout_seconds=settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS,
-        secret=settings.JWT_SECRET_KEY,
-    )
+    """Build auth-throttle settings from Web config (one builder, shared with reconfirmation)."""
+    return auth_rate_limit_settings()
 
 
 @router.post("/logout")

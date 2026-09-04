@@ -436,6 +436,7 @@ function testControlsForState() {
     backVisible: false,
     jumpVisible: false,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 
   // A *stored* idle ceremony (reset to idle, or freshly created) preserves the
@@ -450,6 +451,7 @@ function testControlsForState() {
     backVisible: false,
     jumpVisible: false,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 
   // An unreadable stored session cannot use ordinary ceremony commands.
@@ -462,6 +464,7 @@ function testControlsForState() {
     backVisible: false,
     jumpVisible: false,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 
   // A transient or unknown load failure offers read-only Reload state through
@@ -474,6 +477,7 @@ function testControlsForState() {
     backVisible: false,
     jumpVisible: false,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 
   // Revealing with nothing revealed yet: Back stays visible — a step can be a
@@ -486,6 +490,7 @@ function testControlsForState() {
     backVisible: true,
     jumpVisible: true,
     jumpPendingVisible: true,
+    mediaVisible: false,
   });
 
   // Mid-ceremony: everything but Start.
@@ -502,6 +507,7 @@ function testControlsForState() {
     backVisible: true,
     jumpVisible: true,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 
   // Done: nothing left to step to or jump to, but the ceremony can still be
@@ -514,6 +520,7 @@ function testControlsForState() {
     backVisible: true,
     jumpVisible: false,
     jumpPendingVisible: false,
+    mediaVisible: false,
   });
 }
 

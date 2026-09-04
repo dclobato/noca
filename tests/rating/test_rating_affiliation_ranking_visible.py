@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -37,6 +37,14 @@ async def _make_affiliation(session: AsyncSession, name: str | None = None) -> A
 
 async def _set_rating(session: AsyncSession, user_id: str, rating: int) -> None:
     await session.execute(arena_users.update().where(arena_users.c.id == user_id).values(user_rating=rating))
+    await session.flush()
+
+
+async def _set_solved_problems(session: AsyncSession, user_id: str, solved_problems: int) -> None:
+    """Set a user's precomputed solved-problem count."""
+    await session.execute(
+        arena_users.update().where(arena_users.c.id == user_id).values(solved_problems=solved_problems)
+    )
     await session.flush()
 
 
@@ -110,6 +118,36 @@ async def test_affiliation_with_all_members_hidden_rates_zero(session: AsyncSess
 
     rating = await session.scalar(select(arena_affiliations.c.rating).where(arena_affiliations.c.id == aff.id))
     assert rating == 0
+
+
+@pytest.mark.asyncio
+async def test_affiliation_sums_counted_member_solves(session: AsyncSession) -> None:
+    """Three visible members solving one problem count as three solves."""
+    affiliation = await _make_affiliation(session)
+
+    for solved_problems in (1, 1, 1):
+        user = await _make_user(session)
+        await _set_rating(session, user.id, 100)
+        await _set_solved_problems(session, user.id, solved_problems)
+        await _set_affiliation(session, user.id, affiliation.id)
+
+    hidden = await _make_user(session)
+    await _set_rating(session, hidden.id, 100)
+    await _set_solved_problems(session, hidden.id, 7)
+    await _set_affiliation(session, hidden.id, affiliation.id)
+    await _set_ranking_visible(session, hidden.id, visible=False)
+
+    await rate_affiliation(
+        session=session,
+        affiliation_id=affiliation.id,
+        f=_DECAY_FACTOR,
+    )
+    await session.flush()
+
+    solved_problems = await session.scalar(
+        select(arena_affiliations.c.solved_problems).where(arena_affiliations.c.id == affiliation.id)
+    )
+    assert solved_problems == 3
 
 
 @pytest.mark.asyncio

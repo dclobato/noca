@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,6 +21,7 @@ from arena.models.arena_users import ArenaUser
 from arena.services.email_rendering import render_email as _render_email_template
 from arena.services.token_service import ArenaTokenAction, JWTService
 from arena.services.user_service import UserOperationStatus, UserServiceResult
+from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailService
 from shared.services.email_validation import EmailValidationService
 
@@ -73,12 +74,22 @@ async def solicitar_reset_senha(
     )
     url = f"{url_base.rstrip('/')}/auth/password-reset?token={token}"
     body = _render_email_template("reset_password.jinja2", nome=usuario.nome, url=url)
-    email_service.send_email(
-        to_email=usuario.email_normalizado,
-        to_name=usuario.nome,
-        subject="Reset your Arena password",
-        text_body=body,
-    )
+    # Budgeted per *recipient*: N addresses cannot be made to flood one victim,
+    # and the route's IP throttle already bounds one requester. Every failure --
+    # a spent budget or a provider outage -- stays behind the same neutral
+    # SUCCESS, since a distinguishable answer would be the enumeration oracle
+    # this function exists to close.
+    try:
+        await email_service.send_email(
+            to_email=usuario.email_normalizado,
+            to_name=usuario.nome,
+            subject="Reset your Arena password",
+            text_body=body,
+            actor_key=f"recipient:{normalizado}",
+        )
+    except EmailProviderError as exc:
+        logger.warning("Password reset email to %s not sent: %s", normalizado, exc)
+        return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
     logger.info("Password reset email sent to %s", normalizado)
     return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
 

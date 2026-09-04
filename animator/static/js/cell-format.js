@@ -103,6 +103,49 @@
     }
   }
 
+  // The attempt count and the penalty it caused, as ONE complete line.
+  //
+  // They describe the same failures, so splitting them across two lines makes a
+  // cell read as two separate facts — and it was inconsistent: a solved cell
+  // showed "+2 (40')" on one line while a pending cell put "−5" and "(100')" on
+  // two, so the same information changed shape the moment it was revealed. It
+  // also made the projector's pending cell the tallest on any surface.
+  //
+  // Returned finished rather than as punctuation pieces a renderer recombines,
+  // because the pieces are exactly what drifted: both animator renderers used to
+  // build `"+" + attempts + " (" + penalty + "')"` inline, and Web's Jinja builds
+  // the same sentence a third time in another language. A whole-unit function is
+  // something all three can be pinned to by one shared fixture
+  // (tests/fixtures/scoreboard_cell_cases.json).
+  //
+  // The lead's sign follows the cell's state: a solve reports the failures that
+  // preceded it with "+", an unsolved cell counts them down with a true minus.
+  // `stacked` is the projector's pending cell, where the "?" marks already
+  // occupy the line above and must not be repeated here.
+  //
+  // An empty string means "this cell has no such line" — never a stray "()".
+  function formatAttemptLine(cell, options) {
+    var stacked = !!(options && options.stacked);
+    var attempts = attemptsOf(cell);
+    var penalty = penaltyOf(cell);
+    var lead;
+    if (cellState(cell) === "solved") {
+      lead = attempts > 0 ? "+" + attempts : "";
+    } else if (stacked) {
+      lead = attempts > 0 ? MINUS + attempts : "";
+    } else {
+      lead = formatCellText(cell);
+      if (lead === EN_DASH) {
+        return "";
+      }
+    }
+    var tail = penalty > 0 ? "(" + penalty + "')" : "";
+    if (!lead) {
+      return tail;
+    }
+    return tail ? lead + " " + tail : lead;
+  }
+
   // How a team is named on screen.
   //
   // The feeds carry both `team_fullname` (the team's real name) and `team_name`
@@ -145,6 +188,7 @@
     attemptsOf: attemptsOf,
     cellState: cellState,
     describeCell: describeCell,
+    formatAttemptLine: formatAttemptLine,
     formatCellText: formatCellText,
     isFirst: isFirst,
     isPending: isPending,

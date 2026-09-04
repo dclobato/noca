@@ -27,8 +27,8 @@ LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 # container ships no network-fetch tool.
 ARG SCALA_VERSION=3.3.8
 ARG SCALA_SHA256=17a03dd9c2a790b4230a7d03b741cdedca6514096e50e7189bc5e2d299db250a
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fSL "https://github.com/scala/scala3/releases/download/${SCALA_VERSION}/scala3-${SCALA_VERSION}.tar.gz" \
        -o /tmp/scala3.tar.gz \
@@ -36,7 +36,7 @@ RUN apt-get update \
     && mkdir -p /opt/scala3 \
     && tar -xzf /tmp/scala3.tar.gz -C /opt/scala3 --strip-components=1 \
     && rm /tmp/scala3.tar.gz \
-    && apt-get purge -y --auto-remove curl
+    && apt-get -o Acquire::Retries=3 purge -y --auto-remove curl
 
 ENV PATH="/opt/scala3/bin:${PATH}"
 

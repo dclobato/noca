@@ -144,7 +144,7 @@ async def test_health_reports_contest_counts_and_lifespan_services(
         "valkey_runtime": {"registered": True, "available": True, "pending_commands": 2},
         "auth_service": {"registered": True},
         "image_service": {"registered": True},
-        "email_service": {"registered": True},
+        "email_service": {"registered": True, "delivery": None, "mailer_workers_online": None},
         "templates": {"registered": True},
         "clarification_reaper": {"enabled": True, "running": True},
     }

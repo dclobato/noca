@@ -307,6 +307,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 | `color` | `#rrggbb` \| null | no | `null` | Balloon color. Stored by Contest only; always parsed and always exported. When absent, a Contest import picks an unused `BALLOON_COLORS` entry. |
 | `hide_author_show_source` | boolean | no | `false` | Show `source` instead of the author name. Arena only. |
 | `statement_language` | `"pt"`\|`"en"`\|`"es"` \| null | no | `null` | Natural language of the statement. Arena only; an absent value triggers detection, which the importer is asked to confirm. |
+| `expected_difficulty` | integer 1–100 \| null | no | `null` | The author's declared expected difficulty on the internal rating scale (display value ÷ 10); it seeds the Arena rating's prior. Arena only; always parsed and always exported. Booleans and out-of-range values are errors. |
 | `time_limit_ms` | integer ≥ 1 | no | `1000` | Per-test-case time limit. |
 | `memory_limit_kb` | integer ≥ 1 | no | `262144` | cgroup memory limit in KiB. |
 | `pids_limit` | integer ≥ 1 | no | `64` | cgroup `pids` limit. |
@@ -325,8 +326,8 @@ the other. Strings are **type-checked**: a JSON number for `notes` is an error, 
 ### Null versus absent
 
 A **nullable** field (`author`, `notes`, `editorial`, `source`, `license`, `color`,
-`statement_language`, `image`, `image_caption`, `custom_validator`) accepts an explicit `null`, which means the same as
-omitting it.
+`statement_language`, `expected_difficulty`, `image`, `image_caption`, `custom_validator`) accepts an
+explicit `null`, which means the same as omitting it.
 
 A field that has an empty value of its own — `categories`, `sample_testcases`, `language_limits`,
 `sha256`, `hide_author_show_source`, `format_version`, and the four limits — does **not**. `null`
@@ -403,6 +404,22 @@ States **when** the editorial becomes visible to participants.
 Losing this on a round trip is not cosmetic: an editorial that lands on `never` is
 invisible to participants, which silently undoes the author's decision on the importing
 install.
+
+### `expected_difficulty`
+
+The author's expected difficulty, stored by Arena in `arena_problems.expected_difficulty`
+and used as the mean of the rating's solve-rate prior, so a freshly imported problem starts
+where its author expects rather than at the flat centre of the scale. The Arena editor
+offers five worded anchors (Introductory 15, Easy 30, Standard 50, Challenging 70, Hard 85),
+but the format accepts any integer in `[1, 100]` — a package hand-written with `42` imports
+and rates fine, and simply shows no anchor word.
+
+- Absent or `null` means no estimate: the importing problem uses the flat prior, exactly
+  as every package written before the key existed. Additive within version 2, no bump.
+- A boolean, a non-integer, or a value outside `[1, 100]` is a **hard error**.
+- Only **Arena** stores it. Contest parses it and writes it back as `null`, because
+  `problems` has no rating system — so the estimate does not survive a round trip through
+  a Contest problem.
 
 ### `sha256`
 

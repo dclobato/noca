@@ -19,7 +19,7 @@
                     <p class="arena-auth-flow-welcome-text">Pick up where you left off and keep moving.</p>
                 </div>
                 <img class="arena-auth-flow-mascot"
-                     src="{{ request.url_for('arena_static_img', path='welcome.png') }}"
+                     src="{{ request.url_for('arena_static_img', path='welcome.webp') }}"
                      alt="">
             </aside>
             <main class="arena-auth-card arena-auth-flow-card">
@@ -69,6 +69,19 @@
                         {{ render_icon(icon="arrow_forward", classes="arena-auth-flow-submit-icon") }}
                     </button>
                 </form>
+                {% if google_oauth_enabled %}
+                    <div class="arena-auth-flow-divider">
+                        <span>or</span>
+                    </div>
+                    <a href="{{ request.url_for("arena_google_login") }}{% if next %}?next={{ next | urlencode }}{% endif %}"
+                       class="btn btn-outline-secondary arena-icon-button arena-auth-google-button w-100">
+                        <img src="{{ request.url_for("arena_static_img", path="google.svg") }}"
+                             alt=""
+                             width="18"
+                             height="18">
+                        <span>Sign in with Google</span>
+                    </a>
+                {% endif %}
                 {% if show_resend %}
                     <div class="arena-auth-flow-followup">
                         <p class="arena-2fa-help text-center mb-2">

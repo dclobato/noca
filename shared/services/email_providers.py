@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,6 +30,20 @@ _UTF8_QP.body_encoding = QP
 
 class EmailProviderError(Exception):
     """Base exception for email provider errors."""
+
+
+class EmailBudgetExceeded(EmailProviderError):
+    """The actor's outbound-email budget is spent; nothing was sent or queued.
+
+    A subclass of :class:`EmailProviderError` on purpose: every existing caller
+    that treats a provider failure as "not sent" handles a spent budget the
+    same way without knowing about it.
+    """
+
+    def __init__(self, *, actor_key: str, retry_after_seconds: int) -> None:
+        super().__init__(f"Email budget exceeded for {actor_key}; retry in {retry_after_seconds} s")
+        self.actor_key = actor_key
+        self.retry_after_seconds = retry_after_seconds
 
 
 class EmailProvider(ABC):
@@ -132,7 +146,15 @@ class SMTPProvider(EmailProvider):
 
             sent_at = _utcnow()
             accepted = [r for r in recipients if r not in raw_response]
-            self._log_to_mbox(mime_message, message.from_email, relay, accepted, sent_at)
+            self._log_to_mbox(
+                mime_message,
+                message.from_email,
+                relay,
+                accepted,
+                sent_at,
+                queued_at=message.queued_at,
+                delivery_attempt=message.delivery_attempt,
+            )
 
             return EmailResult(
                 success=True,
@@ -152,6 +174,9 @@ class SMTPProvider(EmailProvider):
         relay: str,
         recipients: list[str],
         when: datetime,
+        *,
+        queued_at: float | None = None,
+        delivery_attempt: int | None = None,
     ) -> None:
         """Append the delivered message to the mbox audit log when configured."""
         if not self._mbox_log_dir or not recipients:
@@ -163,11 +188,29 @@ class SMTPProvider(EmailProvider):
             relay=relay,
             recipients=recipients,
             when=when,
+            queued_at=queued_at,
+            delivery_attempt=delivery_attempt,
         )
 
     def get_provider_name(self) -> str:
         """Return provider display name."""
         return f"SMTP ({self._smtp_server})"
+
+
+class QueueProvider(EmailProvider):
+    """Placeholder held by a producer in ``queue`` delivery.
+
+    Web and Arena never deliver in queue mode -- the mailer does -- so they
+    need no SMTP credentials and must not hold a provider that could send.
+    ``send`` refuses outright; ``EmailService`` never calls it in queue mode.
+    """
+
+    def send(self, message: EmailMessage) -> EmailResult:
+        raise EmailProviderError("Queue delivery has no in-process provider; the mailer worker delivers.")
+
+    def get_provider_name(self) -> str:
+        """Return provider display name."""
+        return "Queue (noca-mailer)"
 
 
 class MockProvider(EmailProvider):

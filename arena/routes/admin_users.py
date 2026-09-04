@@ -1,12 +1,13 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 """Arena admin user management — list and profile GET routes.
 
-POST action routes live in admin_users_actions.py.
+POST action routes live in admin_users_actions.py, admin_users_username.py, and
+admin_users_consent.py.
 Shared helpers (NavState, guards, redirect builder) live in admin_user_route_support.py.
 
 GET routes provide paginated browsing and detailed inspection of Arena user
@@ -27,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
+from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
@@ -37,7 +39,13 @@ from arena.routes.admin_user_route_support import (
     _get_target_or_404,
     _html,
 )
-from arena.services import admin_login_history_service, admin_user_service
+from arena.services import (
+    admin_login_history_service,
+    admin_user_service,
+    google_identity_service,
+    google_signup_service,
+    lockout_admin_service,
+)
 from arena.services.pagination_service import Pagination, build_pagination_params, clamp_page, parse_page
 from arena.services.submission_list_service import (
     ARENA_SUBMISSIONS_PER_PAGE,
@@ -55,10 +63,12 @@ from shared.enumerations import (
     Verdict,
 )
 from shared.services.arena_notification_service import paginate_arena_notifications
+from shared.services.auth_lockout_admin import ActiveLockout
+from shared.services.auth_lockout_flow import format_remaining, lockout_store
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["arena-admin"])
+router = APIRouter(prefix="/admin", tags=["arena-admin"], dependencies=[Depends(arena_user_read_rate_limit)])
 
 _CREDITS_PER_PAGE = 25
 _NOTIFICATIONS_PER_PAGE = 25
@@ -238,6 +248,18 @@ async def admin_user_profile(
             date_to_utc=date_to_utc,
         )
 
+    # The identity row is independent of the Google sign-in switch: an operator
+    # who turned the feature off must still see, and be able to detach, the
+    # identities it created.
+    google_identity = None
+    google_unlink_refusal = None
+    lockouts: list[ActiveLockout] | None = []
+    if active_tab == "personal-security":
+        google_identity = await google_identity_service.get_identity_for_user(session, target.id)
+        if google_identity is not None:
+            google_unlink_refusal = google_signup_service.admin_unlink_refusal(target)
+        lockouts = await lockout_admin_service.describe_user_lockouts(lockout_store(request), target)
+
     reputation = None
     if active_tab == "reputation":
         reputation = await session.scalar(select(ArenaUserReputation).where(ArenaUserReputation.user_id == target.id))
@@ -288,6 +310,11 @@ async def admin_user_profile(
                 "login_date_from": login_date_from or "",
                 "login_date_to": login_date_to or "",
                 "reputation": reputation,
+                "google_identity": google_identity,
+                "google_unlink_refusal": google_unlink_refusal,
+                "lockouts": lockouts or [],
+                "lockouts_unavailable": lockouts is None,
+                "format_remaining": format_remaining,
                 "active_tab": active_tab,
                 "back_url": back_url,
                 "back_search": back_search,

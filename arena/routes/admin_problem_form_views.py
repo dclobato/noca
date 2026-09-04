@@ -25,7 +25,15 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_judgment_urls import with_query
 from arena.services import admin_problem_service
 from arena.services.admin_problem_tc_service import TestCaseView
-from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType, StatementLanguage
+from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
+    ArenaExpectedDifficulty,
+    ArenaRole,
+    ProblemValidatorType,
+    StatementLanguage,
+)
+from shared.services.arena_difficulty_display import MIN_ATTEMPTS_FOR_DISPLAY
+from shared.services.form_draft import problem_definition_draft_key
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_definition_view import (
     TAB_EDITORIAL,
@@ -308,6 +316,7 @@ def form_fields(
     license: str = "",
     statement_language: str = "",
     editorial_release_policy: str = ArenaEditorialReleasePolicy.NEVER.value,
+    expected_difficulty: str = "",
 ) -> dict[str, Any]:
     """Build the form context, retaining raw limit strings after rejection."""
     return {
@@ -328,7 +337,62 @@ def form_fields(
         "license": license,
         "statement_language": statement_language,
         "editorial_release_policy": editorial_release_policy,
+        "expected_difficulty": expected_difficulty,
     }
+
+
+def _off_anchor_difficulty(problem: ArenaProblem | None) -> dict[str, Any] | None:
+    """Describe a stored expected difficulty that is not one of the worded anchors.
+
+    An imported package may carry any value in ``[1, 100]``. Without an option of
+    its own such a value matches nothing in the select, so the browser shows the
+    first option ("No estimate") and the next save of any other field wipes it.
+    The form renders this as an extra option instead.
+
+    Returns:
+        The value and its display-scale form, or ``None`` when the problem has no
+        estimate or its estimate is an anchor the select already offers.
+    """
+    stored = problem.expected_difficulty if problem is not None else None
+    if stored is None or ArenaExpectedDifficulty.from_internal(stored) is not None:
+        return None
+    return {"value": str(stored), "display_value": stored / 10.0}
+
+
+def parse_expected_difficulty(raw: str, *, current: int | None = None) -> int | None:
+    """Parse the expected-difficulty form value into an internal rating, or ``None``.
+
+    The form offers the worded anchors of ``ArenaExpectedDifficulty``; an empty
+    value means "no estimate". Any other value is refused, so a tampered or
+    stale option can never store a number the author did not choose.
+
+    The column stores any integer in ``[1, 100]``, so an imported package may
+    carry a value that is not an anchor. ``current`` is that stored value, which
+    the form renders as an extra selected option so an author editing an
+    unrelated field keeps it instead of silently discarding it. Accepting
+    exactly that value -- and nothing else off the anchor list -- is what keeps
+    the option from being a hole in the vocabulary.
+
+    Args:
+        raw: The submitted form value.
+        current: The value already stored on the problem being edited, if any.
+
+    Raises:
+        ValueError: When the value is neither empty, an anchor, nor ``current``.
+    """
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = int(cleaned)
+    except ValueError:
+        raise ValueError("Choose a valid expected difficulty.") from None
+    if current is not None and parsed == current:
+        return parsed
+    try:
+        return int(ArenaExpectedDifficulty(parsed))
+    except ValueError:
+        raise ValueError("Choose a valid expected difficulty.") from None
 
 
 def return_state(
@@ -391,6 +455,11 @@ def build_problem_form_view(
     is_interactive = validator_type is ProblemValidatorType.INTERACTIVE
     tabs = ARENA_EDITOR_TABS
     resolved_tab = resolve_tab(active_tab, allowed=frozenset(tabs))
+    draft_key = problem_definition_draft_key(
+        "arena",
+        problem_id=problem.id if problem is not None else None,
+        validator_type=validator_type.value,
+    )
     if problem is None:
         return ProblemDefinitionView(
             validator_type=validator_type,
@@ -411,6 +480,7 @@ def build_problem_form_view(
             # A problem must exist before it can have judgment data.
             judgment_url="",
             reselect_uploads=reselect_uploads,
+            draft_key=draft_key,
         )
     problem_id = problem.id
     judgment_url = with_query(
@@ -446,6 +516,7 @@ def build_problem_form_view(
         judgment_url=judgment_url,
         validator_status_template="admin/_validator_status.html",
         reselect_uploads=reselect_uploads,
+        draft_key=draft_key,
     )
 
 
@@ -514,6 +585,9 @@ def render_problem_form(
         "is_admin": is_admin(current_user),
         "statement_languages": list(StatementLanguage),
         "editorial_release_policies": list(ArenaEditorialReleasePolicy),
+        "expected_difficulty_levels": list(ArenaExpectedDifficulty),
+        "expected_difficulty_stored": _off_anchor_difficulty(problem),
+        "min_attempts_for_display": MIN_ATTEMPTS_FOR_DISPLAY,
         "language_conflict": language_conflict,
         "save_action": save_action,
         "errors": errors,

@@ -24,8 +24,8 @@ Purpose:
 Provides:
 
 - `MonitoredService` — frozen dataclass: `worker_class`, `title`, `icon`
-- `MONITORED_SERVICES` — display-ordered tuple covering all six runtime
-  modules (web, arena, autojudge, rating, aiassistant, animator)
+- `MONITORED_SERVICES` — display-ordered tuple covering all seven runtime
+  modules (web, arena, autojudge, rating, aiassistant, animator, mailer)
 
 ---
 
@@ -62,12 +62,66 @@ Provides:
 - `slot_epoch(now)` / `stats_key(worker_class, slot)` — slot math and naming
 - `record_probe(...)` — atomic Lua increment of `total` (and `up` on success)
   plus a retention TTL one day longer than the window
-- `read_service_heatmap(...)` / `read_service_heatmaps(...)` — the last 60
-  slots per service, oldest first, as `SlotStat` rows (`uptime_pct` is `None`
-  for slots without probes)
+- `read_service_heatmap(...)` — the last 60 slots of one service, oldest
+  first, as `SlotStat` rows (`uptime_pct` is `None` for slots without probes),
+  one `HMGET` per slot
+- `read_service_heatmaps(...)` — the same window for every monitored service
+  through **one** pipelined `ValkeyRuntime.hmget_many` round trip (6 × 60
+  hashes) instead of 360 sequential reads. Raises `RuntimeError` when the
+  batch fails, so the route answers `503` and the outage is never cached as
+  an empty history
 - `reap_expired_slots(...)` — deletes the deterministic key names of the
   window right before the visible one (no keyspace scan); the per-key TTL
   covers anything older
+
+---
+
+## `uptime_cache.py`
+
+Purpose:
+
+- per-process, single-flight TTL cache for the `/uptime.json` payload, so an
+  anonymous flood costs Valkey at most one pipelined read per probe interval
+  per replica
+
+Provides:
+
+- `UptimeHistoryCache(ttl_seconds=..., clock=time.monotonic)` — a single-key
+  view over the shared `shared.services.single_flight_cache.SingleFlightCache`
+  (which owns the single-flight and TTL mechanics); holds one
+  value; created in the lifespan with `ttl_seconds=NOCA_HEALTHMON_PROBE_INTERVAL`
+  and stored as `app.state.uptime_cache`
+- `get(build) -> (value, seconds_until_expiry)` — returns the cached value or
+  builds it once under an `asyncio.Lock` (concurrent misses share one build);
+  a build that raises caches nothing and re-raises. The second element feeds
+  the route's `Cache-Control: max-age`
+- `invalidate()` — drops the value; the prober calls it after every recorded
+  pass so a fresh probe is visible on the next request
+
+The cache is deliberately process-local: a multi-replica deployment builds once
+per replica, which is bounded and needs no shared state.
+
+---
+
+## `healthmonitor/dependencies.py`
+
+Purpose:
+
+- the per-IP rate-limit dependencies for every public route, built on
+  `shared/services/request_rate_limit.py` (see `docs/SHARED_SERVICES.md`)
+
+Provides:
+
+- `enforce_public_rate_limit(request)` — router-level dependency of
+  `routes/dashboard.py`; bucket `healthmon:public`, policy rebuilt from
+  `settings.RATE_LIMIT_*` on each call, `429` detail
+  `"Dashboard rate limit exceeded."`
+- `enforce_healthmon_health_rate_limit(request)` — `/health` dependency through
+  `shared.services.health_rate_limit` under bucket `health:healthmonitor`,
+  reading the unprefixed `NOCA_HEALTH_RATE_LIMIT_*` settings
+- `PUBLIC_RATE_LIMITER` / `HEALTH_RATE_LIMITER` — the module-level in-memory
+  fallbacks used when Valkey cannot answer; `tests/healthmonitor/conftest.py`
+  clears them around every test
 
 ---
 
@@ -82,7 +136,9 @@ Provides:
 - `run_prober_loop(...)` — every `NOCA_HEALTHMON_PROBE_INTERVAL` seconds,
   reads all service statuses and records one probe per service; skips
   recording entirely while Valkey is unreachable so monitor-side outages
-  never count against the monitored services
+  never count against the monitored services; after a recorded pass it
+  invalidates the optional `uptime_cache` so `/uptime.json` reflects the new
+  probe on its next request
 - `run_reaper_loop(...)` — every `NOCA_HEALTHMON_REAPER_INTERVAL` seconds, runs
   two independent cleanups, each in its own guard so a failure in one never
   skips the other:

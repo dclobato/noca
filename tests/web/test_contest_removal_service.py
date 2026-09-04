@@ -46,6 +46,7 @@ from shared.enumerations import (
     TaskType,
     Verdict,
 )
+from shared.services.problem_export_cache import cached_export_path, export_cache_dir
 from shared.services.security_events import record_security_event
 from shared.services.valkey_service import (
     ContestValkeyPurgeError,
@@ -53,6 +54,8 @@ from shared.services.valkey_service import (
     ContestValkeyTargets,
     ValkeyRuntime,
 )
+from web.models.contest import Contest
+from web.models.users import UberAdmin
 from web.services import contest_removal_service
 from web.services.contest_removal_service import (
     ContestRemovalError,
@@ -454,3 +457,81 @@ async def test_database_failure_restores_quarantined_files(
     assert not list(statement_dir.glob(".noca-contest-removal-*"))
     assert not list(testcase_dir.glob(".noca-contest-removal-*"))
     assert await session.get(type(stopped_contest), stopped_contest_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_removal_discards_each_problem_s_cached_export(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+    tmp_path: Path,
+) -> None:
+    """A cached package must not outlive the problem row it describes.
+
+    Nothing could serve it afterwards -- no route can name a problem that no
+    longer exists -- but it would sit on disk forever, and a problem id is not
+    reused, so nothing would ever reclaim it.
+    """
+    stopped_contest.active = False
+    await session.flush()
+    await _seed_complete_graph(session, contest_id=stopped_contest.id, uberadmin_id=uberadmin.id)
+    await session.commit()
+
+    statement_dir = tmp_path / "statements"
+    testcase_dir = tmp_path / "testcases"
+    cache_root = tmp_path / "packs"
+    statement_dir.mkdir()
+    testcase_dir.mkdir()
+    _write_problem_files(statement_dir, testcase_dir)
+
+    cache_dir = export_cache_dir(cache_root)
+    cache_dir.mkdir(parents=True)
+    archive = cached_export_path(cache_dir, PROBLEM_ID)
+    sidecar = archive.with_suffix(".zip.sha256")
+    archive.write_bytes(b"cached package")
+    sidecar.write_text('{"sha256": "%s", "generation": 0}' % ("a" * 64), encoding="ascii")
+
+    await remove_inactive_contest(
+        session,
+        contest_id=stopped_contest.id,
+        actor_uberadmin_id=uberadmin.id,
+        valkey_runtime=cast(ValkeyRuntime, _SuccessfulRuntime()),
+        statement_dir=statement_dir,
+        testcase_dir=testcase_dir,
+        export_cache_dir=cache_dir,
+    )
+
+    assert not archive.exists()
+    assert not sidecar.exists()
+
+
+@pytest.mark.asyncio
+async def test_removal_without_a_configured_cache_still_succeeds(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+    tmp_path: Path,
+) -> None:
+    """The cache is optional outside production; removal must not depend on it."""
+    stopped_contest.active = False
+    await session.flush()
+    await _seed_complete_graph(session, contest_id=stopped_contest.id, uberadmin_id=uberadmin.id)
+    await session.commit()
+
+    statement_dir = tmp_path / "statements"
+    testcase_dir = tmp_path / "testcases"
+    statement_dir.mkdir()
+    testcase_dir.mkdir()
+    _write_problem_files(statement_dir, testcase_dir)
+
+    result = await remove_inactive_contest(
+        session,
+        contest_id=stopped_contest.id,
+        actor_uberadmin_id=uberadmin.id,
+        valkey_runtime=cast(ValkeyRuntime, _SuccessfulRuntime()),
+        statement_dir=statement_dir,
+        testcase_dir=testcase_dir,
+        export_cache_dir=None,
+    )
+
+    assert result.problems_removed == 1

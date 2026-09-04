@@ -207,23 +207,30 @@ def test_health_rate_limit_trusted_cidrs_rejects_empty_value() -> None:
         Settings.normalize_health_rate_limit_trusted_cidrs(" , ")
 
 
-@pytest.mark.parametrize("value", [None, "", "   ", "\t"])
-def test_mbox_log_dir_empty_or_blank_is_disabled(value: str | None) -> None:
-    """Empty or whitespace-only values disable the mbox audit log."""
-    assert Settings.normalize_mbox_log_dir(value) is None
+def test_signup_rate_limit_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _make_settings(monkeypatch, tmp_path)
+    assert settings.SIGNUP_RATE_LIMIT_MAX_REQUESTS == 5
+    assert settings.SIGNUP_RATE_LIMIT_WINDOW_SECONDS == 3600
 
 
-def test_mbox_log_dir_accepts_absolute_path() -> None:
-    """An absolute path is accepted as-is."""
-    assert Settings.normalize_mbox_log_dir("/var/log/noca/email") == "/var/log/noca/email"
+def test_signup_rate_limit_reads_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _make_settings(
+        monkeypatch,
+        tmp_path,
+        NOCA_ARENA_SIGNUP_RATE_LIMIT_MAX_REQUESTS="12",
+        NOCA_ARENA_SIGNUP_RATE_LIMIT_WINDOW_SECONDS="120",
+    )
+    assert settings.SIGNUP_RATE_LIMIT_MAX_REQUESTS == 12
+    assert settings.SIGNUP_RATE_LIMIT_WINDOW_SECONDS == 120
 
 
-def test_mbox_log_dir_strips_padded_absolute_path() -> None:
-    """Surrounding whitespace is stripped before validation."""
-    assert Settings.normalize_mbox_log_dir("  /var/log/noca/email  ") == "/var/log/noca/email"
-
-
-def test_mbox_log_dir_rejects_relative_path() -> None:
-    """A relative path is rejected."""
-    with pytest.raises(ValueError, match="absolute path"):
-        Settings.normalize_mbox_log_dir("relative/path")
+@pytest.mark.parametrize(
+    "variable",
+    ["NOCA_ARENA_SIGNUP_RATE_LIMIT_MAX_REQUESTS", "NOCA_ARENA_SIGNUP_RATE_LIMIT_WINDOW_SECONDS"],
+)
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_signup_rate_limit_rejects_non_positive_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable: str, value: str
+) -> None:
+    with pytest.raises(ValidationError):
+        _make_settings(monkeypatch, tmp_path, **{variable: value})

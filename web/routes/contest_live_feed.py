@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,8 @@ from web.services.live_feed_service import (
     CONTEST_LIVE_FEED_LIMIT,
     build_contest_live_feed_snapshot,
 )
+from web.services.public_rate_limits import enforce_live_feed_rate_limit
+from web.services.sse_limits import enforce_live_events_slots
 
 router = APIRouter(prefix="/c/{slug}/live", tags=["contest_live"])
 
@@ -50,16 +52,26 @@ async def live_feed_page(
     )
 
 
-@router.get("/feed.json", name="contest_live_feed")
+FEED_CACHE_CONTROL = "public, max-age=5"
+"""The snapshot is identical for every viewer (blackout masking is server-side),
+so a shared cache may reuse it briefly while a debounced refetch burst hits."""
+
+
+@router.get("/feed.json", name="contest_live_feed", dependencies=[Depends(enforce_live_feed_rate_limit)])
 async def live_feed_json(
     request: Request,
     contest: Contest = Depends(get_contest_by_slug),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Return the blackout-aware latest finalized submissions snapshot."""
+    """Return the blackout-aware latest finalized submissions snapshot.
+
+    Counted against the per-IP ``web:live-feed`` window before the contest
+    lookup; ``429`` with ``Retry-After`` once it is spent.
+    """
     snapshot = await build_contest_live_feed_snapshot(session, contest)
     return JSONResponse(
-        {
+        headers={"Cache-Control": FEED_CACHE_CONTROL},
+        content={
             "live_feed_limit": snapshot.limit,
             "has_more": snapshot.has_more,
             "submissions": [
@@ -83,21 +95,28 @@ async def live_feed_json(
                 }
                 for row in snapshot.rows
             ],
-        }
+        },
     )
 
 
-@router.get("/events", name="contest_live_events")
+@router.get("/events", name="contest_live_events", dependencies=[Depends(enforce_live_events_slots)])
 async def live_feed_events(
     request: Request,
     contest: Contest = Depends(get_contest_by_slug),
+    session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Stream lightweight refresh pings as new verdicts finalize for this contest.
 
     No verdict data leaves the server here; the blackout-aware ``feed.json`` snapshot
     is the sole data source. This only tells the browser when to refetch.
+
+    ``enforce_live_events_slots`` holds a ``web:sse`` per-IP slot for the life of
+    the stream (``429`` when exhausted). The request session -- the one
+    ``get_contest_by_slug`` resolved the contest through -- is closed here, before
+    streaming, so a long-lived connection pins no pooled PostgreSQL connection.
     """
     contest_id = str(contest.id)
+    await session.close()
 
     def _for_this_contest(event: VerdictEvent) -> bool:
         return event.contest_id is None or event.contest_id == contest_id

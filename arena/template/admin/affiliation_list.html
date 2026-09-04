@@ -1,12 +1,12 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_country_flag, render_decorative_state_flag, render_icon with context %}
 {% block title_suffix %}&mdash; Affiliation Management{% endblock %}
 {% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_affiliations %}active{% endblock %}
@@ -112,9 +112,7 @@
                                 </td>
                                 <td class="text-nowrap">
                                     {% if affiliation.country_code %}
-                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + affiliation.country_code.lower() + '.svg') }}"
-                                             class="arena-country-flag"
-                                             alt="">
+                                        {{ render_country_flag(request, affiliation.country_code) }}
                                         {{ affiliation.country_name }}
                                     {% else %}
                                         <span class="text-muted">—</span>
@@ -122,6 +120,7 @@
                                 </td>
                                 <td>
                                     {% if affiliation.subdivision_name %}
+                                        {{ render_decorative_state_flag(request, affiliation) }}
                                         {{ affiliation.subdivision_name }}
                                     {% else %}
                                         <span class="text-muted">—</span>

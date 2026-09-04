@@ -41,6 +41,7 @@ from web.services.site_service import (
 )
 from web.services.user_credentials_email_service import (
     build_animator_credential_email_content,
+    email_actor_key,
     send_credentials_email,
 )
 
@@ -440,7 +441,7 @@ async def create_secret(
     email_failed = False
     admin_email = ctx.actor.email
     if admin_email:
-        result = send_credentials_email(
+        result = await send_credentials_email(
             request.app.state.email_service,
             to_email=admin_email,
             fullname=ctx.actor.fullname,
@@ -451,6 +452,7 @@ async def create_secret(
                 scope_label=email_scope_label,
                 token=token,
             ),
+            actor_key=email_actor_key(ctx.actor),
         )
         if result.success:
             emailed_to = admin_email
