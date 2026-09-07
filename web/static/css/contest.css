@@ -20,6 +20,7 @@
 @import url('./contest/_scoreboard.css');
 @import url('./contest/_balloons.css');
 @import url('./contest/_avatars.css');
+@import url('./contest/_team-status.css');
 @import url('./contest/_timeline.css');
 @import url('./contest/_errors.css');
 @import url('./contest/_dark.css');

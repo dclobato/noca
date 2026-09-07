@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from pydantic import ValidationError
 
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.timezone import Timezone
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_helpers import _clear_frozen_scoreboard_snapshot, _html
@@ -243,5 +244,6 @@ async def edit_metadata_submit(
         )
 
     await _clear_frozen_scoreboard_snapshot(request, str(ctx.contest.id))
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     flash("Changes saved successfully.", FlashCategory.SUCCESS)
     return RedirectResponse(request.url_for("edit_metadata", slug=ctx.contest.login_slug), status_code=303)

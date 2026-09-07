@@ -170,6 +170,13 @@ async def _restore_users(
             "site_id": remap_optional(state.site_map, user.get("site_id")),
             "created_by_admin_id": None,
             "created_by_uberadmin_id": actor_id,
+            # Policy travels with the archive; live session state does not.
+            # `allow_concurrent_login` is a contest decision worth restoring,
+            # while the epoch and the IP binding describe sessions of the
+            # contest that was archived -- none of which exist here.
+            "session_epoch": 0,
+            "locked_ip": None,
+            "locked_at": None,
         }
         if not include_hashes:
             overrides["password_hash"] = _unusable_password_hash()

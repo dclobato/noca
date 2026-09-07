@@ -101,6 +101,17 @@
     --noca-state-frozen: var(--noca-warning);
     --noca-state-silence: var(--noca-danger);
 
+    /* State surface tints: the wash behind a card or swatch that *is* in one
+       of the three states (the team status board's cards). A tint is the raw
+       semantic hue over the clearest surface, never the band colour above:
+       on the dark ground that colour is already pulled toward white, and mixed
+       thin it collapses red and amber into the same grey. The dark block below
+       re-declares these from the raw hues at the strength that ground needs,
+       so a component names the tint and never branches on theme. */
+    --noca-state-live-tint: color-mix(in srgb, var(--noca-brand) 14%, var(--noca-surface-container-lowest));
+    --noca-state-frozen-tint: color-mix(in srgb, var(--noca-warning) 16%, var(--noca-surface-container-lowest));
+    --noca-state-silence-tint: color-mix(in srgb, var(--noca-danger) 14%, var(--noca-surface-container-lowest));
+
     /* ── Remaining-time urgency ──────────────────────────────────────────────
        How much time is left is a different axis from which phase a contest is
        in: freeze and answer-silence are moments an organiser scheduled, while
@@ -210,6 +221,14 @@
     --noca-state-live: color-mix(in srgb, var(--noca-brand) 62%, white);
     --noca-state-frozen: color-mix(in srgb, var(--noca-warning) 55%, white);
     --noca-state-silence: color-mix(in srgb, var(--noca-danger) 58%, white);
+
+    /* The surface tints take the raw hue, not the lightened band above, and
+       roughly twice the strength: a thin wash over near-black has to carry
+       the hue on its own, and at the light-theme strength red and amber were
+       indistinguishable greys. Light ink stays above 10:1 on all three. */
+    --noca-state-live-tint: color-mix(in srgb, var(--noca-brand) 26%, var(--noca-surface-container-lowest));
+    --noca-state-frozen-tint: color-mix(in srgb, var(--noca-warning) 32%, var(--noca-surface-container-lowest));
+    --noca-state-silence-tint: color-mix(in srgb, var(--noca-danger) 30%, var(--noca-surface-container-lowest));
 
     /* Urgency is read off dark ground even from a light page -- the contest
        navbar sets `data-bs-theme="dark"` on itself -- so these mappings are

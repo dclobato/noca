@@ -46,7 +46,7 @@ from shared.enumerations import (
 )
 from web.config import settings
 from web.models.clarification import Clarification
-from web.models.contest import Contest
+from web.models.contest import Contest, Task
 from web.models.problem import Problem, ProblemTestCase
 from web.models.site import Site
 from web.models.users import UberAdmin, User
@@ -800,7 +800,7 @@ async def test_a_v2_backup_omitting_the_strategy_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", [0, 4, 6, 99])
+@pytest.mark.parametrize("version", [0, 5, 6, 99])
 async def test_an_unknown_backup_version_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
 ) -> None:
@@ -1015,3 +1015,226 @@ async def test_a_current_backup_missing_the_announcement_flag_is_refused(
 
     with pytest.raises(ContestBackupError, match="missing columns: is_announcement"):
         await _restore(session, broken_path, uberadmin, slug="missing", name="Missing")
+
+
+@pytest.mark.asyncio
+async def test_current_backup_round_trips_the_session_policy_flag(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """`allow_concurrent_login` is contest policy, so it survives a round trip.
+
+    An organiser who decided a team is held to one session made that decision
+    about the contest, not about the sessions the contest happened to have.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await session.execute(
+        users_t.update()
+        .where(users_t.c.contest_id == contest.id, users_t.c.role == RoleEnum.TEAM)
+        .values(allow_concurrent_login=False)
+    )
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        rows = json.loads(archive.read("users.json"))
+    assert {row["username"]: row["allow_concurrent_login"] for row in rows}["team_u"] is False
+
+    restored = await _restore(session, zip_path, uberadmin, slug="policy", name="Policy")
+    result = await session.execute(
+        select(users_t.c.username, users_t.c.allow_concurrent_login).where(users_t.c.contest_id == restored.id)
+    )
+    assert dict(result.all())["team_u"] is False
+
+
+@pytest.mark.asyncio
+async def test_restore_resets_live_session_state(session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path) -> None:
+    """The epoch and the IP binding describe sessions the restored contest never had.
+
+    Carrying them over would bind a restored team to the address of a machine
+    that went home with the contest that was archived, and would compare a
+    restored epoch against tokens that were never issued.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await session.execute(
+        users_t.update()
+        .where(users_t.c.contest_id == contest.id, users_t.c.role == RoleEnum.TEAM)
+        .values(
+            allow_concurrent_login=False,
+            session_epoch=9,
+            locked_ip="203.0.113.7",
+            locked_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    # The archive records the live state faithfully; only restore resets it.
+    with zipfile.ZipFile(zip_path) as archive:
+        archived = {row["username"]: row for row in json.loads(archive.read("users.json"))}["team_u"]
+    assert archived["session_epoch"] == 9
+    assert archived["locked_ip"] == "203.0.113.7"
+
+    restored = await _restore(session, zip_path, uberadmin, slug="reset", name="Reset")
+    result = await session.execute(
+        select(
+            users_t.c.username,
+            users_t.c.session_epoch,
+            users_t.c.locked_ip,
+            users_t.c.locked_at,
+        ).where(users_t.c.contest_id == restored.id)
+    )
+    rows = {row.username: row for row in result.all()}
+    assert rows["team_u"].session_epoch == 0
+    assert rows["team_u"].locked_ip is None
+    assert rows["team_u"].locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_current_backup_missing_a_session_column_is_refused(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A current archive omitting a session column is malformed, not defaulted.
+
+    Quietly defaulting `allow_concurrent_login` would silently restore a
+    restricted contest as an unrestricted one.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    broken_path = tmp_path / "missing-session-column.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(broken_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "users.json":
+                payload = json.loads(data)
+                for row in payload:
+                    row.pop("allow_concurrent_login", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    with pytest.raises(ContestBackupError, match="missing columns: allow_concurrent_login"):
+        await _restore(session, broken_path, uberadmin, slug="missing2", name="Missing2")
+
+
+@pytest.mark.asyncio
+async def test_current_backup_round_trips_service_time_for_finished_rows(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A finished task's / answered clarification's acquisition time is contest history.
+
+    It is the start half of a service time whose end (`finished_at` /
+    `answered_at`) already survives a round trip, so the start must too.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    acquired = datetime.now(UTC) - timedelta(minutes=3)
+    finished = datetime.now(UTC)
+    await session.execute(
+        tasks_t.update()
+        .where(tasks_t.c.id == "tk-1")
+        .values(
+            acquired_at=acquired,
+            acquired_timestamp_seconds=100,
+            finished_at=finished,
+            finished_timestamp_seconds=280,
+        )
+    )
+    await session.execute(
+        clarifications_t.update()
+        .where(clarifications_t.c.id == "cl-1")
+        .values(
+            acquired_at=acquired,
+            acquired_timestamp_seconds=90,
+            answered_at=finished,
+            answered_timestamp_seconds=270,
+        )
+    )
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        task_row = json.loads(archive.read("tasks.json"))[0]
+        clarification_rows = {row["id"]: row for row in json.loads(archive.read("clarifications.json"))}
+    assert task_row["acquired_at"] is not None
+    assert clarification_rows["cl-1"]["acquired_at"] is not None
+
+    restored = await _restore(session, zip_path, uberadmin, slug="service-time", name="Service Time")
+    restored_task = (
+        await session.execute(select(Task).join(User, Task.team_id == User.id).where(User.contest_id == restored.id))
+    ).scalar_one()
+    restored_clarification = (
+        await session.execute(
+            select(Clarification)
+            .join(User, Clarification.team_id == User.id)
+            .where(User.contest_id == restored.id, Clarification.question == "Why?")
+        )
+    ).scalar_one()
+    assert restored_task.acquired_at is not None
+    assert restored_clarification.acquired_at is not None
+
+
+@pytest.mark.asyncio
+async def test_restore_clears_acquisition_time_for_open_rows(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """An open task's / clarification's acquisition time describes a lock that is not restored.
+
+    Carrying it over would report a service time that keeps growing against a
+    handler who holds nothing in the restored copy.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    acquired = datetime.now(UTC) - timedelta(minutes=3)
+    await session.execute(
+        tasks_t.update().where(tasks_t.c.id == "tk-1").values(acquired_at=acquired, acquired_timestamp_seconds=100)
+    )
+    await session.execute(
+        clarifications_t.update()
+        .where(clarifications_t.c.id == "cl-1")
+        .values(acquired_at=acquired, acquired_timestamp_seconds=90)
+    )
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        task_row = json.loads(archive.read("tasks.json"))[0]
+        clarification_rows = {row["id"]: row for row in json.loads(archive.read("clarifications.json"))}
+    assert task_row["acquired_at"] is not None
+    assert clarification_rows["cl-1"]["acquired_at"] is not None
+
+    restored = await _restore(session, zip_path, uberadmin, slug="open-lock", name="Open Lock")
+    restored_task = (
+        await session.execute(select(Task).join(User, Task.team_id == User.id).where(User.contest_id == restored.id))
+    ).scalar_one()
+    restored_clarification = (
+        await session.execute(
+            select(Clarification)
+            .join(User, Clarification.team_id == User.id)
+            .where(User.contest_id == restored.id, Clarification.question == "Why?")
+        )
+    ).scalar_one()
+    assert restored_task.acquired_at is None
+    assert restored_clarification.acquired_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_current_backup_missing_an_acquisition_column_is_refused(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A current archive omitting an acquisition column is malformed, not defaulted."""
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    broken_path = tmp_path / "missing-acquisition-column.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(broken_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "tasks.json":
+                payload = json.loads(data)
+                for row in payload:
+                    row.pop("acquired_at", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    with pytest.raises(ContestBackupError, match="missing columns: acquired_at"):
+        await _restore(session, broken_path, uberadmin, slug="missing3", name="Missing3")

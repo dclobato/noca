@@ -26,7 +26,7 @@ def _user_sort_key(user: User) -> tuple[str, str, str]:
     return ((user.fullname or "").casefold(), user.username.casefold(), user.id)
 
 
-def _group_users_by_site(users: list[User]) -> RoleUserGroups:
+def group_users_by_site(users: list[User]) -> RoleUserGroups:
     """Split users into flat no-site rows and ordered site groups."""
     ungrouped_users: list[User] = []
     site_groups_by_id: dict[str, SiteUserGroup] = {}
@@ -63,11 +63,11 @@ async def get_contest_user_groups(session: AsyncSession, contest: Contest) -> Co
     )
 
     return ContestUserGroups(
-        admin_users=_group_users_by_site([user for user in members if user.role == RoleEnum.ADMIN]),
-        judge_users=_group_users_by_site([user for user in members if user.role == RoleEnum.JUDGE]),
-        staff_users=_group_users_by_site([user for user in members if user.role == RoleEnum.STAFF]),
-        team_users=_group_users_by_site([user for user in members if user.role == RoleEnum.TEAM]),
-        user_users=_group_users_by_site([user for user in members if user.role == RoleEnum.USER]),
+        admin_users=group_users_by_site([user for user in members if user.role == RoleEnum.ADMIN]),
+        judge_users=group_users_by_site([user for user in members if user.role == RoleEnum.JUDGE]),
+        staff_users=group_users_by_site([user for user in members if user.role == RoleEnum.STAFF]),
+        team_users=group_users_by_site([user for user in members if user.role == RoleEnum.TEAM]),
+        user_users=group_users_by_site([user for user in members if user.role == RoleEnum.USER]),
     )
 
 

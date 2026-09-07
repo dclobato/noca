@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,7 +11,11 @@ from shared.enumerations import RoleEnum
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_helpers import _html
 from web.services.contest_service import contest_status_label
-from web.services.contest_user_service import get_contest_user_groups
+from web.services.contest_user_service import (
+    count_bound_teams,
+    count_restricted_teams,
+    get_contest_user_groups,
+)
 from web.services.judging_service import get_chief_judge_admin_panel
 
 router = APIRouter(prefix="/c/{slug}/admin", tags=["contest_admin"])
@@ -24,6 +28,8 @@ async def manage_users(
 ) -> HTMLResponse:
     templates = request.app.state.templates
     groups = await get_contest_user_groups(ctx.session, ctx.contest)
+    restricted_teams = await count_restricted_teams(ctx.session, ctx.contest)
+    bound_teams = await count_bound_teams(ctx.session, ctx.contest)
     chief_judge_panel = await get_chief_judge_admin_panel(ctx.session, ctx.contest)
     current_admin_user_id = ctx.actor.id if ctx.actor.role == RoleEnum.ADMIN else None
 
@@ -42,6 +48,9 @@ async def manage_users(
                 "owner_user_id": ctx.contest.owner_user_id,
                 "current_admin_user_id": current_admin_user_id,
                 "is_running": ctx.contest.is_running,
+                "team_count": groups.team_users.total_users,
+                "restricted_teams": restricted_teams,
+                "bound_teams": bound_teams,
                 "contest_status": contest_status_label(ctx.contest),
                 "judges": chief_judge_panel.judges,
                 "current_chief_judge": chief_judge_panel.current_chief_judge,

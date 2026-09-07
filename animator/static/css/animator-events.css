@@ -107,7 +107,7 @@
 .animator-events-item {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.38rem;
+    gap: var(--noca-space-sm);
     padding: 0.35rem 0.9rem;
     font-size: var(--noca-type-label);
     line-height: 1.2;

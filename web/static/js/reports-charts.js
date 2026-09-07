@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,6 +16,7 @@
  *                                   derived client-side)
  *   - time_accepted: [count, ...]   (accepted runs per window; cumulative
  *                                   is derived client-side)
+ *   - time_window_minutes: bucket width in minutes (e.g. 10, 20, 480)
  *   - accept_label:  "AC" or "AC + PE"
  *   - problem_race:  [{name, color, solved_minutes: [minute, ...]}, ...]
  *                     (one entry per solving team, sorted ascending; the
@@ -194,7 +195,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // site, which rebuilds it on every render, including theme-toggle
     // re-renders. Axis/legend/tooltip text again comes from the registered
     // noca-light/noca-dark theme, not from this function.
-    function stackedBarOption(labels, accepted, rejected, acceptLabel, cumulativeAll, cumulativeAccepted, colors, elapsedMinutes) {
+    function stackedBarOption(labels, accepted, rejected, acceptLabel, cumulativeAll, cumulativeAccepted, colors, elapsedMinutes, windowMinutes) {
         var series = [
             {
                 name: acceptLabel,
@@ -262,12 +263,13 @@ document.addEventListener("DOMContentLoaded", function () {
             legendData.push("Cumulative " + acceptLabel);
         }
 
-        // The bars sit on a category axis, one band per 10-minute window, so
+        // The bars sit on a category axis, one band per time window, so
         // "now" cannot be placed on it directly: the current minute almost
         // never falls on a band boundary. A hidden value axis spanning the
         // same bands carries the overlay instead -- window i covers
-        // [i - 0.5, i + 0.5] there, so minute m is at m / 10 - 0.5, and a
-        // contest 37 minutes in marks just past the middle of the fourth bar.
+        // [i - 0.5, i + 0.5] there, so minute m is at m / bucketMinutes - 0.5,
+        // and in a 20-minute window a contest 45 minutes in marks one-quarter
+        // into the third bar.
         var xAxis = [
             {
                 type: "category",
@@ -279,8 +281,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 barCategoryGap: "2%",
             },
         ];
+        var bucketMinutes = windowMinutes || 10;
         var lastBand = labels.length - 0.5;
-        var nowBand = (elapsedMinutes || 0) / 10 - 0.5;
+        var nowBand = (elapsedMinutes || 0) / bucketMinutes - 0.5;
         if (elapsedMinutes !== null && elapsedMinutes !== undefined && nowBand < lastBand) {
             xAxis.push({ type: "value", min: -0.5, max: lastBand, show: false });
             series.push(notYetOverlay(nowBand, lastBand, 1));
@@ -646,7 +649,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 cumulativeAll,
                 cumulativeAccepted,
                 seriesColors(),
-                data.elapsed_minutes
+                data.elapsed_minutes,
+                data.time_window_minutes || 10
             );
         });
     }

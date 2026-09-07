@@ -56,6 +56,9 @@
             {{ nav_item('contest_runs', 'terminal', 'Runs') }}
         {% endif %}
         {% if noca_can_view_tasks(current_user, contest) %}{{ nav_item('contest_tasks', 'check_box', 'Tasks') }}{% endif %}
+        {% if is_admin or role in [RoleEnum.JUDGE.value, RoleEnum.STAFF.value] %}
+            {{ nav_item('contest_team_status', 'sensors', 'Team status') }}
+        {% endif %}
         {% if is_admin or role == RoleEnum.JUDGE.value %}
             {{ nav_item('contest_reports', 'bar_chart', 'Reports') }}
             {{ nav_item('contest_solution_tests', 'science', 'Solution tests') }}

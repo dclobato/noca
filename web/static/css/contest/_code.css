@@ -60,6 +60,9 @@
     font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
     white-space: pre-wrap;
     word-break: break-all;
+    background-color: var(--noca-surface-container-high);
+    color: var(--noca-on-surface);
+    border: 1px solid var(--noca-outline-variant);
 }
 
 /* Rendered Markdown/LaTeX for sample test-case explanations: keep the block

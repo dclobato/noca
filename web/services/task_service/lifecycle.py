@@ -256,6 +256,11 @@ async def acquire_task(
         raise TaskLockUnavailableError("Task locks are currently unavailable.")
     if not acquired:
         raise TaskAlreadyAcquiredError("This task is already acquired by another staff member.")
+
+    now = _utcnow()
+    task.acquired_at = now
+    task.acquired_timestamp_seconds = compute_timestamp_seconds(contest.start_time, now)
+    await session.flush()
     return task
 
 

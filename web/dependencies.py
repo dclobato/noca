@@ -15,8 +15,10 @@ from shared.enumerations import ALL_CONTEST_ROLES, RoleEnum
 from web.database import get_db
 from web.models import Contest, UberAdmin, User
 from web.services.actor_service import get_actor_from_token
+from web.services.contest_presence import mark_contest_presence
 from web.services.contest_service import ensure_contest_admin_or_uberadmin, get_contest_by_slug
 from web.services.htmx_redirect_service import build_auth_redirect_exception
+from web.services.session_guard import enforce_session_policy, load_request_contest_user
 from web.services.session_service import (
     SESSION_EXPIRED_MESSAGE,
     _get_cached_auth_validation,
@@ -45,13 +47,25 @@ def _is_public_web_path(path: str) -> bool:
     return any(path == prefix or path.startswith(prefix + "/") for prefix in _WEB_PUBLIC_PREFIXES)
 
 
-async def enforce_web_default_auth(request: Request) -> None:
-    """Require authentication for every non-public Web route by default."""
+async def enforce_web_default_auth(request: Request, session: AsyncSession = Depends(get_db)) -> None:
+    """Require authentication for every non-public Web route by default.
+
+    The session is taken as a dependency rather than opened here so it is the
+    *same* one the route will use: FastAPI caches `get_db` per request, and
+    SQLAlchemy acquires no connection until something is queried, so a public
+    path or a request that never reaches the policy costs nothing for it.
+    """
     path = request.url.path
     if _is_public_web_path(path):
         return
     result = get_validated_auth_token(request)
     if result is not None:
+        # Before the mark, never after: a session the policy rejects must not be
+        # handed a rotated cookie on its way out of the request that rejected it.
+        await enforce_session_policy(request, session)
+        # And only once the policy has allowed the request: a session being
+        # bounced is not evidence that anybody is sitting at that seat.
+        await mark_contest_presence(request, session)
         mark_auth_refresh_eligible(request)
         return
 
@@ -105,12 +119,11 @@ async def get_request_user(
     if not contest_id:
         raise await build_session_auth_redirect_exception(request, session, "/login")
 
-    user = (
-        await session.execute(select(User).where(User.username == result.sub, User.contest_id == contest_id))
-    ).scalar_one_or_none()
+    user = await load_request_contest_user(request, session, username=result.sub, contest_id=contest_id)
     if not user:
         raise await build_session_auth_redirect_exception(request, session, "/login")
 
+    await enforce_session_policy(request, session)
     mark_auth_refresh_eligible(request)
     return user
 
@@ -142,12 +155,11 @@ async def get_avatar_viewer(
     if not contest_id:
         raise await build_session_auth_redirect_exception(request, session, "/login")
 
-    user = (
-        await session.execute(select(User).where(User.username == result.sub, User.contest_id == contest_id))
-    ).scalar_one_or_none()
+    user = await load_request_contest_user(request, session, username=result.sub, contest_id=contest_id)
     if not user:
         raise await build_session_auth_redirect_exception(request, session, "/login")
 
+    await enforce_session_policy(request, session)
     mark_auth_refresh_eligible(request)
     return user, False
 

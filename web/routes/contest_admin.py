@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
 from shared.services.admin_audit import record_admin_action
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from web.config import settings as _settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes import contest_admin_export as _contest_admin_export
@@ -139,6 +140,9 @@ async def start_contest_now(
                 detail=f"slug={ctx.contest.login_slug}",
             )
             await ctx.session.commit()
+            await invalidate_contest_report_cache(
+                getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id)
+            )
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
 
 
@@ -171,6 +175,7 @@ async def end_contest_now(
             detail=f"slug={ctx.contest.login_slug}",
         )
         await ctx.session.commit()
+        await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
         flash("Contest duration adjusted. Contest will end shortly.", FlashCategory.SUCCESS)
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
 

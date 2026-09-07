@@ -46,3 +46,20 @@ def test_is_recoverable_isolate_runtime_error_matches_suspicious_signal_kill() -
     )
 
     assert is_recoverable_isolate_runtime_error(exc) is True
+
+
+def test_is_recoverable_isolate_runtime_error_matches_dead_run_container() -> None:
+    # What the outer safety timeout leaves behind: it SIGKILLs the run container to stop a
+    # wedged exec, so every later exec on that container fails this way.
+    exc = RuntimeError(
+        "409 Client Error for http+docker://localhost/v1.55/containers/2570330dcebb/exec: "
+        'Conflict ("container 2570330dcebb is not running")'
+    )
+
+    assert is_recoverable_isolate_runtime_error(exc) is True
+
+
+def test_is_recoverable_isolate_runtime_error_matches_removed_run_container() -> None:
+    exc = RuntimeError('404 Client Error: Not Found ("No such container: 2570330dcebb")')
+
+    assert is_recoverable_isolate_runtime_error(exc) is True

@@ -233,6 +233,36 @@
                                            name="password"
                                            value="">
                                 </div>
+                                {% if is_team %}
+                                    <div class="col-12">
+                                        <div class="form-check">
+                                            <input type="checkbox"
+                                                   class="form-check-input"
+                                                   id="restrict_session"
+                                                   name="restrict_session"
+                                                   value="true"
+                                                   {% if not edit_user.allow_concurrent_login %}checked{% endif %}
+                                                   {% if is_locked %}disabled{% endif %}>
+                                            <label class="form-check-label" for="restrict_session">Limit to one session from one address</label>
+                                        </div>
+                                        <div class="form-text">
+                                            Once the contest starts, this login works from a single computer at a time and
+                                            only from the address it first signs in from.
+                                        </div>
+                                        {% if edit_user.locked_ip %}
+                                            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 mt-2 mb-0">
+                                                <div class="flex-grow-1">
+                                                    Bound to <code>{{ edit_user.locked_ip }}</code>
+                                                    {%- if edit_user.locked_at %} since {{ edit_user.locked_at.strftime("%Y-%m-%d %H:%M") }} UTC
+                                                    {% endif %}
+                                                    .
+                                                </div>
+                                                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}"
+                                                   class="btn btn-outline-warning btn-sm">Clear IP lock on the users page</a>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
                             </div>
                             <div class="mt-4">
                                 <button type="submit" class="btn btn-primary btn-sm">

@@ -80,6 +80,28 @@ def test_kinds_keys_and_minutes() -> None:
     assert events[3].verdict is None
 
 
+def test_entries_carry_the_full_team_name() -> None:
+    """The rail displays the name an audience recognizes, not the login."""
+    submissions = [_submission("s1", "t1", "p1", 120)]
+    events = _build(submissions, {"s1": None})
+    assert [(event.team_name, event.team_fullname) for event in events] == [("alpha", "Alpha")]
+
+
+def test_full_name_falls_back_to_the_login() -> None:
+    """A team with no full name is still named, by its login."""
+    teams = [TeamRecord(id="t1", username="alpha", fullname="", site_id=None)]
+    events = build_recent_events(
+        [_submission("s1", "t1", "p1", 120)],
+        {"s1": None},
+        teams,
+        PROBLEMS,
+        freeze_at_seconds=10**9,
+        viewer_sees_frozen=False,
+        accept_pe=False,
+    )
+    assert [event.team_fullname for event in events] == ["alpha"]
+
+
 def test_frozen_viewer_never_sees_past_the_boundary() -> None:
     """The seed uses the board's own freeze rule, so it cannot narrate a hidden run."""
     submissions = [_submission("s1", "t1", "p1", 60), _submission("s2", "t1", "p1", 600)]

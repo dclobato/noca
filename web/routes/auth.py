@@ -5,7 +5,6 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 import logging
-from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,9 +26,11 @@ from shared.services.network_utils import NetworkService
 from shared.services.security_events import record_request_security_event
 from web.config import settings
 from web.models.users import UberAdmin, User
+from web.services.contest_presence import clear_contest_presence
 from web.services.contest_service import get_contest_by_slug
 from web.services.lockout_admin_service import contest_login_identifier
 from web.services.password_confirm_throttle import auth_rate_limit_settings
+from web.services.session_policy import SessionIpLockedError, SessionLoginRefusedError
 from web.services.session_service import build_logout_redirect_url, safe_contest_next_url
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,39 @@ async def contest_login_post(
                 source_port=source_port,
                 user_agent=request.headers.get("User-Agent"),
             )
+        except SessionLoginRefusedError as refused:
+            # The password was proven, so this is not an authentication failure:
+            # it never touches the throttle, and it says exactly what happened
+            # rather than "invalid password", which would send a team hunting
+            # for a credential problem they do not have.
+            locked_ip = refused.locked_ip if isinstance(refused, SessionIpLockedError) else None
+            logger.warning(
+                "Login for identifier '%s'@'%s' refused by the session policy (%s), request came from %s",
+                identifier,
+                slug,
+                refused,
+                ip_address,
+            )
+            await record_request_security_event(
+                session,
+                request,
+                module="web",
+                event_type="auth_session_ip_locked",
+                severity="warning",
+                identifier_hash=throttle_identity.identifier_hash,
+                metadata={"action": "contest-login", "contest_slug": slug, "locked_ip": locked_ip},
+            )
+            await session.commit()
+            flash(
+                (
+                    f"This login is already in use from {locked_ip}. "
+                    "Ask the contest staff to clear the IP lock before signing in from another machine."
+                )
+                if locked_ip is not None
+                else "This login was being changed by the contest staff. Try signing in again.",
+                FlashCategory.DANGER,
+            )
+            return _contest_login_redirect(request, slug, safe_next)
         except ValueError:
             logger.warning("Failed login attempt for identifier '%s'@'%s' from IP %s", identifier, slug, ip_address)
             failure = await record_auth_failure(
@@ -337,10 +371,7 @@ async def contest_login_post(
             )
             await session.commit()
             flash("Invalid username or password.", FlashCategory.DANGER)
-            login_url = str(request.url_for("contest_login_get", slug=slug))
-            if safe_next:
-                login_url = f"{login_url}?next={quote(safe_next, safe='/?=&%')}"
-            return RedirectResponse(url=login_url, status_code=303)
+            return _contest_login_redirect(request, slug, safe_next)
         await reset_auth_throttle(
             request,
             throttle_identity,
@@ -371,6 +402,20 @@ async def contest_login_post(
     return response
 
 
+def _contest_login_redirect(request: Request, slug: str, safe_next: str | None) -> RedirectResponse:
+    """Send the browser back to the contest login form, keeping where it was going.
+
+    The return page is carried as a query parameter, so it is encoded by the URL
+    object rather than by hand: a destination of its own with more than one
+    parameter (`/c/demo/runs?status=done&lang=py`) would otherwise have its `&`
+    read as the end of `next`, and the team would land on a truncated page.
+    """
+    login_url = request.url_for("contest_login_get", slug=slug)
+    if safe_next:
+        login_url = login_url.include_query_params(next=safe_next)
+    return RedirectResponse(url=str(login_url), status_code=303)
+
+
 def _rate_limit_settings() -> AuthRateLimitSettings:
     """Build auth-throttle settings from Web config (one builder, shared with reconfirmation)."""
     return auth_rate_limit_settings()
@@ -390,6 +435,9 @@ async def logout(request: Request, flash: FlashDep) -> RedirectResponse:
         actor_user_id, actor_label = await _actor_from_token(request, session, token) if token else (None, None)
         if token:
             request.app.state.auth_service.logout(token)
+        # The one moment the seat is known to be released: do not leave the
+        # team status map showing it occupied until the presence TTL runs out.
+        await clear_contest_presence(request, actor_user_id)
         await record_request_security_event(
             session,
             request,

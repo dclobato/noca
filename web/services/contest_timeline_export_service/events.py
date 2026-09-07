@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,7 +27,7 @@ def build_clarification_events(
     users_by_id: dict[str, User],
     problems_by_id: dict[str, Problem],
 ) -> list[TimelineEvent]:
-    """Collect clarification and announcement events."""
+    """Collect clarification, acquisition, and announcement events."""
     events: list[TimelineEvent] = []
     sequence = 0
     ordered = sorted(clarifications, key=lambda item: (item.created_timestamp_seconds, item.created_at, item.id))
@@ -36,7 +36,9 @@ def build_clarification_events(
         problem = problems_by_id.get(clarification.problem_id or "")
         team = users_by_id.get(clarification.team_id)
         problem_reference = "the contest in general" if is_general else problem_ref(problem)
-        if clarification.question == "Announcement":
+        # The typed discriminator, not the ``question`` placeholder: a team is free
+        # to type the word "Announcement" into its own question.
+        if clarification.is_announcement:
             events.append(
                 TimelineEvent(
                     timestamp_seconds=clarification.created_timestamp_seconds,
@@ -62,8 +64,30 @@ def build_clarification_events(
         )
         sequence += 1
 
+        judge = users_by_id.get(clarification.judge_id or "")
+        # ``judge_id`` is only written when the clarification is answered, so an
+        # acquired but still open clarification has no persisted holder to name.
+        handler_actor = actor_label(judge) if clarification.answered_at is not None else "Judge"
+
+        if clarification.acquired_at is not None:
+            acquired_seconds = timestamp_or_fallback(
+                contest,
+                clarification.acquired_timestamp_seconds,
+                clarification.acquired_at,
+            )
+            events.append(
+                TimelineEvent(
+                    timestamp_seconds=acquired_seconds,
+                    created_at=clarification.acquired_at,
+                    sequence=sequence,
+                    actor=handler_actor,
+                    what=f"Judge acquires a clarification about {problem_reference}",
+                    kind=EventKind.CLARIFICATION_ACQUIRED,
+                )
+            )
+            sequence += 1
+
         if clarification.answered_at is not None:
-            judge = users_by_id.get(clarification.judge_id or "")
             answered_seconds = timestamp_or_fallback(
                 contest,
                 clarification.answered_timestamp_seconds,
@@ -74,13 +98,30 @@ def build_clarification_events(
                     timestamp_seconds=answered_seconds,
                     created_at=clarification.answered_at,
                     sequence=sequence,
-                    actor=actor_label(judge),
+                    actor=handler_actor,
                     what=f"Judge answers a clarification about {problem_reference}",
                     kind=EventKind.CLARIFICATION_ANSWERED,
                 )
             )
             sequence += 1
     return events
+
+
+def _task_phrases(task: Task, team_label: str, problem_reference: str) -> tuple[str, str]:
+    """Return the ``(created_actor, sentence template)`` pair for one task type.
+
+    The template carries a single ``{phase}`` placeholder so the issued,
+    acquired and concluded rows of one task read as the same sentence.
+    """
+    match task.type:
+        case TaskType.FIRST_BALLOON:
+            return "System", f"First balloon task {{phase}} for {team_label} on {problem_reference}"
+        case TaskType.BALLOON:
+            return "System", f"Balloon task {{phase}} for {team_label} on {problem_reference}"
+        case TaskType.PRINT:
+            return team_label, f"Print task {{phase}} for {problem_reference}"
+        case TaskType.SOS:
+            return team_label, "SOS task {phase}"
 
 
 def build_task_events(
@@ -90,7 +131,7 @@ def build_task_events(
     users_by_id: dict[str, User],
     problems_by_id: dict[str, Problem],
 ) -> list[TimelineEvent]:
-    """Collect task issue/completion events."""
+    """Collect task issue/acquisition/completion events."""
     events: list[TimelineEvent] = []
     sequence = 0
     ordered = sorted(tasks, key=lambda item: (item.created_timestamp_seconds, item.created_at, item.id))
@@ -99,23 +140,10 @@ def build_task_events(
         staff = users_by_id.get(task.staff_id or "")
         problem = problems_by_id.get(task.problem_id or "")
         problem_reference = problem_ref(problem) if task.problem_id is not None else "team help request"
-
-        if task.type in (TaskType.BALLOON, TaskType.FIRST_BALLOON):
-            created_actor = "System"
-            if task.type == TaskType.FIRST_BALLOON:
-                created_what = f"First balloon task is issued for {actor_label(team)} on {problem_reference}"
-                finished_what = f"{actor_label(team)} gets the first balloon for {problem_reference}"
-            else:
-                created_what = f"Balloon task is issued for {actor_label(team)} on {problem_reference}"
-                finished_what = f"{actor_label(team)} gets a balloon for {problem_reference}"
-        elif task.type == TaskType.PRINT:
-            created_actor = actor_label(team)
-            created_what = f"Team issues a print task for {problem_reference}"
-            finished_what = "Staff handles printout to a team"
-        else:
-            created_actor = actor_label(team)
-            created_what = "Team issues a SOS task"
-            finished_what = "Staff answers a SOS task"
+        created_actor, template = _task_phrases(task, actor_label(team), problem_reference)
+        # ``staff_id`` is only written when the task is finished, so an acquired
+        # but still open task has no persisted holder to name.
+        handler_actor = actor_label(staff) if task.finished_at is not None else "Staff"
 
         events.append(
             TimelineEvent(
@@ -123,7 +151,7 @@ def build_task_events(
                 created_at=task.created_at,
                 sequence=sequence,
                 actor=created_actor,
-                what=created_what,
+                what=template.format(phase="issued"),
                 kind=(
                     EventKind.BALLOON_ISSUED
                     if task.type in (TaskType.BALLOON, TaskType.FIRST_BALLOON)
@@ -133,6 +161,20 @@ def build_task_events(
         )
         sequence += 1
 
+        if task.acquired_at is not None:
+            acquired_seconds = timestamp_or_fallback(contest, task.acquired_timestamp_seconds, task.acquired_at)
+            events.append(
+                TimelineEvent(
+                    timestamp_seconds=acquired_seconds,
+                    created_at=task.acquired_at,
+                    sequence=sequence,
+                    actor=handler_actor,
+                    what=template.format(phase="acquired"),
+                    kind=EventKind.TASK_ACQUIRED,
+                )
+            )
+            sequence += 1
+
         if task.finished_at is not None:
             finished_seconds = timestamp_or_fallback(contest, task.finished_timestamp_seconds, task.finished_at)
             events.append(
@@ -140,8 +182,8 @@ def build_task_events(
                     timestamp_seconds=finished_seconds,
                     created_at=task.finished_at,
                     sequence=sequence,
-                    actor=actor_label(staff),
-                    what=finished_what,
+                    actor=handler_actor,
+                    what=template.format(phase="concluded"),
                     kind=EventKind.TASK_FINISHED,
                 )
             )

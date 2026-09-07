@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from shared.queue_schema import JudgeJob
+from shared.services.contest_report_cache import contest_report_generation_key
 from shared.services.scoreboard_cache import (
     scoreboard_final_key,
     scoreboard_frozen_key,
@@ -84,6 +85,7 @@ async def test_purge_removes_only_target_contest_runtime_state(valkey_client) ->
     await valkey_client.set(unrelated_workflow_lock, "unrelated")
 
     unrelated_scoreboards = (
+        contest_report_generation_key("contest-unrelated"),
         scoreboard_full_key("contest-unrelated"),
         scoreboard_public_key("contest-unrelated"),
         scoreboard_frozen_key("contest-unrelated"),

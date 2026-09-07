@@ -380,3 +380,20 @@
         transform: scale(1);
     }
 }
+
+/* A team that has not signed in since the contest started. The glyph is what
+   actually carries that on a projector at the back of a hall -- and what a
+   screen reader announces -- so the muted name is reinforcement only, and the
+   score cells keep full contrast: a no-show team's empty row is exactly what
+   the staff scanning the board are looking for. */
+.animator-col-team[data-team-absent] .animator-team-primary,
+.animator-col-team[data-team-absent] .animator-team-secondary {
+    color: var(--noca-on-surface-variant);
+}
+
+.animator-team-absent-icon {
+    font-size: 0.9em;
+    line-height: 1;
+    margin-inline-start: 0.35em;
+    vertical-align: -0.12em;
+}

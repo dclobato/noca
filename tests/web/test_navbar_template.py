@@ -40,6 +40,7 @@ NAVBAR_ENDPOINTS: dict[str, set[RoleEnum]] = {
     "contest_clarifications": {RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE, RoleEnum.TEAM},
     "contest_runs": {RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE, RoleEnum.TEAM},
     "contest_tasks": {RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.STAFF, RoleEnum.TEAM},
+    "contest_team_status": {RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF},
     "contest_reports": {RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE},
     "contest_solution_tests": {RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE},
     "view": {RoleEnum.ADMIN, RoleEnum.UBERADMIN},
@@ -350,7 +351,7 @@ def test_every_destination_is_visible_with_a_label_and_none_are_hidden_in_a_menu
     html = _render_nav(_user(RoleEnum.ADMIN), _contest())
 
     assert "dropdown" not in html
-    for label in ("Score", "Problems", "Clarifications", "Runs", "Tasks", "Reports", "Administration"):
+    for label in ("Score", "Problems", "Clarifications", "Runs", "Tasks", "Team status", "Reports", "Administration"):
         assert f">{label}</span>" in html
 
 

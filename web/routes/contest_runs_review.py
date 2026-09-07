@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from shared.enumerations import RoleEnum, Verdict
 from shared.queue_schema import JudgeJob, SubmissionEvent, VerdictEvent
-from shared.services.scoreboard_cache import invalidate_scoreboard_cache
+from shared.services.scoreboard_cache import invalidate_contest_result_caches
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.problem import Problem
@@ -122,6 +122,7 @@ async def submit(
         return RedirectResponse(url=f"/c/{slug}/runs", status_code=303)
 
     await ctx.session.commit()
+    await invalidate_contest_result_caches(request.app.state.valkey_runtime, str(ctx.contest.id))
     await enqueue_job(
         request.app.state.valkey_runtime,
         JudgeJob(
@@ -234,7 +235,7 @@ async def override_submission_verdict(
             update_kind="override",
         ),
     )
-    await invalidate_scoreboard_cache(request.app.state.valkey_runtime, str(ctx.contest.id))
+    await invalidate_contest_result_caches(request.app.state.valkey_runtime, str(ctx.contest.id))
 
     flash("Verdict overridden successfully.", FlashCategory.SUCCESS)
     return RedirectResponse(url=review_url, status_code=303)

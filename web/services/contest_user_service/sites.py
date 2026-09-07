@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -72,11 +72,21 @@ async def resolve_or_create_import_site(
 
 
 def build_user_export_row(user: User) -> dict[str, str]:
-    """Build one import-compatible export row for a contest user."""
+    """Build one import-compatible export row for a contest user.
+
+    Notes:
+        `allow_concurrent_login` is emitted **always**, not only when it is
+        false. The importer reads a missing field as "use the import's default",
+        so omitting the common `true` would make an exported roster arrive
+        carrying whatever the destination's upload checkbox happened to say --
+        which is precisely the silent policy change the round trip exists to
+        avoid.
+    """
     row: dict[str, str] = {
         "username": user.username,
         "fullname": user.fullname,
         "role": _ROLE_EXPORT_MAP[user.role],
+        "allow_concurrent_login": "true" if user.allow_concurrent_login else "false",
     }
     if user.email_normalizado:
         row["email"] = user.email_normalizado

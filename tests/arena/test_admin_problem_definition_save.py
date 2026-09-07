@@ -28,6 +28,7 @@ from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidato
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema.arena import arena_problems
 from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType
+from shared.services.problem_editor_header import arena_problem_editor_actions
 from shared.services.testcase_files import get_problem_testcase_dir
 from tests.arena._admin_problem_app import build_admin_app, create_language, create_user, login_token
 
@@ -523,10 +524,11 @@ async def test_the_editor_links_to_the_judgment_pages(session: AsyncSession) -> 
 
     assert response.status_code == 200
     assert f"/admin/problems/{problem_id}/judgment" in response.text
-    assert "Judgment data" in response.text
-    assert response.text.count('name="save_action"') == 2
+    assert response.text.count('name="save_action"') == 3
+    assert 'value="keep_editing"' in response.text
     assert 'value="enable"' in response.text
     assert 'value="disable"' in response.text
+    assert "Save and keep editing" in response.text
     assert "Save and enable" in response.text
     assert "Save and disable" in response.text
 
@@ -561,3 +563,153 @@ async def test_saving_the_definition_invalidates_the_public_export(session: Asyn
     public_after, artifact_after = await _generations(session, problem_id)
     assert public_after == public_before + 1
     assert artifact_after == artifact_before
+
+
+def test_arena_problem_editor_actions_order_and_variants() -> None:
+    """The definition editor places 'Save and keep editing' first, followed by enable and disable."""
+    actions = arena_problem_editor_actions()
+    assert len(actions) == 3
+    assert [a.label for a in actions] == ["Save and keep editing", "Save and enable", "Save and disable"]
+    assert [a.value for a in actions] == ["keep_editing", "enable", "disable"]
+    assert [a.variant for a in actions] == ["btn-secondary", "btn-primary", "btn-outline-danger"]
+    assert [a.icon for a in actions] == ["save", "visibility", "visibility_off"]
+
+
+@pytest.mark.asyncio
+async def test_save_and_keep_editing_disabled_problem(session: AsyncSession) -> None:
+    """'Save and keep editing' saves definition changes, keeps problem disabled, and redirects to edit page."""
+    client, judge_id = await _client(session, "arena-keep-editing-disabled@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form()
+            | {
+                "title": "Keep Editing Disabled",
+                "save_action": "keep_editing",
+                "active_tab": "statement",
+            },
+        )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"http://testserver/admin/problems/{problem_id}/edit")
+    assert "tab=statement" in location
+
+    reloaded = await _reload(session, problem_id)
+    assert reloaded.title == "Keep Editing Disabled"
+    assert reloaded.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_save_and_keep_editing_enabled_problem(session: AsyncSession) -> None:
+    """'Save and keep editing' on an enabled problem preserves the enabled state."""
+    client, judge_id = await _client(session, "arena-keep-editing-enabled@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=2)
+
+    # First enable the problem
+    async with client:
+        enable_resp = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Enabled Problem", "save_action": "enable"},
+        )
+        assert enable_resp.status_code == 303
+
+        reloaded = await _reload(session, problem_id)
+        assert reloaded.enabled is True
+
+        # Now save and keep editing
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form()
+            | {
+                "title": "Still Enabled After Keep Editing",
+                "save_action": "keep_editing",
+                "active_tab": "editorial",
+            },
+        )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"http://testserver/admin/problems/{problem_id}/edit")
+    assert "tab=editorial" in location
+
+    reloaded = await _reload(session, problem_id)
+    assert reloaded.title == "Still Enabled After Keep Editing"
+    assert reloaded.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_save_and_keep_editing_fails_if_enabled_problem_fails_gate(session: AsyncSession) -> None:
+    """An enabled problem that loses its judgeability conditions cannot be saved with keep_editing."""
+    client, judge_id = await _client(session, "arena-keep-editing-gate@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=1)
+
+    # Enable the problem
+    reloaded = await _reload(session, problem_id)
+    reloaded.enabled = True
+    await session.commit()
+
+    # Drop all test cases behind the problem's back
+    for case in await _cases(session, problem_id):
+        await session.delete(case)
+    await session.commit()
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Broken Enabled Problem", "save_action": "keep_editing"},
+        )
+
+    assert response.status_code == 422
+    assert "Cannot keep this problem enabled." in response.text
+
+
+@pytest.mark.asyncio
+async def test_save_and_keep_editing_preserves_query_filters(session: AsyncSession) -> None:
+    """'Save and keep editing' preserves return state filters, search, and next URL."""
+    client, judge_id = await _client(session, "arena-keep-editing-filters@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form()
+            | {
+                "title": "Preserved Filters",
+                "save_action": "keep_editing",
+                "active_tab": "statement",
+                "return_page": "3",
+                "return_per_page": "50",
+                "return_search": "binary search",
+                "return_sort_by": "title_asc",
+                "next_url": "/admin/problems?page=3",
+            },
+        )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"http://testserver/admin/problems/{problem_id}/edit?")
+    assert "tab=statement" in location
+    assert "page=3" in location
+    assert "per_page=50" in location
+    assert "search=binary+search" in location
+    assert "sort_by=title_asc" in location
+    assert "next=" in location
+
+
+@pytest.mark.asyncio
+async def test_invalid_save_action_returns_422(session: AsyncSession) -> None:
+    """An unknown save_action returns 422 with the expanded choice error message."""
+    client, judge_id = await _client(session, "arena-invalid-action@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"save_action": "bogus"},
+        )
+
+    assert response.status_code == 422
+    assert "Choose Save and keep editing, Save and enable, or Save and disable." in response.text

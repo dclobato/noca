@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -132,7 +132,7 @@ function verdict(id, code = "AC") {
   rail.observeSubmission({ submission_id: "s1", team_id: "t1", problem_id: "p1" });
   assert.strictEqual(container.hidden, false);
   assert.strictEqual(list.children.length, 1);
-  assert.strictEqual(list.children[0].textContent, "42\u2032alpha submitted A");
+  assert.strictEqual(list.children[0].textContent, "00:42alpha submitted A");
   assert.strictEqual(list.attributes["data-pace"], "short");
   assert.strictEqual(container.scrollLeft, container.scrollWidth);
 
@@ -159,17 +159,17 @@ function verdict(id, code = "AC") {
   ordinary.rail.observeVerdict(verdict("j-wa", "WA"));
   assert.strictEqual(eventItems(ordinary.list).length, 0, "verdict waits for its snapshot");
   ordinary.rail.reconcile(snapshot(), snapshot());
-  assert.strictEqual(ordinary.list.children[0].textContent, "42\u2032alpha got WA for A");
+  assert.strictEqual(ordinary.list.children[0].textContent, "00:42alpha got WA for A");
 
   const balloon = makeRail();
   balloon.rail.observeVerdict(verdict("j-ac"));
   balloon.rail.reconcile(snapshot(), snapshot({ solved: true }));
-  assert.strictEqual(balloon.list.children[0].textContent, "42\u2032alpha got balloon for A");
+  assert.strictEqual(balloon.list.children[0].textContent, "00:42alpha got balloon for A");
 
   const first = makeRail();
   first.rail.observeVerdict(verdict("j-first"));
   first.rail.reconcile(snapshot(), snapshot({ solved: true, first: true }));
-  assert.strictEqual(first.list.children[0].textContent, "42\u2032alpha is first solver for A");
+  assert.strictEqual(first.list.children[0].textContent, "00:42alpha is first solver for A");
 })();
 
 (function testBurstOrderingAndRedaction() {
@@ -183,9 +183,9 @@ function verdict(id, code = "AC") {
   assert.deepStrictEqual(
     list.children.map((item) => item.textContent),
     [
-      "42\u2032alpha got WA for A",
-      "42\u2032alpha is first solver for A",
-      "42\u2032alpha got WA for A",
+      "00:42alpha got WA for A",
+      "00:42alpha is first solver for A",
+      "00:42alpha got WA for A",
     ],
   );
 })();
@@ -239,7 +239,7 @@ function verdict(id, code = "AC") {
   rail.observeSubmission({ submission_id: "s1", team_id: "t1", problem_id: "p1" });
   assert.deepStrictEqual(
     list.children.map((item) => item.textContent),
-    ["42\u2032alpha submitted A"],
+    ["00:42alpha submitted A"],
     "the first real event replaces the placeholder",
   );
   assert.strictEqual(list.attributes["data-pace"], "short");
@@ -284,10 +284,10 @@ function verdict(id, code = "AC") {
   assert.deepStrictEqual(
     list.children.map((item) => item.textContent),
     [
-      "3\u2032alpha submitted A",
-      "5\u2032alpha got WA for A",
-      "7\u2032beta is first solver for B",
-      "9\u2032gamma got balloon for B",
+      "00:03alpha submitted A",
+      "00:05alpha got WA for A",
+      "00:07beta is first solver for B",
+      "00:09gamma got balloon for B",
     ],
     "the seed renders oldest first and drops unnameable entries",
   );
@@ -313,6 +313,57 @@ function verdict(id, code = "AC") {
   assert.strictEqual(container.attributes["data-live"], "true");
   rail.setLive(false);
   assert.strictEqual(container.attributes["data-live"], "false");
+})();
+
+(function testTeamsAreNamedByTheirFullName() {
+  // A projector audience reads the team's name, never its login, so both the
+  // seeded backlog and the live stream prefer `team_fullname`.
+  const container = new El("section");
+  const list = new El("ol");
+  const rail = events.createEventRail({
+    doc: doc,
+    container: container,
+    list: list,
+    now: () => Date.parse("2026-07-24T12:00:00Z"),
+    reducedMotion: { matches: false },
+  });
+  rail.configure({
+    start_time: "2026-07-24T11:18:00Z",
+    problems: [{ problem_id: "p1", label: "A" }],
+  });
+  const named = snapshot();
+  named.standings[0].team_fullname = "Alpha Team";
+  named.recent_events = [
+    {
+      key: "verdict:j1",
+      minute: 2,
+      kind: "first",
+      team_name: "beta",
+      team_fullname: "Beta Team",
+      problem_label: "B",
+    },
+  ];
+  rail.reconcile(null, named);
+  rail.observeSubmission({ submission_id: "s1", team_id: "t1", problem_id: "p1" });
+  assert.deepStrictEqual(
+    list.children.map((item) => item.textContent),
+    ["00:02Beta Team is first solver for B", "00:42Alpha Team submitted A"],
+    "the rail names teams by their full name in both the seed and the live stream",
+  );
+})();
+
+(function testFormatEventTime() {
+  assert.strictEqual(events.formatEventTime(0), "00:00");
+  assert.strictEqual(events.formatEventTime(3), "00:03");
+  assert.strictEqual(events.formatEventTime(42), "00:42");
+  assert.strictEqual(events.formatEventTime(59), "00:59");
+  assert.strictEqual(events.formatEventTime(60), "01:00");
+  assert.strictEqual(events.formatEventTime(137), "02:17");
+  assert.strictEqual(events.formatEventTime(300), "05:00");
+  assert.strictEqual(events.formatEventTime(-10), "00:00");
+  assert.strictEqual(events.formatEventTime(NaN), "00:00");
+  assert.strictEqual(events.formatEventTime(null), "00:00");
+  assert.strictEqual(events.formatEventTime("42"), "00:42");
 })();
 
 console.log("animator events contract: all assertions passed");

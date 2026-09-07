@@ -88,7 +88,7 @@
                     {% else %}
                         <div class="card-body">
                             <div class="p-3 text-center text-muted">
-                                {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                                {{ render_icon(icon="auto_stories_off", classes=["display-6", "d-block", "mb-2"]) }}
                                 No statement available for this problem.
                             </div>
                         </div>
@@ -184,7 +184,7 @@
             </div>
         </main>
         <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
-        {% if has_md or has_tc_explanation %}
+        {% if has_md or has_explanation_markdown %}
             <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
                     defer></script>
             <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
@@ -204,7 +204,6 @@
             <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
                     defer></script>
         {% endif %}
-        {% if has_tc_explanation %}{% endif %}
         <script src="{{ request.url_for('static_shared_js', path='print-page.js') }}?v={{ app_version }}"
                 defer></script>
     </body>

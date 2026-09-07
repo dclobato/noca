@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -120,6 +120,36 @@ users = Table(
         nullable=True,
         index=True,
         comment="ID do usuário uberadmin que criou este usuário",
+    ),
+    Column(
+        "allow_concurrent_login",
+        Boolean(),
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+        comment="When false, the user is held to one session from one client IP once the contest has started",
+    ),
+    Column(
+        "session_epoch",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Bumped by every login; tokens carrying an older epoch are rejected once the contest has started",
+    ),
+    Column(
+        "locked_ip",
+        String(45),
+        nullable=True,
+        default=None,
+        comment="Client IP the user's sessions are bound to, or NULL while unbound",
+    ),
+    Column(
+        "locked_at",
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="Timestamp when locked_ip was bound",
     ),
     _created_at_column(),
     _updated_at_column(),

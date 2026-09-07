@@ -114,6 +114,18 @@ class ContestRecord:
         """
         return ensure_utc(now) >= self.start_time_utc
 
+    def is_running_at(self, now: datetime) -> bool:
+        """Whether the contest is underway at wall-clock ``now``.
+
+        Args:
+            now: Reference instant (timezone-aware, or naive and assumed UTC).
+
+        Returns:
+            True between the start instant and the end instant, inclusive.
+        """
+        reference = ensure_utc(now)
+        return self.start_time_utc <= reference <= self.end_time_utc
+
     def is_frozen_at(self, now: datetime) -> bool:
         """Whether the public scoreboard is frozen at wall-clock ``now``.
 

@@ -24,6 +24,7 @@ from shared.services.security_events_export import csv_filename, stream_security
 from web.database import get_db
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
+from web.services.export_rate_limit import web_uberadmin_export_rate_limit
 
 router = APIRouter(prefix="/uberadmin", tags=["uberadmin"])
 
@@ -82,6 +83,7 @@ async def security_events(
     "/security-events.csv",
     response_class=StreamingResponse,
     name="uberadmin_security_events_csv",
+    dependencies=[Depends(web_uberadmin_export_rate_limit)],
 )
 async def security_events_csv(
     request: Request,

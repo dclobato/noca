@@ -23,7 +23,7 @@
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
         </div>
         {% include "contest/clarifications_list.html" %}
-        {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %}
+        {% if not contest.is_past and (current_user.role == RoleEnum.TEAM.value or contest.is_running) %}
             <div class="mt-2 mb-4">
                 <small class="text-muted small">Will update in <span id="refresh-timer"
        class="noca-tabular-nums"

@@ -14,6 +14,12 @@ import pytest
 
 from shared.services.rejudge_cooldown import reset_local_windows
 from web.config import settings as web_settings
+from web.services.export_rate_limit import (
+    ADMIN_EXPORT_LIMITER,
+    CONTEST_REPORT_LIMITER,
+    TEAM_DOWNLOAD_LIMITER,
+    UBERADMIN_EXPORT_LIMITER,
+)
 from web.services.password_confirm_throttle import PASSWORD_CONFIRM_LIMITER
 from web.services.problem_export_rate_limit import PROBLEM_EXPORT_LIMITER
 from web.services.public_rate_limits import LIVE_FEED_LIMITER, PROBLEM_SET_LIMITER
@@ -51,6 +57,10 @@ def _reset_public_fallback_limiters() -> Generator[None]:
     PASSWORD_CONFIRM_LIMITER._buckets.clear()
     USER_READ_LIMITER._buckets.clear()
     PROBLEM_EXPORT_LIMITER._buckets.clear()
+    ADMIN_EXPORT_LIMITER._buckets.clear()
+    CONTEST_REPORT_LIMITER._buckets.clear()
+    TEAM_DOWNLOAD_LIMITER._buckets.clear()
+    UBERADMIN_EXPORT_LIMITER._buckets.clear()
     reset_local_windows()
     yield
     PROBLEM_SET_LIMITER._buckets.clear()
@@ -58,3 +68,7 @@ def _reset_public_fallback_limiters() -> Generator[None]:
     PASSWORD_CONFIRM_LIMITER._buckets.clear()
     USER_READ_LIMITER._buckets.clear()
     PROBLEM_EXPORT_LIMITER._buckets.clear()
+    ADMIN_EXPORT_LIMITER._buckets.clear()
+    CONTEST_REPORT_LIMITER._buckets.clear()
+    TEAM_DOWNLOAD_LIMITER._buckets.clear()
+    UBERADMIN_EXPORT_LIMITER._buckets.clear()

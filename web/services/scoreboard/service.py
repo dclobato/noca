@@ -19,7 +19,7 @@ from sqlalchemy.future import select
 
 from shared.enumerations import JudgmentStatus, RoleEnum
 from shared.services.scoreboard_cache import (
-    invalidate_scoreboard_cache,
+    invalidate_contest_result_caches,
     scoreboard_final_key,
     scoreboard_frozen_key,
     scoreboard_full_key,
@@ -153,7 +153,7 @@ class ScoreboardService:
 
     async def invalidate_cache(self, contest_id: str, valkey: Any) -> None:
         """Invalidate the short-lived scoreboard cache keys for a contest."""
-        await invalidate_scoreboard_cache(valkey, contest_id)
+        await invalidate_contest_result_caches(valkey, contest_id)
 
     def _compute_icpc(
         self,

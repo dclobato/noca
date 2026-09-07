@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.enumerations import RoleEnum
 from shared.services.admin_audit import record_admin_action
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_helpers import _credentials_payload, _html, _render_download_json
 from web.services.assorted_utils import slugfy
@@ -24,13 +26,14 @@ from web.services.contest_user_service import (
     validate_edit_credentials_form,
     validate_edit_user_form,
 )
+from web.services.export_rate_limit import web_admin_export_rate_limit
 from web.services.profile_service import validate_fullname, validate_new_password
 from web.services.user_media_service import get_user_media
 
 router = APIRouter(prefix="/c/{slug}/admin/users", tags=["contest_admin_users"])
 
 
-@router.get("/export.json")
+@router.get("/export.json", dependencies=[Depends(web_admin_export_rate_limit)])
 async def export_users(
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> Response:
@@ -69,6 +72,9 @@ async def edit_user_form(
                 "is_locked": ctx.contest.is_past,
                 "sites": sites,
                 "user_media": user_media,
+                # Only a team can be governed by the session policy, so only a
+                # team's form shows -- and therefore submits -- the control.
+                "is_team": edit_user_obj.role is RoleEnum.TEAM,
             },
         )
     )
@@ -85,6 +91,7 @@ async def edit_user_submit(
     password: str = Form(""),
     site_id: str = Form(""),
     location: str = Form(""),
+    restrict_session: str = Form(""),
 ) -> Response:
     edit_user_obj = await get_user_in_contest(ctx.session, ctx.contest, user_id)
     if edit_user_obj is None:
@@ -150,6 +157,10 @@ async def edit_user_submit(
             email=normalized_email,
             site_id=submitted_site_id,
             location=submitted_location,
+            # Only teams carry the control, so only for a team does an absent
+            # checkbox mean "permissive"; for anyone else it means the form
+            # never asked, and the stored flag is left where it is.
+            allow_concurrent_login=(not restrict_session) if edit_user_obj.role is RoleEnum.TEAM else None,
         )
     except HTTPException as exc:
         flash(str(exc.detail), FlashCategory.WARNING)
@@ -163,6 +174,7 @@ async def edit_user_submit(
         flash("Could not update user. Please review the submitted data and try again.", FlashCategory.WARNING)
         return RedirectResponse(url=redirect_url, status_code=303)
 
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     flash("User updated successfully.", FlashCategory.SUCCESS)
     if actual_password is not None:
         flash(f"Password changed. New password: {actual_password}", FlashCategory.INFO)
@@ -193,5 +205,6 @@ async def remove_user_route(
         detail=f"contest={ctx.contest.login_slug}",
     )
     await ctx.session.commit()
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     flash("User removed from contest.", FlashCategory.SUCCESS)
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}/admin/users", status_code=303)

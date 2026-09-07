@@ -229,6 +229,36 @@ async def test_judge_acquires_clarification_successfully(
     assert lock.holder_id == judge_user.id
 
 
+async def test_acquire_persists_acquisition_time_and_survives_answer(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    judge_user: User,
+    contest_problem: Problem,
+) -> None:
+    """The acquisition instant is durable, so an answered clarification reports a real service time.
+
+    Mirrors the task-service regression: the acquisition instant used to live
+    only on the Valkey lock, which `answer_clarification` releases before the
+    row can ever be read back.
+    """
+    clari = await create_clarification(
+        session, running_contest, team_user, problem_id=contest_problem.id, question="Service time?"
+    )
+    assert clari.acquired_at is None
+
+    acquired = await acquire_clarification(session, running_contest, judge_user, clari)
+    assert acquired.acquired_at is not None
+    assert acquired.acquired_timestamp_seconds is not None
+
+    answered = await answer_clarification(
+        session, running_contest, judge_user, clari, answer="42", is_contest_public=False
+    )
+    assert answered.answered_at is not None
+    assert answered.acquired_at is not None
+    assert answered.acquired_at <= answered.answered_at
+
+
 async def test_second_judge_cannot_acquire_already_acquired_clarification(
     session: AsyncSession,
     running_contest: Contest,
@@ -674,6 +704,8 @@ async def test_reaper_auto_answers_open_clarification_for_past_contest(
         problem_id=stopped_problem.id,
         question="Reap me.",
         created_timestamp_seconds=minutes_from_contest_start(stopped_contest.start_time, stopped_contest.end_time) * 60,
+        acquired_at=datetime.now(UTC) - timedelta(hours=3),
+        acquired_timestamp_seconds=120,
     )
     session.add(clari)
     await session.flush()
@@ -683,6 +715,10 @@ async def test_reaper_auto_answers_open_clarification_for_past_contest(
     assert concluded == 1
     assert clari.judge_id == owner.id
     assert clari.answer == AUTO_ANSWER_PLACEHOLDER
+    # An administrative close is not a handled service: a clarification
+    # abandoned hours earlier must not report a multi-hour service time.
+    assert clari.acquired_at is None
+    assert clari.acquired_timestamp_seconds is None
     assert clari.answered_at is not None
 
 

@@ -89,6 +89,7 @@ from web.routes.contest_admin_reports import router as contest_admin_reports_rou
 from web.routes.contest_admin_user import router as contest_admin_user_router
 from web.routes.contest_admin_user_batch import router as contest_admin_user_batch_router
 from web.routes.contest_admin_user_edit import router as contest_admin_user_edit_router
+from web.routes.contest_admin_user_session import router as contest_admin_user_session_router
 from web.routes.contest_clarifications import router as contest_clarifications_router
 from web.routes.contest_clarifications_admin import router as contest_clarifications_admin_router
 from web.routes.contest_clarifications_judge import router as contest_clarifications_judge_router
@@ -107,6 +108,7 @@ from web.routes.contest_submissions_review import router as contest_submissions_
 from web.routes.contest_tasks import router as contest_tasks_router
 from web.routes.contest_tasks_source import router as contest_tasks_source_router
 from web.routes.contest_tasks_staff import router as contest_tasks_staff_router
+from web.routes.contest_team_status import router as contest_team_status_router
 from web.routes.generaluser_dashboard import router as generaluser_dashboard_router
 from web.routes.health import router as health_router
 from web.routes.problem_set import router as problem_set_router
@@ -124,6 +126,7 @@ from web.routes.user_media import router as user_media_router
 from web.services.assorted_utils import contest_minutes, contest_verdict_badge_class, format_site_identity
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.services.clarification_reaper import run_clarification_reaper
+from web.services.session_lock_reaper import run_session_lock_reaper
 from web.services.task_reaper import run_task_reaper
 from web.services.valkey_service import ValkeyRuntime
 from web.template_globals import register_template_globals
@@ -202,6 +205,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("- Valkey runtime started")
     app.state.clarification_reaper_stop = asyncio.Event()
     app.state.clarification_reaper_task = None
+    app.state.session_lock_reaper_stop = asyncio.Event()
+    app.state.session_lock_reaper_task = None
     app.state.task_reaper_stop = asyncio.Event()
     app.state.task_reaper_task = None
     app.state.security_events_reaper_stop = asyncio.Event()
@@ -324,6 +329,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     else:
         logger.warning("- Clarification reaper disabled")
 
+    if settings.ENABLE_SESSION_LOCK_REAPER:
+        poll_interval_seconds = settings.SESSION_LOCK_REAPER_INTERVAL_SECONDS
+        app.state.session_lock_reaper_task = asyncio.create_task(
+            run_session_lock_reaper(
+                app.state.db_session,
+                poll_interval_seconds=poll_interval_seconds,
+                stop_event=app.state.session_lock_reaper_stop,
+                logger=logger,
+            ),
+            name="session-lock-reaper",
+        )
+        logger.info("- Session-lock reaper enabled (interval=%ss)", poll_interval_seconds)
+    else:
+        logger.warning("- Session-lock reaper disabled")
+
     if settings.ENABLE_TASK_REAPER:
         poll_interval_seconds = settings.TASK_REAPER_INTERVAL_SECONDS
         app.state.task_reaper_task = asyncio.create_task(
@@ -417,6 +437,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.clarification_reaper_stop.set()
         await reaper_task
         logger.info("Clarification reaper stopped")
+
+    session_lock_reaper_task = app.state.session_lock_reaper_task
+    if session_lock_reaper_task is not None:
+        app.state.session_lock_reaper_stop.set()
+        await session_lock_reaper_task
+        logger.info("Session-lock reaper stopped")
 
     task_reaper_task = app.state.task_reaper_task
     if task_reaper_task is not None:
@@ -563,6 +589,7 @@ app.include_router(contest_submissions_files_router)
 app.include_router(contest_tasks_router)
 app.include_router(contest_tasks_staff_router)
 app.include_router(contest_tasks_source_router)
+app.include_router(contest_team_status_router)
 app.include_router(contest_reports_router)
 app.include_router(contest_solution_tests_router)
 app.include_router(contest_admin_problem_new_router)
@@ -580,6 +607,7 @@ app.include_router(contest_admin_problem_interactions_router)
 app.include_router(contest_admin_user_router)
 app.include_router(contest_admin_user_batch_router)
 app.include_router(contest_admin_user_edit_router)
+app.include_router(contest_admin_user_session_router)
 app.include_router(contest_admin_router)
 app.include_router(contest_admin_animator_router)
 app.include_router(contest_admin_metadata_router)

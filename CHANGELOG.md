@@ -4,6 +4,78 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [20.0.0] - 2026-09-07
+
+### ⚠ Breaking Changes
+
+- **web,arena:** Put a per-actor budget on every heavy export and report
+
+  the routes above answer 429 with Retry-After once a
+  per-actor budget is spent. Eighteen new settings
+  (NOCA_WEB_{ADMIN_EXPORT,CONTEST_REPORT,TEAM_DOWNLOAD,UBERADMIN_EXPORT}_RATE_LIMIT_*
+  and NOCA_ARENA_{ADMIN_EXPORT,TEACHER_REPORT}_RATE_LIMIT_*) size or disable
+  each budget; all default to enabled.
+- **web,shared:** Add the team session binding columns
+
+  contest backup archives move to format version 6, the
+  only version this server restores. A version 5 archive is refused with a
+  message naming the supported version. Restore it with the release that
+  wrote it, or re-export the contest before upgrading.
+- **web,shared,animator:** Name the marker for what it now means
+
+### Features
+
+- **[BREAKING]** **web,arena:** Put a per-actor budget on every heavy export and report
+- **web,animator:** Mark teams that never signed in to a running contest
+- **[BREAKING]** **web,shared:** Add the team session binding columns
+- **web:** Add the team session login policy module
+- **web:** Authorize every contest login through the session policy
+- **web:** Enforce the session policy on every authenticated request
+- **web:** Give organisers the controls for the team session policy
+- **web:** Release the IP bindings of contests that have ended
+- **web:** Release a team's IP binding when the session rule is lifted
+- **web:** Add current-time marker to contest timeline
+- **web,shared:** Carry the client address in the presence marker and clear it on logout
+- **web:** Add the team status board for the venue staff
+- **web:** Report task and clarification acquisitions in the events export
+- **web:** Add Previous/Next navigation to the problem detail page
+- **animator:** Name teams by full name on the activity marquee
+- **arena:** Add "Save and keep editing" button to the problem definition editor
+- **web:** Limit bucket count to 30 on reports runs by time chart
+
+### Bug Fixes
+
+- **shared:** Render a sample interaction's explanation as Markdown
+- **tests:** Make the Arena problem-search planner assertions deterministic
+- **web:** Fence the session bind on the epoch and close the legacy-token grace
+- **animator:** Gate every snapshot applier on one shared version
+- **web,shared:** Mark a team absent only when it is also not present
+- **web:** Let the team status fold-outs swap in place and poll by path
+- **shared,web:** Break scoreboard ties on the second, not the minute
+- **web:** Cache reports and stream exports
+- **web:** Hide the timeline "Now" marker outside the contest window
+- **web:** Persist task/clarification acquisition time; add queue time everywhere
+- **web:** Allow inline PDF embedding and fix missing statement icon
+- **web:** Make sample test cases visible in both light and dark mode
+- **autojudge:** Stop the run watchdog from killing healthy sandboxes
+
+### Performance
+
+- **shared:** Memoize the sample problem package on both import pages
+
+### Refactoring
+
+- **[BREAKING]** **web,shared,animator:** Name the marker for what it now means
+- **web:** Move Runs by Time next to the Problem Race
+
+### Documentation
+
+- **chore:** Reformat legal docs
+- **architecture:** Split ARCHITECTURE.md into an overview and per-module files
+- Catalogue the Valkey caches
+
+
+
 ## [19.0.0] - 2026-09-04
 
 ### ⚠ Breaking Changes

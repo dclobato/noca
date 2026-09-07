@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,7 +13,9 @@ from uuid import uuid4
 import pytest
 import valkey.asyncio as aivalkey
 
+from shared.services.contest_report_cache import contest_report_generation_key
 from shared.services.scoreboard_cache import (
+    invalidate_contest_result_caches,
     invalidate_scoreboard_cache,
     scoreboard_final_key,
     scoreboard_frozen_key,
@@ -27,6 +29,7 @@ class _FakeAsyncValkey:
 
     def __init__(self, *, fail: bool = False) -> None:
         self.deleted: list[str] = []
+        self.values: dict[str, str] = {}
         self._fail = fail
 
     async def delete(self, *keys: str) -> int:
@@ -34,6 +37,11 @@ class _FakeAsyncValkey:
             raise OSError("connection refused")
         self.deleted.extend(keys)
         return len(keys)
+
+    async def set(self, key: str, value: str, *, ex: int | None = None) -> None:
+        """Record a string value; expiry is irrelevant to this test fake."""
+        del ex
+        self.values[key] = value
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +108,17 @@ async def test_invalidate_swallows_exception() -> None:
     fake = _FakeAsyncValkey(fail=True)
     # Must not raise even though the underlying delete fails.
     await invalidate_scoreboard_cache(fake, str(uuid4()))
+
+
+async def test_result_invalidation_deletes_scoreboards_and_rotates_report_generation() -> None:
+    fake = _FakeAsyncValkey()
+    cid = str(uuid4())
+
+    await invalidate_contest_result_caches(fake, cid)
+
+    assert scoreboard_full_key(cid) in fake.deleted
+    assert scoreboard_public_key(cid) in fake.deleted
+    assert fake.values[contest_report_generation_key(cid)]
 
 
 async def test_invalidate_logs_warning_on_error(caplog: pytest.LogCaptureFixture) -> None:

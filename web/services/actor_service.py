@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.enumerations import RoleEnum
 from web.models import Contest, UberAdmin, User
 from web.services.htmx_redirect_service import build_auth_redirect_exception
+from web.services.session_guard import enforce_session_policy, load_request_contest_user
 from web.services.session_service import (
     build_session_auth_redirect_exception,
     get_validated_auth_token,
@@ -57,10 +58,12 @@ async def get_actor_from_token(
     elif result.aud in [role.value for role in ALL_CONTEST_ROLES]:
         if (result.extra_data or {}).get("contest_id") != contest.id:
             raise build_auth_redirect_exception(request, "/contests")
-        user = (
-            await session.execute(select(User).where(User.username == result.sub, User.contest_id == contest.id))
-        ).scalar_one_or_none()
+        user = await load_request_contest_user(request, session, username=result.sub, contest_id=contest.id)
         if user:
+            # Defensive: the global dependency has already applied the policy to
+            # this request, and the verdict is cached, so this costs nothing --
+            # but a route reached some other way is still governed.
+            await enforce_session_policy(request, session)
             mark_auth_refresh_eligible(request)
             return user
 

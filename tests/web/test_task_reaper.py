@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum, TaskType
@@ -108,6 +110,8 @@ async def test_conclude_finished_contest_tasks_reassigns_acquired_task_to_owner(
         source_code="",
         source_hash="0" * 64,
         source_size_bytes=0,
+        acquired_at=datetime.now(UTC) - timedelta(hours=3),
+        acquired_timestamp_seconds=120,
     )
     session.add(task)
     await session.flush()
@@ -117,6 +121,10 @@ async def test_conclude_finished_contest_tasks_reassigns_acquired_task_to_owner(
     assert concluded == 1
     assert task.staff_id == owner.id
     assert task.finished_at is not None
+    # An administrative close is not a handled service: a task abandoned
+    # hours earlier must not report a multi-hour service time.
+    assert task.acquired_at is None
+    assert task.acquired_timestamp_seconds is None
 
 
 async def test_conclude_finished_contest_tasks_skips_contest_without_owner(

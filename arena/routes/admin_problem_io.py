@@ -25,6 +25,7 @@ from starlette.background import BackgroundTask
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
+from arena.dependencies.export_rate_limit import arena_admin_export_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service
 from shared.enumerations import ArenaRole
@@ -36,7 +37,7 @@ from shared.services.problem_package.upload import (
     spool_upload,
     temporary_package_path,
 )
-from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
+from shared.services.sample_problem_package import sample_problem_package_response
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -73,18 +74,12 @@ async def admin_problem_import_form(
 
 @router.get("/problems/import/sample", name="arena_admin_problem_sample_package")
 async def admin_problem_sample_package(
+    request: Request,
     current_user: ArenaUser = Depends(require_arena_problem_editor),
 ) -> Response:
-    """Download the reference \"A + B\" problem package."""
+    """Download the reference "A + B" problem package (memoized per process, `304`-aware)."""
     del current_user
-    with temporary_package_path() as destination:
-        await anyio.to_thread.run_sync(build_sample_problem_package, destination)
-    return FileResponse(
-        destination,
-        media_type="application/zip",
-        filename=SAMPLE_PACKAGE_FILENAME,
-        background=BackgroundTask(destination.unlink, missing_ok=True),
-    )
+    return await sample_problem_package_response(request)
 
 
 @router.post("/problems/import", name="arena_admin_problem_import_submit")
@@ -172,7 +167,11 @@ async def admin_problem_import_submit(
     )
 
 
-@router.get("/problems/{problem_id}/export", name="arena_admin_problem_export")
+@router.get(
+    "/problems/{problem_id}/export",
+    name="arena_admin_problem_export",
+    dependencies=[Depends(arena_admin_export_rate_limit)],
+)
 async def admin_problem_export(
     request: Request,
     problem_id: str,

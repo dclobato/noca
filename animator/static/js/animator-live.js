@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -34,17 +34,41 @@
   // applied only when it is the newest completed request *and* its version is not
   // older than the last applied snapshot, so a late-finishing older fetch or an
   // out-of-order version is dropped.
-  function createRefreshCoordinator(fetchSnapshot, applySnapshot) {
+  // The board has more than one thing fetching /snapshot at once: the live
+  // transport, and the timers that poll for a release, for the start instant,
+  // and for a sign-in. Only the transport went through the coordinator, so a
+  // slow response from any of the others could land on top of a newer snapshot
+  // and roll the standings backwards. A gate is therefore shared by every
+  // applying path, and the coordinator uses the same one rather than keeping a
+  // second notion of "newer" that could disagree with it.
+  function createSnapshotGate() {
+    var appliedVersion = null;
+
+    return {
+      // Records the snapshot as applied and answers whether it may be. A
+      // snapshot with no version is always accepted -- it carries nothing to
+      // order it by -- and an equal version is the same snapshot, so applying
+      // it again is a no-op rather than a regression.
+      accept: function (snapshot) {
+        // ISO-8601 UTC strings compare lexicographically in chronological order.
+        var candidate = snapshot ? snapshot.version : undefined;
+        if (appliedVersion !== null && candidate !== undefined && candidate < appliedVersion) {
+          return false;
+        }
+        if (candidate !== undefined) {
+          appliedVersion = candidate;
+        }
+        return true;
+      },
+    };
+  }
+
+  function createRefreshCoordinator(fetchSnapshot, applySnapshot, sharedGate) {
     var seq = 0;
     var appliedSeq = 0;
-    var appliedVersion = null;
+    var gate = sharedGate || createSnapshotGate();
     var inFlight = false;
     var queued = false;
-
-    function versionOlder(candidate) {
-      // ISO-8601 UTC strings compare lexicographically in chronological order.
-      return appliedVersion !== null && candidate !== undefined && candidate < appliedVersion;
-    }
 
     function run() {
       inFlight = true;
@@ -52,12 +76,8 @@
       Promise.resolve()
         .then(fetchSnapshot)
         .then(function (snapshot) {
-          var version = snapshot ? snapshot.version : undefined;
-          if (mySeq > appliedSeq && !versionOlder(version)) {
+          if (mySeq > appliedSeq && gate.accept(snapshot)) {
             appliedSeq = mySeq;
-            if (version !== undefined) {
-              appliedVersion = version;
-            }
             applySnapshot(snapshot, mySeq);
           }
         })
@@ -323,6 +343,7 @@
     STATUS_LIVE: STATUS_LIVE,
     STATUS_RECONNECTING: STATUS_RECONNECTING,
     STATUS_POLLING: STATUS_POLLING,
+    createSnapshotGate: createSnapshotGate,
     createRefreshCoordinator: createRefreshCoordinator,
     createPendingFlashQueue: createPendingFlashQueue,
     createConnectionController: createConnectionController,

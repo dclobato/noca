@@ -13,6 +13,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from shared.timing import compute_timestamp_seconds
 from web.models._base import _utcnow
 from web.models.contest import Contest, Task
 from web.models.problem import Problem
@@ -76,7 +77,12 @@ async def conclude_finished_contest_tasks(
 
         task.staff_id = contest.owner_user_id
         task.finished_at = normalize_now_for_reference(current_time, task.created_at)
-        task.finished_timestamp_seconds = max(0, int((task.finished_at - contest.start_time).total_seconds()))
+        task.finished_timestamp_seconds = compute_timestamp_seconds(contest.start_time, task.finished_at)
+        # An administrative close is not a handled service: clearing the
+        # acquisition here keeps a task abandoned hours earlier from reporting
+        # a multi-hour service time against whoever last held it.
+        task.acquired_at = None
+        task.acquired_timestamp_seconds = None
         concluded += 1
 
     if concluded > 0:

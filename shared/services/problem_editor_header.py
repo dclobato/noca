@@ -151,3 +151,41 @@ def publish_state_actions(*, disabled: bool = False) -> tuple[EditorAction, ...]
             disabled=disabled,
         ),
     )
+
+
+def arena_problem_editor_actions(*, disabled: bool = False) -> tuple[EditorAction, ...]:
+    """Return the submitters for the Arena problem definition editor.
+
+    Places 'Save and keep editing' first so an author can save incremental work
+    without leaving the page, followed by the publish-state submitters ('Save and
+    enable', 'Save and disable').
+
+    Args:
+        disabled: Whether the submitters are shown unusable.
+
+    Returns:
+        tuple[EditorAction, ...]: The definition editor submitters in display order.
+    """
+    return (
+        EditorAction(
+            label="Save and keep editing",
+            icon="save",
+            variant="btn-secondary",
+            value="keep_editing",
+            disabled=disabled,
+        ),
+        EditorAction(
+            label="Save and enable",
+            icon="visibility",
+            variant="btn-primary",
+            value="enable",
+            disabled=disabled,
+        ),
+        EditorAction(
+            label="Save and disable",
+            icon="visibility_off",
+            variant="btn-outline-danger",
+            value="disable",
+            disabled=disabled,
+        ),
+    )

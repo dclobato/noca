@@ -46,6 +46,7 @@ __all__ = [
     "USER_READ_LIMITER",
     "arena_user_read_rate_limit",
     "arena_user_poll_rate_limit",
+    "arena_user_key",
     "user_read_policy",
 ]
 
@@ -70,8 +71,13 @@ def user_read_policy() -> RateLimitPolicy:
     )
 
 
-def _arena_user_key(request: Request) -> str | None:
-    """Return the requester's Arena account id, or ``None`` when anonymous."""
+def arena_user_key(request: Request) -> str | None:
+    """Return the requester's Arena account id, or ``None`` when anonymous.
+
+    Shared with the other per-user Arena limiters so every budget counts the
+    same identity; Arena has one identity table with UUID ids, so the bare
+    subject is already unambiguous.
+    """
     validation = getattr(request.state, "validated_token", None)
     user_id = getattr(validation, "sub", None) if validation is not None else None
     return str(user_id) if user_id else None
@@ -79,7 +85,7 @@ def _arena_user_key(request: Request) -> str | None:
 
 arena_user_read_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rate_limit_dependency(
     policy_getter=user_read_policy,
-    user_key_getter=_arena_user_key,
+    user_key_getter=arena_user_key,
     detail=USER_READ_DETAIL,
     fallback_limiter=USER_READ_LIMITER,
 )
@@ -89,7 +95,7 @@ arena_user_read_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rat
 # state-changing routes inherit the read ceiling from their router.
 arena_user_poll_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rate_limit_dependency(
     policy_getter=user_read_policy,
-    user_key_getter=_arena_user_key,
+    user_key_getter=arena_user_key,
     detail=USER_READ_DETAIL,
     fallback_limiter=USER_READ_LIMITER,
     methods=frozenset({"POST"}),

@@ -148,10 +148,13 @@ class TeamStanding:
         problems_solved: Number of solved problems.
         total_time: Total ICPC time, including attempt penalties.
         problems: Problem results keyed by display label.
-        last_accepted_minutes: Contest minute of the team's *latest* accepted
+        last_accepted_seconds: Contest *second* of the team's *latest* accepted
             submission, or ``None`` when the team solved nothing. It is the
             third ranking key, applied only to teams tied on solved count and
-            total time.
+            total time. Everything else on the scoreboard -- solve times,
+            penalties, total time -- stays in truncated ICPC minutes; only this
+            tie-break reads the finer resolution, so two teams whose last solves
+            land in the same minute are still separated by the earlier one.
     """
 
     rank: int
@@ -161,7 +164,7 @@ class TeamStanding:
     problems_solved: int
     total_time: int
     problems: dict[str, ProblemResult]
-    last_accepted_minutes: int | None = None
+    last_accepted_seconds: int | None = None
 
 
 @dataclass
@@ -196,13 +199,15 @@ _NO_LAST_ACCEPTED = sys.maxsize
 def standing_score_key(standing: TeamStanding) -> tuple[int, int, int]:
     """Return the canonical ICPC ranking key for one standing.
 
-    The key is ``(-problems_solved, total_time, last_accepted_minutes)``: more
-    solves first, then less total time, then the earlier final solve. This
+    The key is ``(-problems_solved, total_time, last_accepted_seconds)``: more
+    solves first, then less total time, then the earlier final solve. The first
+    two components are ICPC minutes; the third is seconds, so teams that tie on
+    the minute of their last solve are still ordered by the earlier one. This
     module is the single owner of that identity -- ``compute_icpc`` both orders
     standings with it and decides shared ranks by comparing it, so the sort and
     the tie test cannot disagree about what makes two teams equal.
 
-    A team that solved nothing has no last accepted minute and sorts last
+    A team that solved nothing has no last accepted second and sorts last
     within its group. Only teams tied at zero solves and zero total time can
     reach that branch, so the substituted sentinel is uniform wherever it
     applies and never orders one scoring team ahead of another.
@@ -213,7 +218,7 @@ def standing_score_key(standing: TeamStanding) -> tuple[int, int, int]:
     Returns:
         A totally ordered comparison key, ascending.
     """
-    last_accepted = standing.last_accepted_minutes
+    last_accepted = standing.last_accepted_seconds
     return (
         -standing.problems_solved,
         standing.total_time,
@@ -333,7 +338,7 @@ def compute_icpc(
 
     Returns:
         Team standings ordered by solved count, total time, and the contest
-        minute of the team's last accepted submission.
+        second of the team's last accepted submission.
     """
     wa_penalty = int(contest.wa_penalty)
     accept_pe = bool(contest.accept_pe)
@@ -370,7 +375,7 @@ def compute_icpc(
         team_id = str(team.id)
         total_time = 0
         problems_solved = 0
-        last_accepted_minutes: int | None = None
+        last_accepted_seconds: int | None = None
         problem_results: dict[str, ProblemResult] = {}
 
         for problem in problems:
@@ -381,6 +386,7 @@ def compute_icpc(
             failed_attempts = 0
             solved = False
             solved_at_minutes: int | None = None
+            solved_at_seconds: int | None = None
             solved_submission_id: str | None = None
 
             for submission in team_submissions:
@@ -397,6 +403,7 @@ def compute_icpc(
 
                 if is_accepted:
                     solved = True
+                    solved_at_seconds = max(0, ts_seconds)
                     solved_at_minutes = icpc_minutes_from_seconds(ts_seconds)
                     solved_submission_id = str(submission.id)
                     break
@@ -408,8 +415,10 @@ def compute_icpc(
             if solved and solved_at_minutes is not None:
                 problems_solved += 1
                 total_time += solved_at_minutes + penalty
-                if last_accepted_minutes is None or solved_at_minutes > last_accepted_minutes:
-                    last_accepted_minutes = solved_at_minutes
+                if solved_at_seconds is not None and (
+                    last_accepted_seconds is None or solved_at_seconds > last_accepted_seconds
+                ):
+                    last_accepted_seconds = solved_at_seconds
 
             problem_results[label] = ProblemResult(
                 label=label,
@@ -430,7 +439,7 @@ def compute_icpc(
             problems_solved=problems_solved,
             total_time=total_time,
             problems=problem_results,
-            last_accepted_minutes=last_accepted_minutes,
+            last_accepted_seconds=last_accepted_seconds,
         )
         unranked.append(standing)
 
@@ -467,6 +476,28 @@ def snapshot_to_dict(snapshot: ScoreboardSnapshot) -> dict[str, Any]:
     return asdict(snapshot)
 
 
+def _legacy_tolerant_last_accepted_seconds(row: dict[str, Any]) -> int | None:
+    """Read a standing's last-accepted tie-break from a serialized row.
+
+    The tie-break used to be stored as truncated ICPC minutes. A frozen or final
+    snapshot written before the change is kept forever, so its minute value is
+    widened back to seconds rather than dropped -- the row keeps the rank it was
+    ranked with, and the value stays comparable with freshly computed ones.
+
+    Args:
+        row: One serialized ``TeamStanding`` payload.
+
+    Returns:
+        Contest-relative seconds of the team's last accepted submission, or
+        ``None`` when the team solved nothing.
+    """
+    seconds = row.get("last_accepted_seconds")
+    if seconds is not None:
+        return int(seconds)
+    minutes = row.get("last_accepted_minutes")
+    return None if minutes is None else int(minutes) * 60
+
+
 def snapshot_from_dict(data: dict[str, Any]) -> ScoreboardSnapshot:
     """Deserialize a scoreboard snapshot from a JSON-compatible dictionary.
 
@@ -484,7 +515,7 @@ def snapshot_from_dict(data: dict[str, Any]) -> ScoreboardSnapshot:
             team_fullname=row.get("team_fullname", row["team_name"]),
             problems_solved=row["problems_solved"],
             total_time=row["total_time"],
-            last_accepted_minutes=row.get("last_accepted_minutes"),
+            last_accepted_seconds=_legacy_tolerant_last_accepted_seconds(row),
             problems={
                 label: ProblemResult(**{**problem, "is_first_balloon": problem.get("is_first_balloon", False)})
                 for label, problem in row["problems"].items()

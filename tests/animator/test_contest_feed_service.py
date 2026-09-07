@@ -40,7 +40,7 @@ from tests.animator._feed_seed import (
     make_user,
 )
 from web.models.submission import Submission
-from web.models.users import UberAdmin
+from web.models.users import Login_History, UberAdmin
 
 pytestmark = pytest.mark.asyncio
 
@@ -619,3 +619,47 @@ async def test_feeds_publish_problems_at_the_start_instant(session: AsyncSession
     assert snapshot.has_started is True
     assert snapshot.problems == ["A"]
     assert snapshot.balloon_colors == ["123456"]
+
+
+# ---------------------------------------------------------------------------
+# Teams that never signed in
+# ---------------------------------------------------------------------------
+
+
+async def test_snapshot_marks_teams_that_absent(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Mark the no-show, and clear the mark once that team signs in."""
+    contest = await make_contest(session, uberadmin)
+    present = make_user(contest, uberadmin, "alpha")
+    absent = make_user(contest, uberadmin, "bravo")
+    session.add_all([present, absent])
+    await session.flush()
+    session.add(Login_History(user_id=present.id, dta_login=START + timedelta(minutes=2)))
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        snapshot = await build_snapshot_response(feed, record, now=START + timedelta(minutes=40))
+
+    marks = {row.team_name: row.absent for row in snapshot.standings}
+    assert marks == {"alpha": False, "bravo": True}
+
+
+async def test_snapshot_marks_nobody_once_the_contest_has_ended(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """After the end an absence is history, so the feed stops reporting it.
+
+    This is also what keeps the marker out of the long-lived ended-contest
+    snapshot cache, where it could not stay honest.
+    """
+    contest = await make_contest(session, uberadmin)
+    absent = make_user(contest, uberadmin, "bravo")
+    session.add(absent)
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        after_end = START + timedelta(minutes=contest.duration_minutes + 5)
+        snapshot = await build_snapshot_response(feed, record, now=after_end)
+
+    assert [row.absent for row in snapshot.standings] == [False]

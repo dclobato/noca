@@ -1,0 +1,258 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb, render_icon with context %}
+{% block title_suffix %}- Team status{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    {% call admin_breadcrumb(under_administration=False) %}
+        Team status
+    {% endcall %}
+{% endblock %}
+{# A triage board, not a roster. Inside each site the empty seats come first and
+   the present teams fold into a count; a site with nothing wrong is one quiet
+   line. The three states are told three ways on every card -- surface tint,
+   icon and the word itself -- so the board still reads on a projector, in
+   greyscale and through a screen reader (PADROES_UI: a signal never rests on
+   colour alone). `person_off` is the glyph the scoreboard uses for an absent
+   team. Which empty-seat state is the alarm depends on the phase, and the
+   board's `--<phase>` class is what lets the stylesheet say so. #}
+{% set status_icons = {"online": "wifi", "offline": "wifi_off", "never": "person_off"} %}
+{# Before the start nobody is late yet, so the word changes with the phase. #}
+{% set status_words = {"online": "Online", "offline": "Offline", "never": "Not signed in yet" if board.phase == "before" else "Never signed in"} %}
+{% set phase_copy = {
+    "before": "Before the start, teams that have not signed in yet are expected and stay folded in each site's count. A team that went offline is shown.",
+    "running": "The contest is running: every empty seat needs a look.",
+    "ended": "The contest has ended; the board shows how the room was left."
+} %}
+{% macro count_chip(status, value) %}
+    <span class="noca-team-status-count noca-team-status-count--{{ status }}"
+          title="{{ value }} {{ status_words[status]|lower }}">
+        {{ render_icon(icon=status_icons[status], filled=True, classes="noca-team-status-icon") }}
+        <span class="noca-team-status-count-value">{{ value }}</span>
+        <span class="visually-hidden">{{ status_words[status]|lower }}</span>
+    </span>
+{% endmacro %}
+{% macro team_card(card) %}
+    {% set href = record_url(card.user_id) %}
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2">
+        <article class="noca-team-status-card noca-team-status-card--{{ card.status }} h-100 position-relative"
+                 data-team-id="{{ card.user_id }}"
+                 data-team-status="{{ card.status }}">
+            <div class="d-flex align-items-center gap-2">
+                <img src="/user/{{ card.user_id }}/avatar?v={{ card.media_cache_version }}"
+                     width="48"
+                     height="48"
+                     class="rounded-circle object-fit-cover flex-shrink-0 noca-avatar-sm"
+                     alt="">
+                <div class="min-w-0">
+                    <div class="fw-semibold text-truncate" title="{{ card.fullname }}">
+                        {% if href %}
+                            <a href="{{ href }}" class="noca-team-status-card-link stretched-link">{{ card.fullname }}</a>
+                        {% else %}
+                            {{ card.fullname }}
+                        {% endif %}
+                    </div>
+                    <code class="noca-team-status-card-username">{{ card.username }}</code>
+                </div>
+            </div>
+            <div class="noca-team-status-card-state mt-2">
+                {{ render_icon(icon=status_icons[card.status], filled=True, classes="noca-team-status-icon") }}
+                <span>{{ status_words[card.status] }}</span>
+            </div>
+            {% if card.location %}
+                <div class="noca-team-status-card-location small">
+                    {{ render_icon(icon="meeting_room", classes="noca-team-status-icon") }}
+                    <span class="text-truncate min-w-0" title="{{ card.location }}">{{ card.location }}</span>
+                </div>
+            {% endif %}
+            <div class="noca-team-status-card-ip small text-muted">
+                {% if card.ip %}
+                    <code>{{ card.ip }}</code>
+                    {% if not card.ip_is_live %}<span>(last login)</span>{% endif %}
+                {% elif card.status == "offline" and card.last_login_at %}
+                    <span>Last login {{ card.last_login_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+                {% else %}
+                    <span aria-hidden="true">&mdash;</span>
+                {% endif %}
+            </div>
+        </article>
+    </div>
+{% endmacro %}
+{# The fold-out names what it hides: the online teams, and before the start
+   also the teams still expected, each with its own icon and count. It is a
+   plain link to this route, so it works without JavaScript; with htmx present
+   it swaps the board in place and pushes the URL, so unfolding the twelfth
+   site does not throw the reader back to the top of the page, and its id lets
+   htmx hand focus back to it after the swap. `aria-controls` is set only while
+   the unfolded grid exists, since a reference to a missing id is invalid. #}
+{% macro fold_disclosure(group) %}
+    {% set is_open = group.key in expanded %}
+    {% set folded = group.folded_counts %}
+    <a class="noca-team-status-disclosure"
+       id="team-status-fold-{{ group.key }}"
+       href="{{ toggle_urls[group.key] }}"
+       hx-get="{{ toggle_urls[group.key] }}"
+       hx-target="#team-status-grid"
+       hx-select="#team-status-grid"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+       aria-expanded="{{ 'true' if is_open else 'false' }}"
+       {% if is_open %}aria-controls="team-status-folded-{{ group.key }}"{% endif %}>
+        {% for status in ("online", "never") if status not in group.attention_states and folded[status] %}
+            <span class="noca-team-status-count noca-team-status-count--{{ status }}">
+                {{ render_icon(icon=status_icons[status], filled=True, classes="noca-team-status-icon") }}
+                <span class="noca-team-status-count-value">{{ folded[status] }}</span>
+                <span>{{ status_words[status]|lower }}</span>
+            </span>
+        {% endfor %}
+        <span class="text-muted">&middot; {{ 'hide' if is_open else 'show' }}</span>
+        {{ render_icon(icon="expand_more", classes="noca-collapse-caret") }}
+    </a>
+{% endmacro %}
+{% macro status_group(group) %}
+    {% set quiet = not group.needs_attention %}
+    <section class="noca-team-status-site {{ 'noca-team-status-site--quiet' if quiet }}"
+             aria-labelledby="team-status-site-{{ group.key }}"
+             data-site-key="{{ group.key }}">
+        {# The heading row is the site's one control bar: name, the three
+           counts and -- always at its end, whatever the site's state -- the
+           fold-out of its folded teams, so the eye never hunts for it. #}
+        <div class="noca-team-status-site-heading">
+            <h2 class="h5 mb-0 d-flex align-items-center gap-2 min-w-0"
+                id="team-status-site-{{ group.key }}">
+                {{ render_icon(icon="place", filled=True, classes="text-muted") }}
+                <span class="text-truncate">{{ group.label }}</span>
+                <span class="badge bg-secondary">{{ group.counts.total }}</span>
+            </h2>
+            <div class="noca-team-status-site-counts" aria-label="Seats by state">
+                {{ count_chip("offline", group.counts.offline) }}
+                {{ count_chip("never", group.counts.never) }}
+                {{ count_chip("online", group.counts.online) }}
+            </div>
+            {% if group.folded_cards %}{{ fold_disclosure(group) }}{% endif %}
+        </div>
+        {% if group.attention_cards %}
+            <div class="row g-3 noca-team-status-site-cards">
+                {% for card in group.attention_cards %}{{ team_card(card) }}{% endfor %}
+            </div>
+        {% endif %}
+        {% if group.folded_cards and group.key in expanded %}
+            <div class="row g-3 noca-team-status-site-cards {{ 'noca-team-status-site-online' if group.attention_cards }}"
+                 id="team-status-folded-{{ group.key }}">
+                {% for card in group.folded_cards %}{{ team_card(card) }}{% endfor %}
+            </div>
+        {% endif %}
+    </section>
+{% endmacro %}
+{% block content %}
+    <div class="container-fluid px-4 py-4">
+        {# The header speaks once: what this is, for which contest, and the one
+           sentence that explains why a card is tinted the way it is. The
+           refresh cadence is metadata and lives with the totals below. #}
+        <header class="noca-team-status-header">
+            <h1 class="h3 mb-1">Team status</h1>
+            <p class="text-muted mb-2">{{ contest.contest_name }}</p>
+            <p class="noca-team-status-phase mb-0">{{ phase_copy[board.phase] }}</p>
+        </header>
+        {% if not board.presence_enabled %}
+            <div class="alert alert-info d-flex align-items-center gap-2"
+                 role="status">
+                {{ render_icon(icon="info") }}
+                <span>Presence tracking is off on this deployment, so no team can be shown as online. The board still tells who has signed in since the contest started.</span>
+            </div>
+        {% endif %}
+        {% if board.groups|length > 1 %}
+            {# Site picker, the reports page's control: collapsed by default,
+               scopes the whole board, and the scope rides the URL so the poll
+               keeps it. #}
+            <div class="w-100 noca-team-status-picker">
+                <button class="btn btn-link text-decoration-none fw-semibold text-body p-0 d-inline-flex align-items-center gap-1"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#team-status-site-collapse"
+                        aria-expanded="false"
+                        aria-controls="team-status-site-collapse">
+                    {{ render_icon(icon="location_on", classes="noca-report-icon") }}
+                    <span>Site: {{ selected_site.label if selected_site else "All sites" }}</span>
+                    {{ render_icon(icon="expand_more", classes="noca-collapse-caret") }}
+                </button>
+                <div id="team-status-site-collapse" class="collapse">
+                    <div class="noca-reports-site-grid mt-2">
+                        <a href="{{ all_sites_url }}"
+                           class="noca-reports-site-tile{{ ' noca-reports-site-tile--active' if not selected_site }}"
+                           {% if not selected_site %}aria-current="page"{% endif %}>
+                            <span class="noca-reports-site-tile-name">All sites</span>
+                            <span class="noca-reports-site-tile-count">{{ board.counts.total }} team{{ 's' if board.counts.total != 1 }}</span>
+                        </a>
+                        {% for group in board.groups %}
+                            <a href="{{ site_urls[group.key] }}"
+                               class="noca-reports-site-tile{{ ' noca-reports-site-tile--active' if selected_site and selected_site.key == group.key }}"
+                               {% if selected_site and selected_site.key == group.key %}aria-current="page"{% endif %}>
+                                <span class="noca-reports-site-tile-name">{{ group.label }}</span>
+                                <span class="noca-reports-site-tile-count">
+                                    {{ group.counts.total }} team{{ 's' if group.counts.total != 1 }}
+                                    {% if group.needs_attention %}, {{ group.attention_cards|length }} empty{% endif %}
+                                </span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+        {# Same-URL poll: htmx re-fetches the *current* URL -- scope and unfolded
+           sites included -- and swaps only the board, the shape the scoreboard
+           and the contest dashboard already use. #}
+        <div id="team-status-grid"
+             class="noca-team-status-board noca-team-status-board--{{ board.phase }}"
+             hx-get="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+             hx-trigger="every {{ refresh_seconds }}s"
+             hx-target="#team-status-grid"
+             hx-swap="outerHTML"
+             hx-select="#team-status-grid">
+            {% set ns = namespace(online=0, offline=0, never=0) %}
+            {% for group in groups %}
+                {% set ns.online = ns.online + group.counts.online %}
+                {% set ns.offline = ns.offline + group.counts.offline %}
+                {% set ns.never = ns.never + group.counts.never %}
+            {% endfor %}
+            {# The board's peak: the state of the room in three figures, set at
+               headline size in the state colour, with the word beneath. The
+               numbers are the operational fact this page exists for, so they
+               are the largest type on it. They sit inside the swapped region so
+               they follow the board every ten seconds, and the icons beside the
+               words are the key for the count chips in each site heading. A
+               zero is set quiet, so a calm room reads calm. #}
+            <div class="noca-team-status-strip">
+                <dl class="noca-team-status-totals"
+                    aria-label="Totals for the sites shown">
+                    {% for status, value in (("offline", ns.offline), ("never", ns.never), ("online", ns.online)) %}
+                        <div class="noca-team-status-total noca-team-status-total--{{ status }} {{ 'noca-team-status-total--zero' if not value }}">
+                            <dt class="noca-team-status-total-label noca-team-status-count--{{ status }}">
+                                {{ render_icon(icon=status_icons[status], filled=True, classes="noca-team-status-icon") }}
+                                <span>{{ status_words[status]|lower }}</span>
+                            </dt>
+                            <dd class="noca-team-status-total-value">
+                                {{ value }}
+                            </dd>
+                        </div>
+                    {% endfor %}
+                    <div class="noca-team-status-total noca-team-status-total--all">
+                        <dt class="noca-team-status-total-label">team{{ 's' if ns.online + ns.offline + ns.never != 1 }}</dt>
+                        <dd class="noca-team-status-total-value">
+                            {{ ns.online + ns.offline + ns.never }}
+                        </dd>
+                    </div>
+                </dl>
+                <p class="noca-team-status-refresh small text-muted mb-0">
+                    Refreshes every {{ refresh_seconds }} s &middot; online means activity in the last {{ presence_ttl_seconds }} s
+                </p>
+            </div>
+            {% if board.counts.total == 0 %}
+                <div class="alert alert-info" role="status">No teams are enrolled in this contest yet.</div>
+            {% endif %}
+            {% for group in groups %}{{ status_group(group) }}{% endfor %}
+        </div>
+    </div>
+{% endblock %}

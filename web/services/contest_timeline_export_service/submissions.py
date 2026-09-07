@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -57,6 +57,7 @@ def build_submission_contexts(
             submission=submission,
             team_label=actor_label(team),
             problem_ref=problem_ref(problem),
+            submission_ref=f"submission {submission.id[:8]}",
         )
     return contexts
 
@@ -129,7 +130,7 @@ def build_submission_events(
                 created_at=submission.created_at,
                 sequence=sequence,
                 actor=actor_label(team),
-                what=f"Team submits code for {context.problem_ref}",
+                what=f"Team submits code for {context.problem_ref}, {context.submission_ref}",
                 kind=EventKind.SUBMISSION_CREATED,
             )
         )
@@ -149,7 +150,9 @@ def build_submission_events(
                         created_at=start_audit.created_at,
                         sequence=sequence,
                         actor="System",
-                        what=f"Autojudge starts judging queued run for {context.problem_ref}",
+                        what=(
+                            f"Autojudge starts judging queued run for {context.problem_ref}, {context.submission_ref}"
+                        ),
                         kind=EventKind.AUTOJUDGE_START,
                     )
                 )
@@ -172,14 +175,20 @@ def build_submission_events(
                         created_at=done_audit.created_at,
                         sequence=sequence,
                         actor="System",
-                        what=f"Autojudge ends judging queued run with {verdict_label} for {context.problem_ref}",
+                        what=(
+                            f"Autojudge ends judging queued run with {verdict_label} for "
+                            f"{context.problem_ref}, {context.submission_ref}"
+                        ),
                         kind=EventKind.AUTOJUDGE_END,
                     )
                 )
                 sequence += 1
 
                 if contest.autojudge_only and done_audit.to_verdict is not None:
-                    what = f"Submission gets final verdict {done_audit.to_verdict.value} for {context.problem_ref}"
+                    what = (
+                        f"Submission gets final verdict {done_audit.to_verdict.value} for "
+                        f"{context.problem_ref}, {context.submission_ref}"
+                    )
                     events.append(
                         TimelineEvent(
                             timestamp_seconds=timestamp_or_fallback(
@@ -192,7 +201,8 @@ def build_submission_events(
                             actor="System",
                             what=(
                                 "Autojudge issues final verdict "
-                                f"{done_audit.to_verdict.value} for {context.problem_ref}"
+                                f"{done_audit.to_verdict.value} for {context.problem_ref}, "
+                                f"{context.submission_ref}"
                             ),
                             kind=EventKind.AUTOJUDGE_FINAL,
                         )
@@ -221,7 +231,9 @@ def build_submission_events(
                         created_at=judgment.created_at,
                         sequence=sequence,
                         actor="System",
-                        what=f"Submission is requeued for autojudge for {context.problem_ref}",
+                        what=(
+                            f"Submission is requeued for autojudge for {context.problem_ref}, {context.submission_ref}"
+                        ),
                         kind=EventKind.REQUEUE,
                     )
                 )
@@ -235,10 +247,15 @@ def build_submission_events(
                 actor = users_by_id.get(confirmation.judge_id)
                 verdict_label = confirmation.confirmed_verdict.value
                 if confirmation.is_chief_confirmation:
-                    what = f"Chief judge sets verdict {verdict_label} for {context.problem_ref}"
+                    what = (
+                        f"Chief judge sets verdict {verdict_label} for {context.problem_ref}, {context.submission_ref}"
+                    )
                     kind = EventKind.CHIEF_SET
                 else:
-                    what = f"Judge confirms autojudge verdict {verdict_label} for {context.problem_ref}"
+                    what = (
+                        f"Judge confirms autojudge verdict {verdict_label} for "
+                        f"{context.problem_ref}, {context.submission_ref}"
+                    )
                     kind = EventKind.HUMAN_CONFIRM
                 events.append(
                     TimelineEvent(
@@ -264,7 +281,8 @@ def build_submission_events(
                             actor="System",
                             what=(
                                 f"Final verdict {verdict_label} is derived after two equal "
-                                f"human confirmations for {context.problem_ref}"
+                                f"human confirmations for {context.problem_ref}, "
+                                f"{context.submission_ref}"
                             ),
                             kind=EventKind.FINAL_DERIVED,
                         )
@@ -276,7 +294,10 @@ def build_submission_events(
                         created_at=audit.created_at,
                         sequence=sequence,
                         actor="System",
-                        what=f"Submission gets final verdict {verdict_label} for {context.problem_ref}",
+                        what=(
+                            f"Submission gets final verdict {verdict_label} for "
+                            f"{context.problem_ref}, {context.submission_ref}"
+                        ),
                         kind=EventKind.FINAL_SET,
                     )
                 )
@@ -293,7 +314,8 @@ def build_submission_events(
                         actor=actor_label(chief),
                         what=(
                             f"Chief judge overrides final verdict from {override.original_verdict.value} "
-                            f"to {override.new_verdict.value} for {context.problem_ref}"
+                            f"to {override.new_verdict.value} for {context.problem_ref}, "
+                            f"{context.submission_ref}"
                         ),
                         kind=EventKind.OVERRIDE,
                     )

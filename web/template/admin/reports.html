@@ -531,11 +531,33 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 4: Runs by Problem x Verdict                                  #}
+                {# Report 4: Runs by Time Window (stacked AC / non-AC)                  #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    {{ section_heading('grid_on', 'Runs by Problem and Verdict', 'report4-caption') }}
+                    {% set window_size = r.time_window_minutes if (r and r.time_window_minutes) else 10 %}
+                    {{ section_heading('bar_chart', 'Runs by Time (' ~ window_size ~ '-minute windows)', 'report4-caption') }}
                     {% call caption_collapse("report4-caption") %}
+                        <p class="text-muted small mb-3">
+                            All judged runs bucketed into {{ window_size }}-minute windows by contest-relative time. Each bar's
+                            total height is that window's run volume, split into {{ accept_label }} and non-{{ accept_label }}
+                            runs so you can see when accepted solutions arrived relative to overall activity. The
+                            two lines (see legend) track the running total of runs and of {{ accept_label }}
+                            solutions through the contest; the gap between them is overall activity that hasn't
+                            converted into an accepted solution yet.
+                        </p>
+                    {% endcall %}
+                    <div id="chart-runs-time"
+                         class="noca-reports-time-chart"
+                         aria-label="Runs by time chart">
+                        <p class="text-muted small text-center noca-chart-placeholder">Chart unavailable. Reload the page to try again.</p>
+                    </div>
+                </section>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 5: Runs by Problem x Verdict                                  #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <section class="w-100">
+                    {{ section_heading('grid_on', 'Runs by Problem and Verdict', 'report5-caption') }}
+                    {% call caption_collapse("report5-caption") %}
                         <p class="text-muted small mb-3">
                             Per problem, where its runs landed across verdicts. Each cell's percentage is that
                             verdict's share of the problem's runs (the row); footer percentages are shares of all runs.
@@ -576,11 +598,11 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 5: Runs by Problem x Language                                 #}
+                {# Report 6: Runs by Problem x Language                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    {{ section_heading('code', 'Runs by Problem and Language', 'report5-caption') }}
-                    {% call caption_collapse("report5-caption") %}
+                    {{ section_heading('code', 'Runs by Problem and Language', 'report6-caption') }}
+                    {% call caption_collapse("report6-caption") %}
                         <p class="text-muted small mb-3">
                             The language mix contestants chose for each problem. Each cell's percentage is that
                             language's share of the problem's runs (the row); footer percentages are shares of all runs.
@@ -621,11 +643,11 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 6: Runs by Language x Verdict                                 #}
+                {# Report 7: Runs by Language x Verdict                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    {{ section_heading('code', 'Runs by Language and Verdict', 'report6-caption') }}
-                    {% call caption_collapse("report6-caption") %}
+                    {{ section_heading('code', 'Runs by Language and Verdict', 'report7-caption') }}
+                    {% call caption_collapse("report7-caption") %}
                         <p class="text-muted small mb-3">
                             How each language fared across verdicts. Each cell's percentage is that verdict's
                             share of the language's runs (the row); footer percentages are shares of all runs.
@@ -663,11 +685,11 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 7: Runs by Team x Problem                                     #}
+                {# Report 8: Runs by Team x Problem                                     #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    {{ section_heading('groups', 'Runs by Team and Problem', 'report7-caption') }}
-                    {% call caption_collapse("report7-caption") %}
+                    {{ section_heading('groups', 'Runs by Team and Problem', 'report8-caption') }}
+                    {% call caption_collapse("report8-caption") %}
                         <p class="text-muted small mb-3">
                             How each team spread its attempts among the problems. Each cell's percentage is that
                             problem's share of the team's runs; the {{ accept_label }} column is the team's accepted
@@ -734,27 +756,6 @@
                                 {% endfor %}
                             </tbody>
                         </table>
-                    </div>
-                </section>
-                {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 8: Runs by Time Window (stacked AC / non-AC)                  #}
-                {# ════════════════════════════════════════════════════════════════════ #}
-                <section class="w-100">
-                    {{ section_heading('bar_chart', 'Runs by Time (10-minute windows)', 'report8-caption') }}
-                    {% call caption_collapse("report8-caption") %}
-                        <p class="text-muted small mb-3">
-                            All judged runs bucketed into 10-minute windows by contest-relative time. Each bar's
-                            total height is that window's run volume, split into {{ accept_label }} and non-{{ accept_label }}
-                            runs so you can see when accepted solutions arrived relative to overall activity. The
-                            two lines (see legend) track the running total of runs and of {{ accept_label }}
-                            solutions through the contest; the gap between them is overall activity that hasn't
-                            converted into an accepted solution yet.
-                        </p>
-                    {% endcall %}
-                    <div id="chart-runs-time"
-                         class="noca-reports-time-chart"
-                         aria-label="Runs by time chart">
-                        <p class="text-muted small text-center noca-chart-placeholder">Chart unavailable. Reload the page to try again.</p>
                     </div>
                 </section>
                 {# ── Chart data ── #}

@@ -1,4 +1,4 @@
-# Full Contest Backup Format (v4)
+# Full Contest Backup Format (v7)
 
 This document describes the portable ZIP archive produced by the Web
 `contest_backup_service` when an uberadmin exports a whole contest, and how the
@@ -106,7 +106,7 @@ offline-cracking/reuse warning.
 
 The importer applies these gates before it creates database rows or files.
 
-1. **Manifest gate:** a supported `format_version` (1, 2, 3, or 4), presence of all
+1. **Manifest gate:** a supported `format_version` (`6` only), presence of all
    required JSON members, and every referenced per-problem folder.
 2. **Safe members:** reject path traversal, absolute names, drive letters,
    duplicate members, and excessive member counts.
@@ -138,10 +138,56 @@ show as new to the restored teams.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `5`, `FORMAT_VERSION` in
-`web/services/contest_backup_service/models.py`). This server restores **version 5
+The archive is versioned by `format_version` (currently `7`, `FORMAT_VERSION` in
+`web/services/contest_backup_service/models.py`). This server restores **version 7
 only**; anything else is refused with a message naming the supported version. Bump it
 on any breaking layout change and update this document.
+
+### Version 7: task and clarification service time
+
+Version 7 adds two columns each to every row in `clarifications.json` and
+`tasks.json`: `acquired_at` and `acquired_timestamp_seconds`. They record when a
+task or clarification was last acquired by its handler, so a finished row's
+service time (how long its handler spent on it) is a real, final number rather
+than unavailable the moment the row finishes -- previously the only record of
+that instant lived on the Valkey lock, which is released as soon as the row is
+answered or finished. Row validation compares an archived row against the
+**live** table, so both columns are mandatory on every row of both files: a v7
+archive that omits either is refused as malformed.
+
+Restore splits the two cases the same way version 6 split contest policy from
+session state. A **finished** task or **answered** clarification restores both
+columns as archived -- that is contest history, on the same terms as
+`finished_at` / `answered_at`. An **unfinished** or **unanswered** one instead
+has them cleared on restore: the Valkey lock they describe is not restored
+along with the row, so a restored acquisition instant would report a service
+time that keeps growing against a handler who holds nothing in the restored
+copy.
+
+The bump **retires version 6** on the same terms version 6 retired 5: an archive
+captured by an earlier release cannot be restored by this one. Restore it with
+the release that wrote it, or re-export the contest before upgrading.
+
+### Version 6: team session binding
+
+Version 6 adds four columns to every row in `users.json`: `allow_concurrent_login`,
+`session_epoch`, `locked_ip`, and `locked_at`. They back the single-session, single-IP
+team login policy, which holds a team to one session from one client IP once its contest
+has started. Row validation compares an archived row against the **live** table, so all
+four are mandatory: a v6 archive that omits one is refused as malformed.
+
+Restore treats them as **two different kinds of data**, and the split is the point.
+`allow_concurrent_login` is contest *policy* — an organiser's decision about how this
+contest is run — so it is restored as archived. The other three are live *session state*:
+they describe sessions of the contest that was archived, none of which exist in the
+restored copy. A restored `locked_ip` would bind a team to the address of a machine at a
+venue that has since gone home, and a restored `session_epoch` would be compared against
+tokens that were never issued. Restore therefore resets the epoch to `0` and clears the
+binding, exactly as a freshly created user starts.
+
+The bump **retires version 5** on the same terms version 5 retired 1 to 4: an archive
+captured by an earlier release cannot be restored by this one. Restore it with the
+release that wrote it, or re-export the contest before upgrading.
 
 ### Version 5: the public export counter, and the end of legacy restore
 
@@ -169,7 +215,7 @@ server still running that release before upgrading.
 
 ### Retired versions
 
-Versions 1 to 4 are no longer restorable. They are recorded here only so an operator
+Versions 1 to 6 are no longer restorable. They are recorded here only so an operator
 holding such an archive can tell what it is:
 
 | Version | Introduced |
@@ -178,6 +224,8 @@ holding such an archive can tell what it is:
 | 2 | The stored validation strategy (`validator_type`) and `artifact_generation` as mandatory problem-row columns, plus embedded version 2 problem packages. |
 | 3 | The nullable problem `editorial` column, required even when `null`. |
 | 4 | The stored `clarifications.is_announcement` flag, required as a row key. |
+| 5 | The `problems.public_export_generation` cache counter, required as a row key. |
+| 6 | The team session binding columns (`allow_concurrent_login`, `session_epoch`, `locked_ip`, `locked_at`) on every `users.json` row. |
 
 ### Why an archive states every column
 

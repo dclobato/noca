@@ -129,12 +129,13 @@
 
   // The transport always applies through the external path: every snapshot it
   // produces arrives without a matching /meta.
-  function startLive(refs, applyExternal, onSubmission, connectionStatus) {
+  function startLive(refs, applyExternal, onSubmission, connectionStatus, snapshotGate) {
     var coordinator = live.createRefreshCoordinator(
       function () {
         return fetchJson(refs.snapshotUrl);
       },
       applyExternal,
+      snapshotGate,
     );
     var pollHandle = null;
     var controller = live.createConnectionController({
@@ -243,6 +244,60 @@
     }, refs.pollMs);
   }
 
+  // Absence watch: keep the never-signed-in markers honest on a live board.
+  //
+  // A sign-in publishes nothing. No submission, no verdict, no `timer_tick`
+  // refetch -- and the markers matter most in the opening minutes, when no
+  // submission has been made yet and the stream is therefore silent. A board
+  // sitting on a healthy SSE connection would keep showing a team as absent
+  // long after it sat down, which is worse than showing nothing at all.
+  //
+  // So while the applied snapshot still holds at least one absent team, the
+  // board re-reads the snapshot on a timer of its own and stops as soon as the
+  // last marker clears (or the contest ends, after which the feed marks
+  // nobody). The floor is deliberately slower than the connection's polling
+  // fallback: a sign-in is not a scoring event and nobody in the hall is
+  // watching for it second by second.
+  var ABSENCE_WATCH_MIN_MS = 30000;
+  var absenceWatchHandle = null;
+
+  function cancelAbsenceWatch() {
+    if (absenceWatchHandle !== null) {
+      window.clearInterval(absenceWatchHandle);
+      absenceWatchHandle = null;
+    }
+  }
+
+  function hasAbsentTeam(snapshot) {
+    var standings = (snapshot && snapshot.standings) || [];
+    for (var i = 0; i < standings.length; i++) {
+      if (standings[i] && standings[i].absent) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function syncAbsenceWatch(refs, snapshot, appliers) {
+    if (!hasAbsentTeam(snapshot)) {
+      cancelAbsenceWatch();
+      return;
+    }
+    if (absenceWatchHandle !== null) {
+      return;
+    }
+    var period = Math.max(refs.pollMs, ABSENCE_WATCH_MIN_MS);
+    absenceWatchHandle = window.setInterval(function () {
+      fetchJson(refs.snapshotUrl)
+        .then(function (next) {
+          appliers.direct(next);
+        })
+        .catch(function () {
+          // A failed poll leaves the markers as they are; the next tick retries.
+        });
+    }, period);
+  }
+
   function cancelStartRecheck() {
     if (startRecheckHandle !== null) {
       window.clearTimeout(startRecheckHandle);
@@ -318,9 +373,10 @@
       });
   }
 
-  function load(refs, timer, board, appliers, onSubmission, connectionStatus) {
+  function load(refs, timer, board, appliers, onSubmission, connectionStatus, snapshotGate) {
     cancelStartRecheck();
     cancelReleaseWatch();
+    cancelAbsenceWatch();
     setHidden(refs.loading, false);
     setHidden(refs.error, true);
     setHidden(refs.empty, true);
@@ -353,7 +409,7 @@
         } else if (ended) {
           watchForRelease(refs, timer, board, appliers, meta, connectionStatus);
         } else {
-          startLive(refs, appliers.external, onSubmission, connectionStatus);
+          startLive(refs, appliers.external, onSubmission, connectionStatus, snapshotGate);
         }
         if (awaitingStart) {
           scheduleStartRecheck(meta, function () {
@@ -486,12 +542,30 @@
       },
     });
 
+    // Shared by every applying path and by the live coordinator, so "newer" is
+    // decided in exactly one place.
+    var snapshotGate = live.createSnapshotGate();
+
     // Apply a snapshot whose matching /meta is already on the page. Both fetch
     // sites use this: they read meta and snapshot together, so there is nothing
     // for the start gate to decide.
     function applyDirect(snapshot, refreshSequence) {
+      // Every fetch path ends here, so one gate covers all of them: the live
+      // transport, the release watch, the start re-check and the absence watch
+      // all race each other, and a slow response from any of them would
+      // otherwise roll the board back to standings a newer one had replaced --
+      // and, worse, drive the absence watch from stale markers, cancelling
+      // itself on a snapshot that no longer reflects the hall.
+      if (!snapshotGate.accept(snapshot)) {
+        return;
+      }
       board.applySnapshot(snapshot);
       pendingFlashes.apply(snapshot, refreshSequence);
+      // Every fetch path funnels through here -- the initial load, the start
+      // re-check, the release watch, the live transport and the absence watch
+      // itself -- so this one call is enough to keep the watch in step with
+      // what the board is actually showing.
+      syncAbsenceWatch(refs, snapshot, appliers);
     }
 
     // Apply a snapshot that arrived from the live transport (SSE or the polling
@@ -522,10 +596,10 @@
     if (refs.retry) {
       refs.retry.addEventListener("click", function () {
         board.reset();
-        load(refs, timer, board, appliers, onSubmission, connectionStatus);
+        load(refs, timer, board, appliers, onSubmission, connectionStatus, snapshotGate);
       });
     }
-    load(refs, timer, board, appliers, onSubmission, connectionStatus);
+    load(refs, timer, board, appliers, onSubmission, connectionStatus, snapshotGate);
   }
 
   if (document.readyState === "loading") {

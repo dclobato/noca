@@ -63,30 +63,22 @@ path.
 
 ## Heavy downloads, exports, and their caches
 
-The contestant-facing problem exports now have generation-keyed on-disk caches
-and per-actor budgets on both surfaces, but the theme is not finished. What
-remains is the administrative and editorial half of it: the deterministic A+B
-sample package is still rebuilt in a worker thread on every hit of the import
-sample route in both modules and wants an in-process memo with revalidation
-rather than a long `max-age`; the admin, editor and teacher exports and reports
-carry no per-actor limit and want one bucket per surface, keyed by actor domain
-rather than a single module-wide bucket; the team submissions download and the
-Animeitor export still build their complete ZIP in memory and should move to the
-temp-file-and-stream pattern; and the contest reports aggregate is recomputed
-per request, wanting a short Valkey cache with a stated fail-open and
-versioning contract.
+Most of this theme has landed. The contestant-facing problem exports have
+generation-keyed on-disk caches; every heavy export and report on both surfaces
+now carries a per-actor budget; the contest reports aggregate is cached and the
+large exports stream from a temp file instead of being built in memory; and the
+deterministic A+B sample package is memoized on both import pages. The Valkey
+entries all of that relies on are catalogued.
 
-Separately, the anonymous post-contest problem-set archive cache has three
-review follow-ups of its own: it re-hashes the whole cached file on every
-request instead of a cheap staleness check, its build lock serializes only
-within one process so a multi-replica deployment can still run one full build
-per replica, and the lock dictionary is never pruned. Replacing the local-disk
-cache with an S3-compatible endpoint would give a persistent, replica-shared one
-and could subsume the cross-process locking gap.
+What remains is the anonymous post-contest problem-set archive cache and its
+review follow-ups: it re-hashes the whole cached file on every request instead
+of a cheap staleness check, its build lock serializes only within one process so
+a multi-replica deployment can still run one full build per replica, and the
+lock dictionary is never pruned. Replacing the local-disk cache with an
+S3-compatible endpoint would give a persistent, replica-shared one and could
+subsume the cross-process locking gap.
 
-[Open `web`](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open) ·
-[`arena`](https://git.lobato.org:10880/dclobato/noca/issues?labels=51&state=open) ·
-[`problem-editor`](https://git.lobato.org:10880/dclobato/noca/issues?labels=59&state=open)
+[Open `web` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open)
 
 ## Arena badges
 
@@ -100,30 +92,68 @@ profile, the submission itself on the owner's private one.
 ## Editable email templates
 
 Every outbound message is a Jinja template compiled into the image, so changing
-a word in a password-reset mail needs a deployment. The open item would move
-template bodies into storage, give uberadmins and Arena admins a panel to view
-and edit them, and seed anything missing from the in-repo defaults at startup so
-a fresh install and an upgrade both come up with a complete set.
+a word in a password-reset mail needs a deployment. The theme has since been
+settled into three phases, and the shape moved: overrides live on the
+deployment's filesystem under the operator's own Git history, not in the
+database, and NOCA never seeds that directory.
+
+The first phase replaces Jinja with one constrained format — a placeholder
+grammar with no expressions, single-line subjects and size limits — behind a
+shared renderer and per-module catalogues, converting every packaged template
+and pulling hardcoded subjects and Python-side display text into it. The second
+adds an optional override directory mounted read-only into Web and Arena,
+validated at startup so a bad file refuses the boot, re-read on change at send
+time with the last valid version retained, plus a validation CLI and the Compose
+and backup integration. The third is optional and read-only: admin pages that
+show which template is in force, whether an override has drifted from the
+shipped default, and previews rendered from sample values — with no save path.
 
 [Open `shared`](https://git.lobato.org:10880/dclobato/noca/issues?labels=49&state=open) ·
 [`web`](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open) ·
 [`arena`](https://git.lobato.org:10880/dclobato/noca/issues?labels=51&state=open)
 
+## Valkey payload authentication
+
+Every value NOCA writes to Valkey is unauthenticated today, and one of them is
+load-bearing: the autojudge reads a job hash to decide which pipeline to run, so
+a routing decision comes from unsigned data, and a mail job carries its whole
+rendered message with no database row behind it. The open item adds an HMAC
+envelope over queue-job hashes and cache entries, with deliberately opposite
+failure modes — caches fail open and recompute, queues fail closed and refuse —
+secrets split by authority so a compromised worker cannot mint another module's
+jobs, and a staged rollout because enforcing signatures ahead of the producers
+would silently drop real work. It is explicit that signing buys integrity and
+authenticity but *not* replay protection, which needs PostgreSQL-anchored state
+and is recorded as follow-on work.
+
+[Open issues](https://git.lobato.org:10880/dclobato/noca/issues?state=open)
+
 ## Web
 
-An idea, not yet an accepted contract: reference implementations
+Two ideas, neither an accepted contract. Reference implementations
 (`good`/`wrong`/`slow`/`pass`) carried in the problem package and stored with the
 problem, so limits can be *validated* — does the test data reject a wrong
 solution, does the time limit reject a slow one — rather than only derived from a
-single correct one. Arena is deliberately excluded.
+single correct one; Arena is deliberately excluded. And an evaluation of whether
+the single-session policy flag belongs on the contest rather than on each user:
+the machinery that exists to manage a per-user flag is largely there to express
+one contest-wide decision, and the argument is to decide it before the session
+binding work is considered finished, since unwinding a released per-user column
+costs more later.
 
 [Open `web` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open)
 
 ## Shared problem data and packages
 
-One idea outside the checker and token themes: reaping derived objects on S3
+Two ideas outside the checker and token themes. Reaping derived objects on S3
 backends without lifecycle rules, which follows from the portability decision
-that NOCA rely only on features every S3-compatible provider has.
+that NOCA rely only on features every S3-compatible provider has. And an
+evaluation of replacing JSON with TOML across the project, which concludes
+against it: TOML has no null, and the package format deliberately writes every
+key — as `null` where a producer cannot store it — so a consumer never has to
+guess whether absence means unset or unsupported. The narrow additive option it
+leaves open is a TOML *front end* for authoring a problem package, with JSON
+staying canonical.
 
 [Open `shared` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=49&state=open)
 

@@ -15,6 +15,7 @@ Este documento descreve padrões de UI e boilerplates reutilizáveis usados no p
 - [Placar: densidade e célula de problema](#placar-densidade-e-célula-de-problema)
 - [Upload de Imagem com Cropper](#upload-de-imagem-com-cropper)
 - [Ícones do Material Symbols e acessibilidade](#ícones-do-material-symbols-e-acessibilidade)
+- [Card de estado tri-state (mapa de status de times)](#card-de-estado-tri-state-mapa-de-status-de-times)
 - [Shell das páginas de autenticação do Arena](#shell-das-páginas-de-autenticação-do-arena)
 
 ---
@@ -940,9 +941,12 @@ tempo todo, então a página não pode mudar de forma):
   (`.noca-problem-save-bar`) com os submitters de publicação, **Back**, e — encostado à
   direita — o link para a outra porta, extras do módulo, o download do pacote e o badge
   read-only da estratégia. Todos os botões usam o mesmo tamanho (sem `btn-sm`).
-- No Arena, **Save and enable** / **Save and disable** aparecem nas duas portas. Nas
-  páginas de julgamento não há formulário pendente: os botões postam
-  `POST /admin/problems/{id}/set-enabled` com o estado *alvo* e voltam para a mesma
+- No Arena, o editor de definição exibe **Save and keep editing** (`btn-secondary`),
+  **Save and enable** (`btn-primary`) e **Save and disable** (`btn-outline-danger`).
+  **Save and keep editing** persiste o formulário, preserva o estado de publicação
+  e retorna à mesma aba do editor. Nas páginas de julgamento não há formulário pendente:
+  apenas os botões **Save and enable** / **Save and disable** aparecem, postando
+  `POST /admin/problems/{id}/set-enabled` com o estado *alvo* e voltando para a mesma
   página. O Contest não tem estado de publicação e simplesmente não passa submitters.
 - Avisos de página (erros, contest travado, "não pode ser removido") ficam em **um único
   slot**, abaixo da barra e acima da faixa de abas, nas duas portas. Nada é renderizado
@@ -1987,6 +1991,77 @@ O Contest desenha **um** `?` para uma célula pendente; `ProblemResult.is_pendin
 é booleano e só os feeds do animator carregam `pending_frozen_count`. Não
 acrescente esse campo ao projeto do Contest: a visão congelada omite essa
 contagem de propósito.
+
+---
+
+## Card de estado tri-state (mapa de status de times)
+
+O mapa de status de times (`web/template/contest/team_status.html`,
+`web/static/css/contest/_team-status.css`) mostra um card por time, agrupado por
+site, em um de três estados: **online**, **offline** e **nunca entrou**. Ele é
+pensado para ser projetado numa parede e atualizado a cada 10 s, então cada
+estado precisa ser lido de longe, em escala de cinza e por leitor de tela.
+
+Regras:
+
+- **Três canais por card, nunca só a cor.** O fundo é tingido pelo estado
+  (`.noca-team-status-card--online|--offline|--never`), o ícone muda
+  (`wifi`, `wifi_off`, `person_off` -- este último é o mesmo glifo que o placar
+  usa para um time ausente) e a palavra do estado é impressa. O card "nunca
+  entrou" ainda ganha borda tracejada, um canal que sobrevive a cores forçadas.
+- **Não use `.card` do Bootstrap.** O `_dark.css` repinta todo `.card` com um
+  seletor de dez classes que venceria os modificadores acima no tema escuro e
+  achataria os três tons em um. O card tem sua própria superfície, feita só de
+  tokens: o fundo vem de `--noca-state-live-tint`, `--noca-state-silence-tint`
+  e `--noca-state-frozen-tint` (declarados por tema em `tokens.css`; misturar
+  as cores de estado no componente deixava vermelho e âmbar iguais no tema
+  escuro), a borda dos tokens de estado e `--noca-outline-variant`. Assim os
+  tons remapeiam sozinhos sob `[data-bs-theme="dark"]`. Nunca acrescente
+  `bg-white`.
+- **Tinja só o ícone.** Texto pequeno tingido sobre um fundo tingido mediu
+  abaixo de 4.5:1 nos cards de problema (`_page.css`); a palavra do estado fica
+  na cor do corpo.
+- **Totais como o pico da página, sem legenda.** Cada card já imprime ícone e
+  palavra do estado e cada cabeçalho de site traz as três contagens, então uma
+  legenda separada repetiria tudo uma quarta vez. Em vez dela, os totais do
+  recorte atual são a maior tipografia da página: numerais de 2rem na fonte de
+  título (`--noca-font-heading`), com figuras tabulares, a cor de estado no
+  próprio numeral (vermelho para offline, âmbar para "nunca entrou" com o
+  contest em andamento, verde para online; zero fica na tinta atenuada), e a
+  palavra embaixo no passo Label com o ícone que serve de chave aos chips dos
+  sites. Sem tiles, sem bordas, sem realces -- é tipografia sobre a página, não
+  uma fileira de KPIs. Ficam dentro da região trocada pelo poll para não
+  envelhecer.
+- **Triagem, não inventário.** Dentro de um site, os assentos vazios vêm
+  primeiro (offline, depois nunca entrou; empate por nome) e os times online
+  dobram-se numa contagem que se abre sob demanda; um site com assento vazio
+  aparece antes de um site sem; um site onde todos estão presentes é uma única
+  linha. Assim trezentos times cabem na tela sem que o operador leia os
+  saudáveis para achar o problema.
+- **Alarme por fase.** Antes do início, "ainda não entrou" é esperado: esses
+  times dobram-se na contagem do site junto com os online (e a palavra muda
+  para "not signed in yet"), sobrando como card só quem estava e sumiu. Com o
+  contest em andamento, "nunca entrou" vira card e recebe o tom de atenção
+  (`--noca-state-frozen`, âmbar) ao lado do vermelho de quem estava e sumiu. O
+  serviço decide o conjunto de estados em card pela fase; a classe
+  `noca-team-status-board--<fase>` no wrapper é o que permite ao CSS tingir; o
+  cabeçalho da página explica a fase em uma frase.
+- **Estado da leitura no URL.** `site=` recorta o quadro a um site (o seletor
+  do relatório, recolhido por padrão) e `show=` lista os sites desdobrados. O
+  wrapper `#team-status-grid` faz `hx-get` para o **URL atual** com `hx-select`
+  nele mesmo (caminho e query, nunca o host), o mesmo formato do placar e do
+  dashboard do contest, então o refresh de 10 s preserva recorte e
+  desdobramentos. Os links de desdobrar são links comuns para a mesma rota que,
+  com htmx presente, trocam o quadro no lugar e empurram o URL
+  (`hx-push-url`), para que abrir o décimo site não devolva o leitor ao topo;
+  os tiles do seletor de site são links simples. Não há endpoint JSON paralelo
+  a manter em sincronia. Os avatares apontam para
+  `/user/{id}/avatar?v=...`, que responde com `Cache-Control` de uma hora,
+  então a troca não baixa imagem nenhuma de novo.
+- **Destino no card.** A sala (`users.location`) aparece quando definida, porque
+  a ação seguinte é ir até o assento; para admin e uberadmin o nome é um
+  `stretched-link` para o registro do time, e juiz e staff veem o mesmo card sem
+  link, porque a página é fechada para eles.
 
 ---
 

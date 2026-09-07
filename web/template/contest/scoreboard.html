@@ -180,8 +180,9 @@
                                         <tbody>
                                             {% for standing in snapshot.standings %}
                                                 {% set is_own_team = current_user.role == RoleEnum.TEAM.value and standing.team_id == current_user.id %}
+                                                {% set is_absent = standing.team_id in teams_absent %}
                                                 <tr id="{{ standing.team_id }}"
-                                                    class="{{ 'noca-own-team-row' if is_own_team else '' }}">
+                                                    class="{{ 'noca-own-team-row' if is_own_team else '' }} {{ 'noca-team-absent' if is_absent else '' }}">
                                                     <td class="text-center fw-semibold noca-tabular-nums">{{ standing.rank }}</td>
                                                     {# Two lines: the team's name, then the site it competes at. A team
                                                        with no site falls back to its login, so the second line is never
@@ -189,7 +190,15 @@
                                                     <td class="noca-scoreboard-team-cell">
                                                         {% set display_team_name = team_display_map.get(standing.team_id, standing.team_fullname) %}
                                                         {% set team_site_name = team_site_name_map.get(standing.team_id) %}
-                                                        <div class="fw-semibold">{{ display_team_name }}</div>
+                                                        <div class="fw-semibold">
+                                                            {{ display_team_name }}
+                                                            {# The icon, not the muted color, is what carries "never signed
+                                                               in": it is announced by a screen reader and it survives a
+                                                               projector read from the back of the hall. #}
+                                                            {% if is_absent %}
+                                                                {{ render_icon(icon="person_off", classes="noca-team-absent-icon", label="No sign of life since the contest started") }}
+                                                            {% endif %}
+                                                        </div>
                                                         <div class="text-muted fw-light noca-cell-note {{ '' if team_site_name else 'noca-literal-text' }}">
                                                             {{ team_site_name or standing.team_name }}
                                                         </div>

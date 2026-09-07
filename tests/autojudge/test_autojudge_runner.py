@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from autojudge.config import settings
 from autojudge.runner import (
     IsolateError,
     _is_suspicious_signal_kill,
     _parse_isolate_meta,
     _resolve_peak_pids,
     _runtime_isolate_dirs,
+    outer_timeout_seconds,
 )
 from autojudge.types import IsolateMeta
 from shared.language_registry import default_language_configs
@@ -121,3 +123,34 @@ def test_suspicious_signal_kill_rejects_nonzero_exit_status() -> None:
     meta = _sg_meta(wall_time_ms=7, memory_kb=692, status="RE")
 
     assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"") is False
+
+
+def test_outer_timeout_is_the_wider_of_the_multiplier_and_the_fixed_floor() -> None:
+    # Asserted against whatever this deployment configures, because both terms are tunable
+    # and the contract is that neither one alone decides the window.
+    for inner_wall_limit_s in (0.001, 0.086, 0.15, 1.0, 30.0):
+        expected = max(
+            inner_wall_limit_s * settings.OUTER_TIMEOUT_MULTIPLIER,
+            inner_wall_limit_s + settings.OUTER_TIMEOUT_FIXED_OVERHEAD_S,
+        )
+
+        assert outer_timeout_seconds(inner_wall_limit_s) == pytest.approx(expected)
+
+
+def test_outer_timeout_covers_docker_exec_overhead_on_short_budgets() -> None:
+    # 86 ms is a realistic tail repetition of a 150 ms budget shared across 10 repetitions.
+    # Scaled by the multiplier alone the watchdog would give the whole Docker exec round trip
+    # less time than it costs, fire on infrastructure latency, and SIGKILL a healthy run
+    # container -- which then failed every later test case with a 409.
+    inner_wall_limit_s = 0.086
+
+    timeout_s = outer_timeout_seconds(inner_wall_limit_s)
+
+    assert timeout_s >= inner_wall_limit_s + settings.OUTER_TIMEOUT_FIXED_OVERHEAD_S
+    assert timeout_s > inner_wall_limit_s
+
+
+def test_outer_timeout_never_falls_below_the_inner_budget() -> None:
+    # The floor is additive, so it can only ever widen the window isolate is given.
+    for inner_wall_limit_s in (0.001, 0.15, 1.0, 30.0):
+        assert outer_timeout_seconds(inner_wall_limit_s) >= inner_wall_limit_s

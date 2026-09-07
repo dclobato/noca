@@ -1,7 +1,7 @@
 """Batch import flow for contest users."""
 
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,7 +17,13 @@ from web.models.contest import Contest
 from web.models.users import UberAdmin, User
 
 from .crud import create_user, update_user
-from .models import _USERNAME_RE, BatchImportResult, BatchUserRow, UserImportResult
+from .models import (
+    _USERNAME_RE,
+    BatchImportResult,
+    BatchUserRow,
+    UserImportResult,
+    parse_optional_bool_field,
+)
 from .permissions import ensure_contest_user_add_or_edit_allowed
 from .sites import resolve_or_create_import_site
 from .validation import (
@@ -49,8 +55,29 @@ async def batch_import_users(
     contest: Contest,
     actor: User | UberAdmin,
     users_data: list[BatchUserRow],
+    *,
+    allow_concurrent_login: bool = True,
 ) -> BatchImportResult:
-    """Create or update contest users from a parsed batch payload."""
+    """Create or update contest users from a parsed batch payload.
+
+    Args:
+        allow_concurrent_login: The default session policy for the users this
+            import **creates**, from the upload form's checkbox. A row that
+            updates an existing user and says nothing about the flag leaves it
+            untouched: an import is a roster, and silently reversing an
+            organiser's per-team decision because a CSV was re-uploaded would be
+            a change nobody asked for.
+
+    Notes:
+        A row may carry its own `allow_concurrent_login` field, and an explicit
+        value **wins over the form default and applies on update as well**. The
+        distinction is between a statement and a default: the checkbox says what
+        to do with rows that are silent, while a value written in the file is
+        the author saying what this particular user's policy is. Anything that
+        is neither of the accepted spellings fails that row rather than being
+        read as one of them, because a typo silently restricting a roster and a
+        typo silently leaving it unrestricted are both worse than a refusal.
+    """
     ensure_contest_user_add_or_edit_allowed(contest)
 
     results: list[UserImportResult] = []
@@ -69,6 +96,24 @@ async def batch_import_users(
         password: str | None = None if raw_password is None else str(raw_password).strip() or None
         raw_location = user_dict.get("location")
         location_value: str | None = None if raw_location is None else (str(raw_location).strip()[:16] or None)
+        try:
+            row_allow_concurrent_login = parse_optional_bool_field(user_dict.get("allow_concurrent_login"))
+        except ValueError as exc:
+            results.append(
+                UserImportResult(
+                    username=username,
+                    fullname=fullname,
+                    role=raw_role,
+                    email=email_value,
+                    status="failed",
+                    password=None,
+                    site=site_name,
+                    location=location_value,
+                    detail=f"allow_concurrent_login: {exc}",
+                )
+            )
+            failed += 1
+            continue
 
         if not username or not _USERNAME_RE.match(username):
             results.append(
@@ -157,6 +202,10 @@ async def batch_import_users(
             site = await resolve_or_create_import_site(session, contest, role=role, raw_site=raw_site)
 
             if existing_user is None:
+                # An explicit row value wins over the form's default for this user.
+                effective_allow_concurrent_login = (
+                    allow_concurrent_login if row_allow_concurrent_login is None else row_allow_concurrent_login
+                )
                 actual_password, created_password_detail = resolve_password_with_detail(password)
                 _, actual_password = await create_user(
                     session,
@@ -169,6 +218,7 @@ async def batch_import_users(
                     email=normalized_email,
                     site_id=site.id if site is not None else None,
                     location=location_value,
+                    allow_concurrent_login=effective_allow_concurrent_login,
                 )
                 results.append(
                     UserImportResult(
@@ -181,6 +231,7 @@ async def batch_import_users(
                         site=site.sitename if site is not None else None,
                         location=location_value,
                         detail=created_password_detail,
+                        allow_concurrent_login=effective_allow_concurrent_login,
                     )
                 )
                 created += 1
@@ -201,6 +252,7 @@ async def batch_import_users(
                 email=normalized_email,
                 site_id=site.id if site is not None else None,
                 location=location_value,
+                allow_concurrent_login=row_allow_concurrent_login,
             )
             results.append(
                 UserImportResult(
@@ -213,6 +265,10 @@ async def batch_import_users(
                     site=site.sitename if site is not None else None,
                     location=location_value,
                     detail=password_detail,
+                    # `None` when the row said nothing, which is exactly "left
+                    # as the organiser set it" rather than a value this import
+                    # chose.
+                    allow_concurrent_login=row_allow_concurrent_login,
                 )
             )
             updated += 1

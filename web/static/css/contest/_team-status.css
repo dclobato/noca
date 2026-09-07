@@ -1,0 +1,344 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 The NOCA Authors (see AUTHORS) */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/* Team status map (`/c/{slug}/team-status`): a triage board of one card per
+   team, tinted by state. The card is deliberately NOT a Bootstrap `.card`:
+   `_dark.css` repaints every `.card` with a ten-class selector that would
+   outrank these modifiers in dark mode and flatten the three tints into one.
+   Every colour below is a token, so the tints remap under
+   `[data-bs-theme="dark"]` on their own.
+
+   Colour is one of three channels. The template also prints the state as a
+   word and an icon on every card, and the never-signed-in card carries a
+   dashed border, so the board survives greyscale, a projector and forced
+   colours. Only the icon is tinted: small tinted *text* on a light tint was
+   measured short of 4.5:1 on the problem cards (`_page.css`), so the word
+   stays in body colour. The card washes are the `--noca-state-*-tint` tokens,
+   declared per theme in `tokens.css`: mixing the state colours here collapsed
+   red and amber into one grey on the dark ground, because those are already
+   lightened for a solid band and a thin wash of them carries no hue.
+
+   Which empty seat is the alarm depends on the phase, carried as a class on
+   the board: before the start a team that never signed in is expected and
+   its card stays neutral; once the contest runs it takes the attention tint
+   (amber, the ramp's "pending" hue) so it reads as an empty seat beside the
+   red of a team that was there and vanished. */
+.noca-team-status-card {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-low);
+    color: var(--noca-on-surface);
+}
+
+.noca-team-status-card--online {
+    border-color: color-mix(in srgb, var(--noca-state-live) 55%, transparent);
+    background-color: var(--noca-state-live-tint);
+}
+
+.noca-team-status-card--offline {
+    border-color: color-mix(in srgb, var(--noca-state-silence) 50%, transparent);
+    background-color: var(--noca-state-silence-tint);
+}
+
+.noca-team-status-card--never {
+    border-style: dashed;
+    background-color: var(--noca-surface-container);
+}
+
+:is(.noca-team-status-board--running, .noca-team-status-board--ended) .noca-team-status-card--never {
+    border-color: color-mix(in srgb, var(--noca-state-frozen) 55%, transparent);
+    background-color: var(--noca-state-frozen-tint);
+}
+
+.noca-team-status-card-username {
+    font-size: var(--noca-type-label);
+}
+
+.noca-team-status-card-state {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: var(--noca-type-label);
+    font-weight: 600;
+}
+
+.noca-team-status-card-location {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+    min-width: 0;
+    color: var(--noca-on-surface);
+}
+
+.noca-team-status-icon {
+    font-size: 1rem;
+}
+
+.noca-team-status-card--online .noca-team-status-icon,
+.noca-team-status-count--online .noca-team-status-icon {
+    color: var(--noca-brand-on-surface);
+}
+
+.noca-team-status-card--offline .noca-team-status-icon,
+.noca-team-status-count--offline .noca-team-status-icon {
+    color: var(--noca-state-silence);
+}
+
+.noca-team-status-card--never .noca-team-status-icon,
+.noca-team-status-count--never .noca-team-status-icon {
+    color: var(--noca-on-surface-variant);
+}
+
+:is(.noca-team-status-board--running, .noca-team-status-board--ended)
+    :is(.noca-team-status-card--never, .noca-team-status-count--never) .noca-team-status-icon {
+    color: var(--noca-state-frozen);
+}
+
+.noca-team-status-card-ip {
+    margin-top: 0.25rem;
+    overflow-wrap: anywhere;
+}
+
+/* The name is the link to the team's record for the roles that may open it;
+   `stretched-link` makes the whole card the target. It inherits the card's
+   ink so a tinted card does not turn into a wall of link blue. */
+.noca-team-status-card-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.noca-team-status-card-link:hover,
+.noca-team-status-card-link:focus-visible {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+}
+
+.noca-team-status-card-link:focus-visible {
+    outline: none;
+}
+
+.noca-team-status-card:has(.noca-team-status-card-link:focus-visible) {
+    outline: 2px solid var(--noca-brand);
+    outline-offset: 2px;
+}
+
+/* Page rhythm. Three regions, each separated by a generous interval and tight
+   inside: the header (title, contest, the phase sentence at body size), the
+   control cluster (site picker directly over the live totals line) and the
+   sites. Values sit on the 4-unit scale: 0.25 / 0.5 / 0.75 / 1 / 1.5 / 2rem. */
+.noca-team-status-header {
+    margin-bottom: var(--noca-space-lg);
+}
+
+.noca-team-status-phase {
+    max-width: 70ch;
+    color: var(--noca-on-surface);
+}
+
+.noca-team-status-picker {
+    margin-bottom: var(--noca-space-sm);
+}
+
+/* Sites: one section each. A site with an empty seat is listed first; one with
+   none is just its heading row -- name, counts, fold-out -- so the healthy
+   rooms read as a short list under the rooms that need a walk. Every heading
+   carries a rule, so the site boundary is the same line all the way down. */
+.noca-team-status-site {
+    margin-bottom: var(--noca-space-xlg);
+}
+
+.noca-team-status-site--quiet {
+    margin-bottom: 0;
+}
+
+.noca-team-status-site-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1rem;
+    min-width: 0;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--noca-outline-variant);
+}
+
+/* Cards hang 0.75rem under their heading -- close enough to belong to it, far
+   enough that the rule reads as a boundary. A Bootstrap row pulls itself up by
+   one gutter (its columns push back down by the same), so the written distance
+   is the visible one only once that pull is cancelled. */
+.noca-team-status-site-cards.row {
+    margin-top: calc(0.75rem - var(--bs-gutter-y));
+}
+
+/* Unfolded cards after empty seats: a dashed rule names the seam, so tint is
+   not the only thing telling the two grids apart. Here the row keeps
+   a positive margin -- the rule sits 0.75rem under the last empty seat and the
+   column gutter puts the online cards one gutter under the rule. */
+.noca-team-status-site-cards.noca-team-status-site-online {
+    margin-top: 0.75rem;
+    border-top: 1px dashed var(--noca-outline-variant);
+}
+
+.noca-team-status-site-counts {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.noca-team-status-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: var(--noca-type-label);
+    font-weight: 600;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+/* The fold-out for a site's online teams: a full-height link so it is a real
+   target on a touch screen, quiet at rest, lit like a tile on hover. */
+.noca-team-status-disclosure {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: var(--bs-border-radius);
+    color: var(--noca-on-surface);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.noca-team-status-site-heading .noca-team-status-disclosure {
+    margin-inline-start: auto;
+}
+
+/* On a phone the heading wraps; the fold-out then reads as the last line of
+   the heading, left with the counts, instead of a lone control on the right. */
+@media (max-width: 575.98px) {
+    .noca-team-status-site-heading .noca-team-status-disclosure {
+        margin-inline-start: 0;
+    }
+}
+
+.noca-team-status-disclosure:hover,
+.noca-team-status-disclosure:focus-visible {
+    border-color: var(--noca-brand);
+    background-color: color-mix(in srgb, var(--noca-brand) 8%, var(--noca-surface-container-lowest));
+    color: var(--noca-on-surface);
+}
+
+/* Keyboard focus must read as focus, not as a hover that happens to be
+   there: the same ring the card link gets, so the two controls agree. */
+.noca-team-status-disclosure:focus-visible {
+    outline: 2px solid var(--noca-brand);
+    outline-offset: 2px;
+}
+
+.noca-team-status-disclosure .noca-collapse-caret {
+    transition: transform 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-team-status-disclosure .noca-collapse-caret {
+        transition: none;
+    }
+}
+
+/* The board's peak: the room in three figures. Headline-size numerals in the
+   heading face, the state colour carried by the numeral itself and nothing
+   else -- no tiles, no rules, no accents -- so the strip is typography on the
+   page, not a row of KPI cards. The word sits under its number in the Label
+   step (uppercase, tracked), with the state icon that keys the count chips in
+   the site headings. A zero drops to the muted ink so a calm room reads calm.
+   The figures change every ten seconds, hence tabular figures. */
+.noca-team-status-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem 1.5rem;
+    margin-bottom: var(--noca-space-xlg);
+}
+
+.noca-team-status-totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem var(--noca-space-xlg);
+    margin: 0;
+}
+
+.noca-team-status-total {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0.125rem;
+    margin: 0;
+}
+
+.noca-team-status-total-value {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    color: var(--noca-on-surface);
+}
+
+.noca-team-status-total-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-team-status-total--offline .noca-team-status-total-value {
+    color: var(--noca-state-silence);
+}
+
+:is(.noca-team-status-board--running, .noca-team-status-board--ended)
+    .noca-team-status-total--never .noca-team-status-total-value {
+    color: var(--noca-state-frozen);
+}
+
+.noca-team-status-total--online .noca-team-status-total-value {
+    color: var(--noca-brand-on-surface);
+}
+
+.noca-team-status-total--zero .noca-team-status-total-value,
+.noca-team-status-total--all .noca-team-status-total-value {
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-team-status-refresh {
+    margin-inline-start: auto;
+}
+
+@media (max-width: 575.98px) {
+    .noca-team-status-total-value {
+        font-size: 1.5rem;
+    }
+
+    .noca-team-status-refresh {
+        margin-inline-start: 0;
+    }
+}
+
+@media (pointer: coarse) {
+    .noca-team-status-disclosure,
+    .noca-reports-site-tile {
+        min-height: 2.75rem;
+    }
+}

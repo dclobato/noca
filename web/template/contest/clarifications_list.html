@@ -9,7 +9,7 @@
 {% set clarifications_base_url = request.url_for('contest_clarifications', slug=contest.login_slug) %}
 <div id="clarifications-list-wrapper"
      {% if current_user.role == RoleEnum.TEAM.value %} data-answer-read-url="{{ request.url_for('contest_clarification_answers_read', slug=contest.login_slug) }}" {% endif %}
-     {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
+     {% if not contest.is_past and (current_user.role == RoleEnum.TEAM.value or contest.is_running) %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
     {% if not lock_service_available and current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
         <div class="alert alert-warning small mx-3 mt-3 mb-0">Lock service unavailable. Possible double work/rework.</div>
     {% endif %}
@@ -23,10 +23,12 @@
                                 <th class="text-end noca-col-8">{{ sort_link('Time', 'time', sort_by, clarifications_base_url) }}</th>
                                 <th class="text-center noca-col-6">Visibility</th>
                                 <th class="text-center noca-col-8">Status</th>
+                                <th class="text-end noca-col-7">Queue time</th>
                                 <th class="text-center">{{ sort_link('Problem', 'problem', sort_by, clarifications_base_url) }}</th>
                                 {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                     <th>Team</th>
                                     <th>Judge</th>
+                                    <th class="text-end">Service time</th>
                                 {% endif %}
                                 <th>Question</th>
                                 <th>Answer</th>
@@ -70,6 +72,7 @@
                                             {% endif %}
                                         {% endif %}
                                     </td>
+                                    <td class="text-end small text-muted">{{ queue_time_map.get(c.id) or '—' }}</td>
                                     <td class="fw-semibold text-center">
                                         {% if c.problem_id %}
                                             {{ problem_map.get(c.problem_id, '?') }}
@@ -80,6 +83,7 @@
                                     {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                         <td class="small">{{ user_map.get(c.team_id, '?') }}</td>
                                         <td class="small text-muted">{{ user_map.get(c.judge_id, '—') if c.judge_id else '—' }}</td>
+                                        <td class="text-end small text-muted">{{ service_time_map.get(c.id) or '—' }}</td>
                                     {% endif %}
                                     <td class="small">
                                         {{ c.question[:30] }}

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +69,9 @@ async def invalidate_scoreboard_cache(valkey: Any, contest_id: str) -> None:
         logger.warning(
             f"Scoreboard cache for contest 'contest_id' invalidation failed (best-effort, ignored): {str(exc)}"
         )
+
+
+async def invalidate_contest_result_caches(valkey: Any, contest_id: str) -> None:
+    """Invalidate scoreboard snapshots and rotate the report generation."""
+    await invalidate_scoreboard_cache(valkey, contest_id)
+    await invalidate_contest_report_cache(valkey, contest_id)

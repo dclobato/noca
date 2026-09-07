@@ -54,6 +54,19 @@ clarifications = Table(
         server_default="0",
         comment="Seconds since contest start when the clarification was created.",
     ),
+    Column(
+        "acquired_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Time when the clarification was last acquired by its handler. Reset on every acquire; not "
+        "cleared on release, since an unanswered clarification's service time is never read from it.",
+    ),
+    Column(
+        "acquired_timestamp_seconds",
+        Integer,
+        nullable=True,
+        comment="Seconds since contest start when the clarification was last acquired.",
+    ),
     Column("answered_at", DateTime(timezone=True), nullable=True, comment="Time when the clarification was answered"),
     Column(
         "answer_read_at",

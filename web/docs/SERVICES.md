@@ -143,6 +143,41 @@ Notes:
 
 ---
 
+## `session_lock_reaper.py`
+
+Purpose:
+- release the single-session IP bindings (`users.locked_ip` / `locked_at`) of contests that have ended
+
+Main entrypoints:
+- `release_ended_contest_ip_locks(session) -> int` — one cycle; returns rows released. No `now`
+  parameter, unlike the sibling reapers: "ended" is `Contest.is_past`, which reads the clock itself, and
+  an injectable one here would be a second answer free to disagree with the policy's.
+- `run_session_lock_reaper(session_factory, poll_interval_seconds, stop_event, logger) -> None` — delegates to
+  `reaper_runner.run_reaper_loop`
+
+The policy stops applying at the end instant, so a binding on a finished contest is already inert and nothing
+needs cleaning up for correctness *today*. It matters for the contest's next life: `start_time` is editable, so a
+rescheduled or re-run contest would start enforcing again against addresses recorded at the previous sitting and
+refuse every team from a seat it never sat in.
+
+Three decisions:
+
+- **It never touches `session_epoch`.** `session_policy.clear_ip_lock` bumps it, because a mid-contest release
+  must supersede the sessions bound to the old address or the first of them re-binds it. After the end there is
+  nothing to supersede, and bumping would sign out every team of a finished contest while they are still reading
+  their runs and the final scoreboard.
+- **It works per contest, not per user.** The bound population of a large contest is every team it has, so a cycle
+  asks which *contests* still hold a binding, keeps the ended ones, and releases each in one statement — flat in
+  the number of teams.
+- **`is_past` is evaluated in Python, not reproduced in SQL.** One definition of "ended" governs the login, the
+  per-request check and this loop; a second expression written here would be free to disagree with it.
+
+`NOCA_WEB_ENABLE_SESSION_LOCK_REAPER` defaults to **false**, like every other in-process reaper — `test_main_reaper.py`
+pins that invariant, allowing only the worker-presence heartbeat to start unasked. Enable it only where a contest is
+re-run by moving its start time; a re-run staged as a new contest carries no bindings, so the loop has nothing to do.
+
+---
+
 ## `reaper_runner.py`
 
 Purpose:
@@ -158,7 +193,7 @@ Do not reimplement:
 - the graceful shutdown and error-swallowing loop
 
 Notes:
-- currently consumed by `clarification_reaper` and `task_reaper`
+- currently consumed by `clarification_reaper`, `task_reaper`, and `session_lock_reaper`
 - the `cycle` callback receives the active session; the runner commits after it returns
 
 ---
@@ -210,6 +245,187 @@ Typical consumers:
 
 ---
 
+## `session_policy.py`
+
+Purpose:
+- express the single-session, single-IP team login policy in exactly one place
+- decide, for one authenticated request, whether the session is the current one
+  and whether it comes from the address the user is bound to
+- own the three state transitions the policy needs, each as one conditional SQL
+  statement rather than a read-then-write
+
+Once a contest has started, a user whose `allow_concurrent_login` is false holds
+one session, from one client IP. Before the start nothing is enforced, and after
+the end nothing is enforced either (`Contest.is_running` is exactly the window).
+Staff are exempt by **current role** (`EXEMPT_ROLES`), never by the column's
+default: an administrator whose flag was cleared by the contest-wide bulk toggle
+must still be exempt, and getting that wrong locks the organisers out of their
+own running contest.
+
+Two properties are load-bearing:
+
+- **The epoch is bumped by every login, including pre-start logins**, and only
+  *enforced* from the start instant. By the time enforcement begins, each
+  pre-start session already carries a distinct epoch and only the newest matches
+  the row. Without the unconditional bump those sessions would share one epoch
+  and the survivor would be whichever made the first request after the start --
+  a race a forgotten background tab can win against the machine at the venue.
+- **No transition is a read-then-write.** Two requests can observe the same
+  unbound user and two logins can read the same epoch. The binding is an
+  `UPDATE ... WHERE locked_ip IS NULL` whose row count says who won, and the
+  bump is `SET session_epoch = session_epoch + 1 RETURNING`, evaluated by the
+  database.
+
+Main entrypoints:
+- `policy_applies(user, contest) -> bool`
+  Pure. Whether the policy governs this user on this contest right now.
+- `policy_may_apply(user) -> bool`
+  Pure. The half of that question a caller holding only the user can answer, so
+  a request that could never be governed loads no contest. It is a *half* of the
+  predicate rather than a second copy: `policy_applies` is defined in terms of
+  it, so the two cannot drift apart about who is exempt.
+- `evaluate_session(session, user, contest, *, token_epoch, client_ip) -> SessionVerdict`
+  The per-request decision, binding the address when the user is still unbound.
+  Only `ALLOW` may proceed; `STALE_SESSION` means a newer login superseded this
+  one and `FOREIGN_ADDRESS` means the request came from elsewhere.
+- `bind_client_ip(session, user, client_ip, *, expected_epoch) -> SessionVerdict`
+  Binds, or says which guard refused: `FOREIGN_ADDRESS` when another address won
+  the race, `STALE_SESSION` when a login superseded the session while the bind
+  was in flight. Commits on its own.
+- `authorize_login(session, user, contest, *, client_ip) -> LoginOutcome`
+  The login-time transition: mints this login's epoch and, when the policy
+  applies, does so in the *same* guarded statement that binds the address.
+  Raises `SessionLoginRefusedError` when the binding refuses the login. Left to
+  the caller's transaction.
+- `bump_session_epoch(session, user_id) -> int`
+  Supersedes every session a user holds. Left to the caller's transaction.
+- `clear_ip_lock(session, user_id) -> int`
+  Releases the binding *and* bumps the epoch, so the release means "start
+  again" rather than letting a bound session immediately re-bind the same
+  address. Left to the caller's transaction.
+
+Two argument edges are decided rather than incidental:
+
+- A `token_epoch` of `None` is accepted **only while the stored epoch is still
+  zero**, which is exactly "this user has not logged in since the feature
+  deployed". Every session live at that moment carries a token minted before the
+  claim existed, and refusing them all would sign out a running contest on a
+  rolling deploy; accepting them unconditionally would be worse, since such a
+  token would outlive the login meant to supersede it. The grace period closes
+  by itself, per user, at that user's first login.
+- A `client_ip` of `None` never *binds* -- there is nothing to bind -- but is
+  refused against an existing binding, since the request cannot be shown to come
+  from the bound address. `authorize_login` refuses a login the same way, and
+  guards that decision in SQL rather than reading it off the loaded row.
+
+`authorize_login` is where the login-time rule lives, and two things about it are
+decided rather than incidental:
+
+- **The bump is unconditional** -- before the start, and for users the policy
+  never governs -- because that is what gives each pre-start session a distinct
+  epoch. Only the *enforcement* is windowed.
+- **The bump is guarded by the binding, in one statement.** Bumping first and
+  checking the address second would let a refused attempt advance the epoch,
+  signing the venue's session out on behalf of a login that was never allowed to
+  start. A known address guards on `locked_ip IS NULL OR locked_ip =
+  :client_ip`, so a same-address relogin matches it -- a team whose browser
+  crashed can sign back in, and still supersedes its own older tab. An address
+  that cannot be determined guards on `locked_ip IS NULL` alone and binds
+  nothing. That second guard is not cosmetic: an unbound row read into memory may
+  have been bound by another transaction since, and an unguarded bump would then
+  invalidate the token of the session that had just won the binding while minting
+  one that no address can use.
+
+`SessionLoginRefusedError` is deliberately **not** a `ValueError`, and the route
+catches that base class rather than its subclasses, so a refusal added later
+cannot fall through to the credentials branch by omission. The password was
+already proven, so the route must not count a refusal against the credentials
+throttle nor report it as a wrong password. `SessionIpLockedError` names the
+address the sessions are bound to and points at the staff's *Clear IP lock*;
+`SessionBindingContendedError` says the binding kept moving and asks for a
+retry -- it is reachable only when an administrator's release repeatedly lands
+between the guarded write and the read that diagnoses it
+(`_AUTHORIZE_LOGIN_ATTEMPTS`). Refusing there is the safe direction: the
+alternative is an unguarded bump that would supersede whichever session actually
+holds the binding.
+
+That retry exists because an *unlocked* row read back after a missed write is
+not a missing one. Reporting it as missing would surface a correct password as
+invalid credentials and charge the throttle for it, so the two are told apart and
+only the missing row is an error.
+
+`bind_client_ip` commits its own write and the others do not, and the split is
+deliberate. A binding must survive a request that fails afterwards, or it would
+simply be re-raced by the next one; it runs before the route body, when the
+session holds nothing else. The epoch bump, the login authorization and the lock
+release must instead land with what the caller is doing -- the token it mints,
+the login history row, the audit row it writes.
+
+`bind_client_ip` and `authorize_login` are the two functions handed a loaded
+`User`, and both synchronize it with `set_committed_value` rather than
+assignment, so the attribute is not left pending for a later flush to write back
+over a release made in the same request. `bump_session_epoch` and `clear_ip_lock`
+take a user **id** and touch no ORM object at all; a caller holding a loaded
+`User` refreshes it if it needs the new values.
+
+`SESSION_EPOCH_CLAIM` is the token claim carrying the epoch a session was minted
+at. It lives here rather than beside the other token claims because it is the
+policy's vocabulary: the login stamps it and the resolvers read it, but only this
+module knows what it means.
+
+Typical consumers:
+- `web.services.authentication_service.AuthenticationService.user_login`
+- `web.services.session_guard` (every authenticated request)
+- (not yet) the admin clear-IP-lock route lands in a later step of #216
+
+---
+
+## `session_guard.py`
+
+Purpose:
+- apply the single-session policy to one Web *request*, as opposed to one row
+- load the request's contest user once, however many resolvers ask for it
+
+`session_policy` owns the rule; this module is the plumbing that reaches it from
+a request -- reading the epoch claim off the validated token, loading the user
+and its contest, and turning a refusal into the bounce a browser understands.
+The split keeps the policy module free of FastAPI and lets the rule be tested
+against rows while this is tested against requests.
+
+Main entrypoints:
+- `enforce_session_policy(request, session) -> None`
+  Allows the request, or raises the redirect that signs a refused session out.
+  Idempotent per request: the verdict is cached on `request.state`.
+- `load_request_contest_user(request, session, *, username, contest_id) -> User | None`
+  The request's contest user, loaded once and cached against the session that
+  loaded it -- a user attached to a *different* session is never handed back.
+
+Four decisions are worth stating:
+
+- **It runs in `enforce_web_default_auth`, not in the actor resolvers.** Web has
+  three resolvers plus `POST /session/heartbeat`, which resolves nobody at all;
+  a rule written into the resolvers would have left the one endpoint whose whole
+  purpose is to extend a session as the one endpoint that never checked whether
+  the session still exists.
+- **It runs before `mark_auth_refresh_eligible`.** That call used to fire on
+  token validity alone, so a session the policy rejects still left the request
+  with a rotated cookie -- a sign-out that renewed itself.
+- **The contest is loaded only when the user could be governed at all**
+  (`policy_may_apply`). Every staff member, and every team on a deployment that
+  never turned the flag off, is settled by the user row the resolver was going
+  to load anyway, which is what makes this affordable in front of every route.
+- **A token naming no contest, or naming a user or contest that no longer
+  exists, is left alone.** The policy has nothing to say about an UberAdmin, and
+  the resolver that runs next already bounces the others with the message that
+  fits them.
+
+Typical consumers:
+- `web.dependencies.enforce_web_default_auth`, `get_request_user`,
+  `get_avatar_viewer`
+- `web.services.actor_service.get_actor_from_token`
+
+---
+
 ## `authentication_service.py`
 
 Purpose:
@@ -246,6 +462,14 @@ Notes:
   storage compact
 - login-issued tokens include a `session_started_at` marker used to enforce the
   optional absolute sliding-session cap
+- `user_login` runs every contest login through
+  `session_policy.authorize_login`: the user's `session_epoch` advances on every
+  login (pre-start ones included) and is stamped into the token, and a governed
+  team's first login of a running contest binds `locked_ip` to its address in the
+  same statement. A login from a different address raises `SessionIpLockedError`
+  after the password check, which the route reports as itself rather than as a
+  credentials failure -- it writes no `Login_History` row, advances no epoch, and
+  never touches the auth throttle
 - logout revocation is backed by `ValkeyRevocationStore`; revoked JTIs are stored with a
   TTL matching the token's remaining lifetime so entries expire automatically
 - IP geolocation and external request helpers are shared services under `shared/services/`
@@ -265,7 +489,7 @@ Purpose:
 - resolve authenticated actors for contest-scoped and admin-scoped routes
 
 Main entrypoints:
-- `enforce_web_default_auth(request) -> None`
+- `enforce_web_default_auth(request, session) -> None`
 - `get_request_user(request, session) -> User`
 - `get_uberadmin(request, session) -> UberAdmin`
 - contest context and role helpers used by Web route modules
@@ -402,7 +626,11 @@ Main entrypoints:
   availability, duration and local start/end, scoreboard-freeze and
   answer-silence moments, wrong-answer penalty minutes, and the penalizing
   verdict list (mirrors `shared.services.scoreboard_projection`, honoring
-  `ce_adds_penalty` and `accept_pe`).
+  `ce_adds_penalty` and `accept_pe`). The banner template also states the three
+  ranking keys in tie-break order; they are invariant across contests, so they
+  are literal in `contest/_rules_summary.html` rather than fields here. Key 3
+  names its resolution ("to the second") because it is the one place the
+  scoreboard reads finer than the whole minutes shown everywhere else.
 - `get_active_contests_grouped(session) -> ContestDashboardGroups`
 - `sort_past_contests_recent_first(contests) -> list[Contest]` — pure helper sorting `ContestDashboardGroups.past_contests` by `(end_time, login_slug)` descending; used by the `/` and `/contests/past` gateway pages to preview and paginate past contests most-recently-ended first
 - `validate_contest_metadata_update(contest, *, metadata, site_names=None) -> ContestMetadataResult`
@@ -552,7 +780,8 @@ Internal structure:
 
 Ranking rules:
 - teams rank by most problems solved, then lowest total time, then the earliest
-  last accepted submission (`TeamStanding.last_accepted_minutes`); teams equal on
+  last accepted submission (`TeamStanding.last_accepted_seconds`, the only key
+  read at second rather than minute resolution); teams equal on
   all three share a rank number and the next distinct team takes its
   position-based rank
 - the rules themselves live in `shared/services/scoreboard_projection.py` and are
@@ -584,6 +813,108 @@ Do not reimplement:
 
 ---
 
+## `contest_presence.py`
+
+Purpose:
+- record that a contest **team** is active right now, so the scoreboard's absence
+  marker means "no sign of life" rather than "has not signed in since the start",
+  and so the team status map (`team_status_service.py`) can show who is online
+  and from which address
+
+Main entrypoints:
+- `mark_contest_presence(request, session) -> None` — called from
+  `enforce_web_default_auth` after the session policy has allowed the request
+- `clear_contest_presence(request, user_id) -> None` — called from the logout
+  route once the token has been resolved to an actor
+
+Six decisions:
+
+- **It rides the contest clock.** Every contest page re-fetches
+  `GET /c/{slug}/clock` once a minute through `_base.html`, and that request is
+  authenticated, so presence needs no new endpoint, no SSE stream and no client
+  change. The session keepalive would have been the obvious carrier and is the
+  wrong one: its cadence is derived from the token lifetime and fires every 15
+  minutes at the default, far too coarse to tell an occupied seat from an empty
+  one.
+- **Teams only.** No other role is ever marked absent on a scoreboard, so
+  marking staff would buy nothing and put a Valkey write on every
+  administrator's request.
+- **`GET` only**, as Arena does. A `POST` is equally good evidence, but the clock
+  guarantees a `GET` from every open page within the minute, so counting writes
+  would add round trips without shortening the gap.
+- **After the policy verdict**, never before: a session being bounced is not
+  evidence that anybody is sitting at that seat.
+- **Logout clears it.** The marker otherwise outlives the session by its TTL
+  (three minutes at the default) -- right for a closed lid, wrong for a team
+  that pressed **Logout**, the one moment the seat is known to be released. The
+  logout route drops the marker at once so the team status map does not show
+  the seat occupied for another three minutes. Any resolved actor is passed;
+  a marker that was never written makes the removal a no-op.
+- **The marker carries the address.** The live key's value is the client
+  address (`NetworkService.get_ip_from_request`), so the team status map can
+  say *where* a team is working from. It never decides *whether* the team is
+  online -- that is the key existing -- and a request with no usable address
+  stores the reader-neutral `"1"`.
+
+The identity domain is imported from `shared.services.team_absence_status` rather
+than redeclared, because a writer and a reader naming it differently would fail
+silently — as a scoreboard that marks everyone absent.
+
+---
+
+## `team_status_service.py`
+
+Purpose:
+- assemble the team status board -- one card per team, grouped by site, each in
+  one of three states with the address to walk to -- for
+  `GET /c/{slug}/team-status`, which re-renders it every 10 s
+
+Main types:
+- `TeamStatusCard(user_id, username, fullname, location, media_cache_version, status, ip, ip_is_live, last_login_at)`
+  — `status` is `"online" | "offline" | "never"`; `location` is the team's room (`users.location`) or `None`
+- `TeamStatusCounts(online, offline, never)` with `.total`
+- `TeamStatusSiteGroup(key, label, cards, counts, attention_states)` with `.attention_cards` (the
+  states shown as cards in this phase, offline before never), `.folded_cards` (the rest, online first,
+  then not-yet-signed-in), `.folded_counts` and `.needs_attention`; the unassigned group's key is
+  `UNASSIGNED_KEY` (`"unassigned"`)
+- `TeamStatusBoard(site_groups, unassigned, counts, presence_enabled, phase, generated_at)` with
+  `.groups` (every group in display order) — `phase` is `"before" | "running" | "ended"`, from the
+  contest's own clock. The phase decides `attention_states`: `{offline}` before the start (a team that
+  has not signed in yet is expected and folds beside the online ones), `{offline, never}` once the
+  contest runs or has ended; the template also tints by phase
+
+Main entrypoints:
+- `load_team_status_board(session, contest, *, presence) -> TeamStatusBoard` —
+  `presence` is the Valkey runtime, or `None` when `PRESENCE_ENABLED` is off or
+  no runtime exists
+
+Contract:
+- **"never" is not decided here.** It is
+  `shared.services.team_absence_status.load_teams_without_sign_in(session, contest.id, since=contest.start_time)`,
+  the same call the scoreboard and the animator make, so the three surfaces can
+  never disagree on who has not signed in since the start
+- the address is a separate fact: an online team shows the value its presence
+  marker carries (falling back to the last sign-in when the marker holds the
+  neutral `"1"`), an offline team the address of its latest post-start sign-in
+  (one ordered query over `login_history`, first row per team, asked only for
+  teams outside the "never" set), a never-signed-in team none
+- presence is read with `get_users_presence_values` in chunks of
+  `MAX_PRESENCE_BATCH`, so the shared reader's cap becomes a chunk size instead
+  of silently reporting the tail of a large contest offline
+- grouping is `group_users_by_site` from `contest_user_service`, the enrolled
+  page's own, with teams that have no site in a trailing group; sites with an
+  empty seat come before sites without one (a stable sort over the enrolled
+  page's site order); inside a site the cards run offline, then never signed
+  in, then online (again stable, so ties keep the full-name order). The board is
+  for triage at three hundred teams: the page renders the attention cards and
+  folds the online ones into a count
+- a missing or unreachable Valkey reports every signed-in team offline -- the
+  honest answer rather than a false alarm -- and `presence_enabled` tells the
+  template to say so; `User.media` is never loaded (the card links the avatar
+  route instead)
+
+---
+
 ## `scoreboard_display_cache.py`
 
 Purpose:
@@ -604,10 +935,13 @@ Why it exists:
 
 Main types:
 - `ScoreboardSite` — the `id` and `sitename` the page renders
-- `ScoreboardDisplayData` — team names, team-to-site ids, team-to-site names, sites
+- `ScoreboardDisplayData` — team names, team-to-site ids, team-to-site names,
+  sites, and `teams_absent`
 
 Main entrypoints:
-- `get_scoreboard_display_data(session, contest_id, valkey) -> ScoreboardDisplayData`
+- `get_scoreboard_display_data(session, contest_id, valkey, signed_in_since=None) -> ScoreboardDisplayData`
+  — `signed_in_since` is the contest start while the contest is running and
+  `None` otherwise, which skips the never-signed-in lookup entirely
 - `scoreboard_display_key(contest_id) -> str` — `noca:scoreboard:display:{contest_id}`
 
 Contract:
@@ -620,6 +954,19 @@ Contract:
 - reads and writes are best-effort; an unreadable payload is treated as a miss
   and a Valkey failure falls back to the queries, exactly as the snapshot cache
   does
+- `teams_absent` (from `shared.services.team_absence_status`, via
+  `load_absent_teams`) rides this entry rather than a second one, so the absence
+  marker costs a cached scoreboard hit nothing. It is empty outside a running
+  contest, and an entry cached moments before the contest ended keeps its
+  markers for the rest of its 5 s TTL — the same boundary staleness the names
+  and sites already carry
+- a team is listed only when it has **neither** signed in since the start **nor**
+  been seen since (#219). The presence half reads
+  `shared.services.user_presence` under the `contest` domain, written by
+  `web.services.contest_presence` on ordinary authenticated `GET`s; it is
+  consulted inside the 5 s entry precisely because presence moves far faster
+  than a roster does. Passing no Valkey handle — which `PRESENCE_ENABLED=false`
+  does — leaves the sign-in window alone, and so does a Valkey outage
 
 ---
 
@@ -936,7 +1283,7 @@ Main entrypoints:
 - `list_submissions(session, contest, actor, sort_by="time_desc", *, filters=None) -> list[Submission]` — applies role visibility, optional `SubmissionFilters`, and Time or Problem SQL ordering, with eager-loaded team, team site, judgments, judge confirmations, judge sites, overrides, and reviewer site
 - `list_submission_teams(session, contest) -> list[User]` — returns teams that have contest submissions for an independently populated Team filter
 - `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), refuses the submission with a `ValueError` when the problem cannot be judged, via the shared `shared.services.problem_judgeability` contract decided from the problem's **stored strategy** (a standard problem needs cases that all carry an expected output; an interactive one needs an active `VALID` validator and at least one secret case; the reserved output checker is never judgeable), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
-- `build_team_submissions_zip(session, contest, team, *, statement_dir) -> tuple[str, bytes]` — builds a ZIP archive of a team's submissions organized by problem with statement PDFs/MDs, AC/PE solutions in an `AC/` folder, and other submissions in `Other/`; ZIP assembly runs via `anyio.to_thread.run_sync` for request safety
+- `write_team_submissions_zip(session, contest, team, *, statement_dir, destination) -> str` — writes a ZIP archive to the caller-owned path and returns its download filename; submissions are organized by problem with statement PDFs/MDs, AC/PE solutions in an `AC/` folder, and other submissions in `Other/`; ZIP assembly runs via `anyio.to_thread.run_sync` for request safety
 
 Reuse this module when:
 - implementing submission list pages or partials
@@ -953,7 +1300,7 @@ Do not reimplement:
 Notes:
 - service flushes but does not commit
 - duplicate protection uses both a pre-flight query and DB-constraint race handling
-- `build_team_submissions_zip` uses `judgment_utils.get_active_judgment` to find the effective verdict per submission
+- `write_team_submissions_zip` uses `judgment_utils.get_active_judgment` to find the effective verdict per submission
 
 ---
 
@@ -972,7 +1319,7 @@ Main entrypoints:
 - `map_verdict(verdict, accept_pe) -> str` — maps NOCA `Verdict` to legacy status (`Y`, `N`, `X`, `?`)
 - `serialize_contest_file(...) -> str` — pure serialization of the `contest` file with `0x1C` delimiters
 - `serialize_runs_file(runs) -> str` — pure serialization of the `runs` file with `0x1C` delimiters
-- `build_animeitor_zip(session, contest) -> tuple[str, bytes]` — async orchestrator that loads teams, problems, and submissions, then assembles the five-file ZIP (`contest`, `runs`, `time`, `version`, `icpc`) via `anyio.to_thread.run_sync`
+- `write_animeitor_zip(session, contest, destination) -> str` — async orchestrator that loads teams, problems, and submissions, writes the five-file ZIP (`contest`, `runs`, `time`, `version`, `icpc`) to the caller-owned path via `anyio.to_thread.run_sync`, and returns its download filename
 
 Reuse this module when:
 - adding new export formats for external scoreboard consumers
@@ -1017,7 +1364,8 @@ Notes:
 
 Purpose:
 - generates a markdown-formatted contest timeline from persisted contest history
-- normalizes submissions, judgments, confirmations, overrides, clarifications, tasks, and contest timing boundaries into one wrapped text table
+- normalizes submissions, judgments, confirmations, overrides, clarifications, tasks (issued/acquired/concluded), and contest timing boundaries into one wrapped text table
+- identifies each submission and judging row by an eight-character submission id prefix, so repeated runs by one team on one problem stay distinguishable
 
 Internal structure:
 - `common.py` — timeline DTOs plus rendering and label helpers
@@ -1033,7 +1381,7 @@ Reuse this module when:
 - sharing the wrapped PrettyTable configuration with future fixed-width reports
 
 Notes:
-- output is best-effort only and intentionally omits transient lock-only acquisitions that are not stored historically
+- task and clarification acquisitions come from the persisted `acquired_at` / `acquired_timestamp_seconds` columns; a row closed administratively by the end-of-contest reaper has them cleared and reports no acquisition, and a re-acquired row reports only the last handler
 - uses `assorted_utils.render_prettytable()` with per-column `max_width`, top vertical alignment, and right-aligned time column so wrapped cells remain readable within the 90-character width budget
 - includes contest boundary rows for start, scoreboard freeze, answer freeze, and end even when no user-generated events exist at those moments
 - problem labels reuse `_label()` from `contest_admin_problem_helpers.py` for consistency with admin UI problem lettering
@@ -1074,7 +1422,8 @@ Internal structure:
 Main entrypoints:
 
 - `build_contest_backup(...)` — writes a temporary archive off the event loop at
-  `FORMAT_VERSION` 5, carrying each problem's `validator_type`,
+  `FORMAT_VERSION` 6, carrying each user's `allow_concurrent_login`,
+  `session_epoch`, `locked_ip` and `locked_at`, each problem's `validator_type`,
   `artifact_generation`, `public_export_generation`, and optional `editorial`,
   plus each clarification's `is_announcement`, in the payload rows and
   embedding version-2 problem packages. It builds those packages with
@@ -1083,15 +1432,23 @@ Main entrypoints:
   backupable; restore never parses the embedded `problem.json`, and the validator
   row is preserved verbatim in `problems.json`
 - `import_contest_backup(...) -> ContestImportResult` — validates, then restores
-  **version 5 only**, refusing anything else with a message naming the supported
-  version. Every column the live table has is mandatory in a v5 row, so both the
+  **version 6 only**, refusing anything else with a message naming the supported
+  version. Every column the live table has is mandatory in a v6 row, so both the
   integrity checker and the restorer read stored values rather than deriving
   them: `validator_type` is read straight from the row (and decides whether an
   `out/NNN.out` payload member is required), and so is
-  `clarifications.is_announcement`. Versions 1 to 4 were retired with the v5
-  bump; each needed its own optional-column set plus an inference rule, and every
-  such rule was a place the checker and the restorer could disagree — admitting
-  an archive that validates as one kind of row and restores as another
+  `clarifications.is_announcement`. Versions 1 to 5 have been retired — 1 to 4
+  with the v5 bump, and 5 with the v6 one. Each of 1 to 4 needed its own
+  optional-column set plus an inference rule, and every such rule was a place the
+  checker and the restorer could disagree — admitting an archive that validates
+  as one kind of row and restores as another. Row validation compares an archived
+  row against the *live* table, which is why every column added to `users`,
+  `problems` or `clarifications` forces a bump rather than being optional.
+  The four session-binding columns are restored by kind, not as a block:
+  `allow_concurrent_login` is contest policy and is restored as archived, while
+  `session_epoch`, `locked_ip` and `locked_at` describe sessions of the contest
+  that was archived and are reset, so a restored contest cannot bind a team to
+  the address of a machine that went home with the backup
 
 Reuse this module when:
 
@@ -1189,6 +1546,30 @@ Notes:
 - charged before the cache is consulted, so a caller can neither widen the budget by arranging for hits nor be spared by arranging for misses
 - no trusted-network bypass: an exemption keyed on an address could only ever lift a per-actor budget for callers with no valid session
 - register `PROBLEM_EXPORT_LIMITER` in `tests/web/conftest.py`'s reset fixture — the Web test apps carry no Valkey runtime, so the limiter runs on its process-local fallback and state would leak across tests
+
+---
+
+## `export_rate_limit.py`
+
+Purpose:
+- put a per-actor budget on every Web route that builds something per request and grows with the contest, and had no cap but the actor's patience before #157: the contest-admin downloads, the reports page, the team's own-submissions ZIP, and the UberAdmin security-events CSV
+
+Main entrypoints:
+- `web_admin_export_rate_limit` — bucket `web:admin-export`, on `GET /c/{slug}/admin/problems/{id}/export`, `/export-animeitor`, `/export-events`, `/users-per-site-report`, and `/users/export.json`
+- `web_contest_report_rate_limit` — bucket `web:contest-report`, on `GET /c/{slug}/reports/`; looser, because staff refresh and re-scope it by site during a contest
+- `web_team_download_rate_limit` — bucket `web:team-download`, on `GET /c/{slug}/submissions/download-all`, the one route here a team reaches
+- `web_uberadmin_export_rate_limit` — bucket `web:uberadmin-export`, on `GET /uberadmin/security-events.csv`
+- one `*_policy()` per budget, rebuilt from `NOCA_WEB_{ADMIN_EXPORT,CONTEST_REPORT,TEAM_DOWNLOAD,UBERADMIN_EXPORT}_RATE_LIMIT_*` per request, and one module-level `*_LIMITER` fallback each
+
+Do not reimplement:
+- the four are `make_user_rate_limit_dependency` instances keyed through `user_read_rate_limit.web_actor_key`, exactly like the problem-export budget; a fifth surface is one more policy and one more dependency here, not a new module
+
+Notes:
+- **one bucket per surface**, deliberately: the surfaces have different callers and different honest usage, and a shared allowance would let ordinary report navigation spend the budget of an unrelated administrative download (the #157 review's point 2)
+- the key is `{audience}:{contest_id}:{login}` for a contest actor and `{audience}:{login}` for an UberAdmin — `web_actor_key` was widened for this change and every Web per-actor budget now shares the wider key. A contest login is unique only per contest and an UberAdmin `admin` is not the contest user `admin`, so the bare subject would have let three people spend one budget
+- charged on every request, including one the route's own role check then refuses (`download-all` on a running contest answers `403` and still spends one); route-level `dependencies=` run before the handler's own parameter dependencies, so the count happens ahead of any query
+- these budgets bound *frequency*, not one request's cost; `download-all` and the Animeitor export write to owned temporary paths and stream them through `OwnedTemporaryFileResponse`, which removes the file after success, send failure, or cancellation
+- register the four `*_LIMITER`s in `tests/web/conftest.py`'s reset fixture, as the other fallbacks are
 
 ---
 
@@ -1297,13 +1678,30 @@ Main types:
 - `FiveNumberSummary` — Min/Q1/Median/Q3/Max plus Mean for an integer distribution, from `statistics.quantiles(..., n=4)` (stdlib's default "exclusive" method)
 - `SolvedCountBucket` — one bar in the Performance section's "Active Teams by Problems Solved" histogram (`solved`, `team_count`)
 - `PerformanceSummary` — the Performance section's contest-wide distributions across every *active* team, including teams with 0 solves (0 penalty too): `active_team_count`; `solved_summary`/`penalty_summary` (`FiveNumberSummary | None`, `None` below two active teams since `statistics.quantiles` needs at least two points); `solved_histogram`; `top_10pct_solved` (ceiling of the solved-count distribution's own 90th percentile, clamped to the observed maximum since the stdlib's exclusive-method percentile can otherwise extrapolate past it on a small sample -- not a full ICPC-rank threshold, which would pull in penalty-time tie-breaking from outside this distribution). `penalty_summary` uses the real ICPC penalty formula (solve-minute plus penalizing-verdict attempts × the contest's WA penalty, respecting `accept_pe`/`ce_adds_penalty`), computed separately from `SolveMetrics.dirt_ratio`'s broader "any non-accepted submission is wrong" predicate -- the two metrics answer different questions and must not share one wrongness definition
-- `ContestReport` — all aggregated data: highlights, problem summary, distributions, cross-tables (problem×verdict, problem×language, language×verdict), team×problem, time windows, problem race, performance
+- `ContestReport` — all aggregated data: highlights, problem summary, distributions, cross-tables (problem×verdict, problem×language, language×verdict), team×problem, time windows, time window minutes (`time_window_minutes`), problem race, performance
 
 Main entrypoints:
-- `compute_contest_report(contest, submissions, problems, languages, enrolled_teams) -> ContestReport` — `submissions` is `list[ContestReportSubmissionRow]` and `problems` is `list[ContestReportProblemRow]`, both from `contest_report_query_service`, not ORM rows; filters submissions to DONE judgments with non-null final_verdict; sorts them chronologically (`shared.services.scoreboard_projection.submission_sort_key`) since `SolveMetrics` needs each team's attempt order; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate. `problem_infos` (and therefore every table's problem set) is built from `problems` directly, *not* derived from which problems appear in `submissions` -- a problem with zero judged submissions in the current scope (e.g. a site whose teams never touched it) still appears, with every count defaulting to zero, instead of silently vanishing; the distinct `team_id`s across the full (unfiltered) `submissions` list -- teams with at least one submission, judged or not -- become `Highlights.most_solved`/`least_solved`'s percentage denominator, `Highlights.active_teams.active`, and `PerformanceSummary`'s population; `enrolled_teams` (every TEAM-role user enrolled, from `contest_user_service.count_contest_teams`) is used only by `Highlights.active_teams`
+- `compute_time_window_minutes(duration_minutes) -> int` — pure bucket-width sizing for the Runs by Time chart; 10 minutes for contests up to 5h (<= 300 minutes); for longer contests, the smallest multiple of 10 minutes that keeps nominal buckets <= 30 (`ceil(duration_minutes / 300) * 10`)
+- `compute_contest_report(contest, submissions, problems, languages, enrolled_teams) -> ContestReport` — `submissions` is `list[ContestReportSubmissionRow]` and `problems` is `list[ContestReportProblemRow]`, both from `contest_report_query_service`, not ORM rows; filters submissions to DONE judgments with non-null final_verdict; sorts them chronologically (`shared.services.scoreboard_projection.submission_sort_key`) since `SolveMetrics` needs each team's attempt order; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate. Sizing for the Runs by Time chart derives `window_minutes = compute_time_window_minutes(contest.duration_minutes)`; runs at the exact contest duration endpoint (`timestamp_seconds == contest.duration_minutes * 60`) are clamped into the final nominal bucket, while late runs past duration add extra windows without being dropped. `problem_infos` (and therefore every table's problem set) is built from `problems` directly, *not* derived from which problems appear in `submissions` -- a problem with zero judged submissions in the current scope (e.g. a site whose teams never touched it) still appears, with every count defaulting to zero, instead of silently vanishing; the distinct `team_id`s across the full (unfiltered) `submissions` list -- teams with at least one submission, judged or not -- become `Highlights.most_solved`/`least_solved`'s percentage denominator, `Highlights.active_teams.active`, and `PerformanceSummary`'s population; `enrolled_teams` (every TEAM-role user enrolled, from `contest_user_service.count_contest_teams`) is used only by `Highlights.active_teams`
 
 Constants:
 - `ALL_VERDICTS` — ordered list of all `Verdict` values used as cross-table columns
+
+---
+
+## `contest_report_cache.py`
+
+Purpose:
+- cache the viewer-independent report and static chart DTO in Valkey for 600 seconds, scoped by contest, effective site, payload version, and the contest's current report generation
+
+Main entrypoints:
+- `get_contest_report_page_data(session, contest, *, site_id, enrolled_teams, valkey)` — returns a shared Valkey hit, coalesces same-process misses through `SingleFlightCache`, or computes from PostgreSQL when the cache is missing, malformed, or unavailable
+- `ContestReportPageData` — the JSON-compatible report mapping and static chart mapping; request actor/template data and the running contest's elapsed-minute marker remain route-owned
+
+Invalidation:
+- `shared.services.contest_report_cache.invalidate_contest_report_cache` rotates one generation token after report-relevant commits; data written by a racing old computation stays unreachable under its former generation and expires naturally
+- submission/verdict paths share `invalidate_contest_result_caches` with the scoreboard; problem, roster/site, profile-name, and contest-metadata writes rotate the report generation directly
+- the 600-second TTL is the maximum stale interval after a missed invalidation, not the normal refresh interval
 
 ---
 
@@ -1335,6 +1733,7 @@ Internal structure:
 - `permissions.py` — contest-state and actor-authorization guards
 - `crud.py` — create, update, and remove flows
 - `batch.py` — batch import orchestration
+- `session_binding.py` — the organiser's side of the single-session policy: the contest-wide team toggle and the counts the enrolled page reports
 - `validation.py` — compatibility re-export module that preserves the previous validation import surface
 
 Main types:
@@ -1354,7 +1753,9 @@ Main entrypoints:
 - `validate_role_site_requirement(role, site_id) -> None`
 - `resolve_site_for_user(session, contest, *, role, site_id) -> Site | None`
 - `resolve_or_create_import_site(session, contest, *, role, raw_site) -> Site | None`
-- `build_user_export_row(user) -> dict[str, str]`
+- `build_user_export_row(user) -> dict[str, str]` — emits `allow_concurrent_login` on **every** row, not only the
+  restricted ones, so an exported roster re-imported elsewhere keeps the policy it left with rather than inheriting
+  the destination's upload checkbox.
 - `parse_batch_upload(slug, filename, content) -> list[BatchUserRow]`
 - `normalize_batch_users_payload(slug, raw_payload) -> list[BatchUserRow]`
 - `ensure_contest_user_add_or_edit_allowed(contest) -> None`
@@ -1363,23 +1764,50 @@ Main entrypoints:
 - `ensure_user_media_upload_allowed(actor, target_user) -> None`
 - `ensure_user_media_removal_allowed(actor, target_user) -> None`
 - `get_contest_user_groups(session, contest) -> ContestUserGroups`
+- `group_users_by_site(users) -> RoleUserGroups` — the enrolled page's site
+  grouping and ordering, public so the team status map orders its cards the
+  same way (two orderings would disagree on screen)
 - `count_contest_teams(session, contest) -> int` — cheap `COUNT(*)` of TEAM-role users; used by the reports page's Highlights "Active Teams" card as the enrolled-roster figure, distinct from the "active" (submitted at least once) count `contest_report_service` derives itself
 - `count_teams_by_site(session, contest) -> dict[str, int]` — TEAM-role user counts per site (one grouped query, a team with no site excluded); labels each tile in the reports page's site picker without a query per site
 - `get_user_in_contest(session, contest, user_id) -> User | None`
 - `get_user_by_username_in_contest(session, contest, username) -> User | None`
-- `create_user(session, contest, actor, *, username, fullname, role, password, email=None, site_id=None) -> tuple[User, str]`
-- `update_user(session, contest, user, *, fullname, role, password=None, email=..., site_id=None) -> str | None`
+- `create_user(session, contest, actor, *, username, fullname, role, password, email=None, site_id=None, allow_concurrent_login=True) -> tuple[User, str]`
+- `update_user(session, contest, user, *, fullname, role, password=None, email=..., site_id=None, allow_concurrent_login=None) -> str | None`
+  `allow_concurrent_login` is **tri-state** here, and that is the point: `None` leaves the stored flag alone. The
+  credentials-only path after a contest ends renders no such control, and neither does the edit form for a non-team,
+  so a plain `bool` would have silently reset an organiser's decision on every unrelated save.
 - `update_user_credentials(session, contest, user, *, email=..., password=None) -> str | None` — updates only the email and optional password; permitted even after the contest ends (unlike `update_user`, it skips the `is_past` guard and never touches profile fields). The edit route dispatches here when `contest.is_past`.
 - `list_contest_sites_for_form(session, contest) -> list[tuple[str, str]]`
 - `list_users_for_export(session, contest) -> list[User]`
 - `remove_user(session, contest, user) -> None`
-- `batch_import_users(session, contest, actor, users_data) -> BatchImportResult`
+- `batch_import_users(session, contest, actor, users_data, *, allow_concurrent_login=True) -> BatchImportResult`
+  The parameter is the **default** for rows that say nothing, and only for rows the import creates. A row carrying its
+  own `allow_concurrent_login` field states that user's policy, so it wins over the default and applies on **update**
+  too; a silent row updating an existing user leaves the flag untouched, because an import is a roster and reversing a
+  per-team decision on re-upload would be a change nobody asked for.
+- `parse_optional_bool_field(raw) -> bool | None` — the tri-state reader behind that field. Absent, empty or blank is
+  `None`, meaning "use the default" rather than `False`; `true|yes|1` and `false|no|0` are the only accepted spellings,
+  and anything else raises so the row fails. Guessing is refused because the two possible misreadings are both bad: one
+  silently restricts a roster, the other silently leaves it unrestricted.
+- `set_contest_team_session_policy(session, contest, *, allow_concurrent_login) -> SessionPolicyChange` — applies one
+  policy to every **team** of a contest, returning the teams it changed and the bindings it released. Teams only,
+  because staff are exempt by role, so setting their flag would change nothing while making the page imply otherwise.
+  **Lifting the policy releases the bindings it made**, over every bound team of the contest rather than only the rows
+  whose flag moved, so a team released individually earlier does not keep an address nobody will enforce until the rule
+  returns. Keeping them was the original decision and it made the round trip a trap: re-applying enforced addresses
+  captured before the lift and refused every team that had moved. The release does not bump `session_epoch` -- the
+  policy has stopped applying, so there is nothing to supersede, which is the opposite of `clear_ip_lock`, releasing one
+  team *while the rule still governs it*. Left to the caller's transaction, so it lands with its audit row.
+- `count_bound_teams(session, contest) -> int` — teams currently holding an IP binding, whatever their flag says.
+- `count_restricted_teams(session, contest) -> int` — teams the policy governs; the enrolled page uses it to describe
+  which way the contest-wide control is set, including the mixed state a per-user edit creates.
 
 Reuse this module when:
 - adding any contest-user admin feature
 - validating or parsing batch import payloads
 - exporting contest users in an import-compatible JSON shape
 - applying contest-state restrictions to user management
+- setting the single-session policy for a whole contest's teams
 
 Do not reimplement:
 - username normalization
@@ -1866,16 +2294,20 @@ Do not reimplement:
 ### `time_utils.py`
 
 Purpose:
-- timezone normalization and timeout calculation helpers
+- timezone normalization, elapsed-time formatting, and timeout calculation
+  helpers
 
 Main entrypoints:
 - `normalize_now_for_reference(now, reference) -> datetime` — strips tzinfo from `now` when `reference` is naive; used for SQLite compatibility
 - `elapsed_since(reference, *, now) -> timedelta` — returns elapsed wall time with timezone normalization
+- `format_elapsed_minutes(reference, *, now) -> str` — renders non-negative
+  elapsed wall time as whole minutes in the compact `"Xm"` queue-time format
 - `is_timeout_exceeded(reference, timeout_minutes, *, now) -> bool` — returns `True` when elapsed time exceeds the configured timeout; returns `False` for non-positive timeouts
 
 Reuse this module when:
 - checking whether a lock timeout has expired
 - computing elapsed time between two timestamps with mixed timezone awareness
+- rendering queue durations consistently across Tasks and Clarifications
 
 ### `assorted_utils.py`
 

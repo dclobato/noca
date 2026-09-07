@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.services.editor_urls import editor_url
 from shared.services.form_draft import confirm_form_draft, problem_definition_draft_key
 from shared.services.imageprocessing_service import ImageProcessingError
@@ -341,6 +342,7 @@ async def edit_problem_submit(
         return _redirect(str(request.url_for("edit_problem_form", slug=slug, problem_id=problem_id)))
 
     await commit_with_edit_swap(ctx.session, swap)
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     confirm_form_draft(request, problem_definition_draft_key("web", contest_id=slug, problem_id=problem.id))
 
     flash("Changes saved successfully.", FlashCategory.SUCCESS)

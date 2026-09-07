@@ -59,6 +59,10 @@
           `compute_icpc` in `shared/services/scoreboard_projection.py`, whose
           "Ranking rules" section in `docs/SHARED_SERVICES.md` is the single
           source of truth. The penalty rows below explain what feeds key 2.
+          Key 3 names its resolution because it is the exception: every other
+          time on the board is a truncated whole minute, so a participant who
+          sees two teams tied on the same solve minute would otherwise expect
+          them to share a rank.
         #}
         <div class="noca-dashboard-rules-item noca-dashboard-rules-item-stacked">
             <dt>
@@ -68,8 +72,8 @@
             <dd>
                 <ol class="noca-dashboard-rank-keys">
                     <li>Most problems solved</li>
-                    <li>Lowest total time</li>
-                    <li>Earliest last accepted solution</li>
+                    <li>Lowest total time, in minutes</li>
+                    <li>Earliest last accepted solution, to the second</li>
                 </ol>
                 <p class="noca-dashboard-rank-tie mb-0">Teams tied on all three share a rank.</p>
             </dd>

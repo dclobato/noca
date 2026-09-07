@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -107,6 +107,62 @@ async function testStaleRejection() {
 
   assert.strictEqual(applied.length, 1, "stale older snapshot rejected");
   assert.strictEqual(applied[0].version, "2026-07-22T10:00:00+00:00");
+}
+
+// ── Shared snapshot gate: one notion of "newer" across every fetch path ──────
+function testSharedSnapshotGate() {
+  const gate = live.createSnapshotGate();
+
+  assert.strictEqual(gate.accept({ version: "2026-07-22T10:00:00+00:00" }), true, "first snapshot applies");
+  assert.strictEqual(
+    gate.accept({ version: "2026-07-22T09:00:00+00:00" }),
+    false,
+    "an older snapshot is refused whichever path fetched it",
+  );
+  assert.strictEqual(
+    gate.accept({ version: "2026-07-22T10:00:00+00:00" }),
+    true,
+    "an equal version is the same snapshot, not a regression",
+  );
+  assert.strictEqual(gate.accept({}), true, "a snapshot with no version carries nothing to order it by");
+  assert.strictEqual(gate.accept(null), true, "a null snapshot is left to the caller");
+  assert.strictEqual(
+    gate.accept({ version: "2026-07-22T11:00:00+00:00" }),
+    true,
+    "a newer snapshot still applies after an unversioned one",
+  );
+}
+
+// A poll outside the coordinator -- the absence watch, the release watch, the
+// start re-check -- must not be able to roll the board back over a snapshot the
+// live transport already applied. Sharing the gate is what prevents it.
+async function testCoordinatorSharesTheGateWithDirectPolls() {
+  const fetcher = deferredFetcher();
+  const applied = [];
+  const gate = live.createSnapshotGate();
+  const coord = live.createRefreshCoordinator(fetcher.fetchSnapshot, (s) => applied.push(s), gate);
+
+  coord.trigger();
+  await flush();
+  fetcher.calls[0].resolve({ version: "2026-07-22T10:00:00+00:00" });
+  await flush();
+  assert.strictEqual(applied.length, 1, "the transport applied its snapshot");
+
+  // A direct poll's response, delayed until after the newer one landed.
+  assert.strictEqual(
+    gate.accept({ version: "2026-07-22T09:30:00+00:00" }),
+    false,
+    "a slow direct poll cannot regress what the transport applied",
+  );
+
+  // ...and the reverse: a direct poll that lands first is respected by the
+  // coordinator, which must not re-apply an older snapshot over it.
+  assert.strictEqual(gate.accept({ version: "2026-07-22T12:00:00+00:00" }), true);
+  coord.trigger();
+  await flush();
+  fetcher.calls[1].resolve({ version: "2026-07-22T11:00:00+00:00" });
+  await flush();
+  assert.strictEqual(applied.length, 1, "the coordinator honours a newer direct poll");
 }
 
 // ── Controller: named listeners; only scoreboard_refresh fetches ─────────────
@@ -399,6 +455,8 @@ function testReopenAfterBfcache() {
 async function main() {
   await testCoalescing();
   await testStaleRejection();
+  testSharedSnapshotGate();
+  await testCoordinatorSharesTheGateWithDirectPolls();
   testNamedListeners();
   testSubmissionListener();
   testVerdictListener();

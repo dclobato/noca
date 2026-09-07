@@ -154,6 +154,20 @@ ACCESS_AREAS: Final[tuple[AccessArea, ...]] = (
         },
     ),
     AccessArea(
+        key="team_status",
+        label="Team status",
+        description="Which teams are online, offline or have not signed in since the start.",
+        rules={
+            MatrixActor.UBERADMIN: _ALWAYS,
+            MatrixActor.ADMIN: _ALWAYS,
+            MatrixActor.CHIEF_JUDGE: _ALWAYS,
+            MatrixActor.JUDGE: _ALWAYS,
+            MatrixActor.STAFF: _ALWAYS,
+            MatrixActor.TEAM: _NONE,
+            MatrixActor.USER: _NONE,
+        },
+    ),
+    AccessArea(
         key="administration",
         label="Administration",
         description="Contest, problem and user administration.",

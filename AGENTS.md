@@ -103,8 +103,7 @@ Everytime you create/update/remove a route, update both ROUTES.md and URL_FOR_RE
 
 Everytime you create/update/remove a service, update SERVICES.md on area/docs or web/docs, or docs/SHARED_SERVICES.md
 
-Check if your change requires updating ARCHITECTURE.md, and update it if
-required/relevant (changes in architecture or in how the app works).
+Check if your change requires updating the architecture documentation, and update it if required/relevant (changes in architecture or in how the app works): `docs/ARCHITECTURE.md` for how modules relate, or the module's own `docs/ARCHITECTURE_<MODULE>.md` for how one module works.
 
 A new, renamed, or removed configuration variable needs THREE edits in the same
 change, because each answers a different question and no one of them implies the
@@ -137,7 +136,10 @@ it and will fail if a setting exists in code with no template that supplies it.
 For every change, review its documentation impact and update every applicable
 document in the same change:
 
-- Architecture changes must update `docs/ARCHITECTURE.md`.
+- Architecture changes must update `docs/ARCHITECTURE.md` (cross-module
+  design) or the owning module's `docs/ARCHITECTURE_<MODULE>.md`
+  (`WEB`, `ARENA`, `AUTOJUDGE`, `RATING`, `AIASSISTANT`, `MAILER`,
+  `HEALTHMONITOR`, `ANIMATOR`, `LANDINGPAGE`, `SHARED`).
 - AI review flow changes must update `docs/AIREVIEW_FLOW.md` and
   `docs/AIASSISTANT.md`.
 - Shared-service changes must update `docs/SHARED_SERVICES.md`.
@@ -236,4 +238,4 @@ The application is a web-based platform for competitive programming, allowing us
 and receive feedback. The backend is built with Python, while the frontend uses HTML, CSS, and JavaScript. The application
 includes features such as user authentication, problem browsing, code submission, and real-time feedback on solution correctness.
 
-See @docs/ARCHITECTURE.md for detailed architecture and design patterns used in the application.
+See @docs/ARCHITECTURE.md for the system architecture and the links to each module's own architecture document (`docs/ARCHITECTURE_<MODULE>.md`).

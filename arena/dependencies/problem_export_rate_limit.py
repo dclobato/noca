@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request
 
 from arena.config import settings
+from arena.dependencies.user_read_rate_limit import arena_user_key
 from shared.services.request_rate_limit import (
     InMemoryRateLimiter,
     RateLimitPolicy,
@@ -36,7 +37,6 @@ __all__ = [
     "PROBLEM_EXPORT_DETAIL",
     "PROBLEM_EXPORT_LIMITER",
     "arena_problem_export_rate_limit",
-    "arena_user_poll_rate_limit",
     "problem_export_policy",
 ]
 
@@ -61,27 +61,9 @@ def problem_export_policy() -> RateLimitPolicy:
     )
 
 
-def _arena_user_key(request: Request) -> str | None:
-    """Return the requester's Arena account id, or ``None`` when anonymous."""
-    validation = getattr(request.state, "validated_token", None)
-    user_id = getattr(validation, "sub", None) if validation is not None else None
-    return str(user_id) if user_id else None
-
-
 arena_problem_export_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rate_limit_dependency(
     policy_getter=problem_export_policy,
-    user_key_getter=_arena_user_key,
+    user_key_getter=arena_user_key,
     detail=PROBLEM_EXPORT_DETAIL,
     fallback_limiter=PROBLEM_EXPORT_LIMITER,
-)
-
-# Presence uses POST because its bounded polling payload contains a list of user
-# ids. Keep those machine-driven calls in the same bucket without making other
-# state-changing routes inherit the read ceiling from their router.
-arena_user_poll_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rate_limit_dependency(
-    policy_getter=problem_export_policy,
-    user_key_getter=_arena_user_key,
-    detail=PROBLEM_EXPORT_DETAIL,
-    fallback_limiter=PROBLEM_EXPORT_LIMITER,
-    methods=frozenset({"POST"}),
 )

@@ -504,7 +504,10 @@ def test_an_ended_contest_watches_for_its_release_instead_of_streaming() -> None
     assert "startLive" not in ended_branch
 
     # A reload or retry must not leave a previous watch polling forever.
-    load_body = app_js[app_js.index("function load(refs, timer, board, appliers, onSubmission, connectionStatus) {") :]
+    # Matched on the prefix, not the full parameter list: this assertion is about
+    # what load() cancels, and re-pinning it on every new parameter only breaks
+    # the test without checking anything more.
+    load_body = app_js[app_js.index("function load(refs, timer, board, appliers, onSubmission, connectionStatus") :]
     assert "cancelReleaseWatch();" in load_body[: load_body.index("Promise.all")]
 
     # The badge says what is actually happening, and "waiting" is not degraded:

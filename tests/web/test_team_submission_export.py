@@ -31,7 +31,7 @@ from web.models.users import UberAdmin, User
 from web.routes import generaluser_dashboard
 from web.routes.contest_submissions import download_all_sources
 from web.routes.session import router as session_router
-from web.services.submission_service import build_team_submissions_zip
+from web.services.submission_service import write_team_submissions_zip
 from web.template_globals import register_template_globals
 
 
@@ -201,6 +201,7 @@ def _build_dashboard_app(ctx: ContestContext) -> FastAPI:
     @app.get("/c/{slug}/submissions/download-all", name="team_submissions_download")
     @app.get("/problem-set/{slug}.zip", name="problem_set_download")
     @app.get("/c/{slug}/reports", name="contest_reports")
+    @app.get("/c/{slug}/team-status", name="contest_team_status")
     @app.get("/c/{slug}/solution-tests", name="contest_solution_tests")
     async def _contest_stub(slug: str) -> dict[str, str]:
         return {"slug": slug}
@@ -219,6 +220,7 @@ async def test_build_team_submissions_zip_exports_expected_layout(
     session: AsyncSession,
     stopped_contest: Contest,
     uberadmin: UberAdmin,
+    tmp_path: Path,
 ) -> None:
     stopped_contest.release_scoreboard_after_end = True
     await session.flush()
@@ -277,15 +279,17 @@ async def test_build_team_submissions_zip_exports_expected_layout(
         final_verdict=Verdict.WA,
     )
 
-    filename, payload = await build_team_submissions_zip(
+    destination = tmp_path / "submissions.zip"
+    filename = await write_team_submissions_zip(
         session,
         stopped_contest,
         team,
         statement_dir=Path(settings.PROBLEM_STATEMENT_DIR),
+        destination=destination,
     )
 
     assert filename == "submissions-stopped-contest-team_export.zip"
-    names = _zip_names(payload)
+    names = _zip_names(destination.read_bytes())
     assert "Problem A/" in names
     assert "Problem A/statement.md" in names
     assert "Problem A/AC/" in names
@@ -347,6 +351,31 @@ async def test_download_all_sources_requires_team_and_released_scoreboard(
     assert (
         response.headers["Content-Disposition"] == 'attachment; filename="submissions-stopped-contest-team_route.zip"'
     )
+    exported_path = Path(response.path)  # type: ignore[attr-defined]
+    assert exported_path.exists()
+
+    async def receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def send(_message: object) -> None:
+        return None
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/download",
+        "raw_path": b"/download",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+        "root_path": "",
+    }
+    await response(scope, receive, send)  # type: ignore[arg-type,operator]
+    assert not exported_path.exists()
 
     with pytest.raises(HTTPException) as admin_exc:
         await download_all_sources(ContestContext(contest=stopped_contest, session=session, actor=admin))

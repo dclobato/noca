@@ -104,6 +104,31 @@ def _is_suspicious_signal_kill(meta: IsolateMeta, *, stdout_size: int | None, st
     )
 
 
+def outer_timeout_seconds(inner_wall_limit_s: float) -> float:
+    """
+    Derive the outer asyncio safety timeout from the inner isolate wall-time budget.
+
+    The outer timeout bounds the whole Docker exec round trip, not just the contestant's
+    program: exec_create + exec_start + attach costs tens to hundreds of milliseconds of
+    infrastructure overhead that has nothing to do with the problem's time limit. Scaling it
+    purely off that limit therefore fires on Docker latency alone for short budgets -- and
+    repetitions reach that regime by design, because each repetition is launched with whatever
+    is left of the test case's shared budget (see ``_run_repeated_test_case``). The fixed
+    allowance is a floor under the multiplier, never a replacement for it, and it never reaches
+    the contestant: isolate enforces ``--time``/``--wall-time`` inside the box.
+
+    Args:
+        inner_wall_limit_s: Wall-time budget handed to isolate for this execution, in seconds.
+
+    Returns:
+        Seconds to wait for the isolate exec before treating the sandbox as wedged.
+    """
+    return max(
+        inner_wall_limit_s * settings.OUTER_TIMEOUT_MULTIPLIER,
+        inner_wall_limit_s + settings.OUTER_TIMEOUT_FIXED_OVERHEAD_S,
+    )
+
+
 async def run_test_case(
     container_id: str,
     language: LanguageConfig,
@@ -126,7 +151,10 @@ async def run_test_case(
     6. Read stdout/stderr excerpts and compare output when execution succeeds.
 
     The container is NOT removed here — the worker's finally block handles
-    destruction via PoolManager.release() after all test cases finish.
+    destruction via PoolManager.release() after all test cases finish. The one
+    exception is the outer safety timeout, which has to SIGKILL the container to
+    stop a wedged exec; the container is dead when that path returns its TLE, and
+    the next call on it fails with a recoverable 409 that makes the caller recycle.
 
     Args:
         container_id: Docker container ID obtained from PoolManager.acquire().
@@ -144,7 +172,7 @@ async def run_test_case(
     loop = asyncio.get_running_loop()
     cpu_limit_s = limits.time_limit_ms / 1000.0
     inner_wall_limit_s = cpu_limit_s * settings.ISOLATE_WALL_TIME_MULTIPLIER
-    outer_timeout_s = inner_wall_limit_s * settings.OUTER_TIMEOUT_MULTIPLIER
+    outer_timeout_s = outer_timeout_seconds(inner_wall_limit_s)
     # The configured global limit is a hard ceiling over the problem's own limit,
     # never a fallback: the problem always states one.
     effective_output_limit = min(settings.OUTPUT_LIMIT_BYTES, limits.output_limit_in_bytes)
@@ -198,9 +226,22 @@ async def run_test_case(
     try:
         isolate_exit_code = await asyncio.wait_for(exec_future, timeout=outer_timeout_s)
     except TimeoutError:
+        # Docker exposes no way to kill a single exec, so stopping a wedged isolate means
+        # destroying its container. The container is therefore dead from here on: the caller
+        # must not reuse it. It does not have to be told explicitly -- the next exec on it
+        # raises a 409 that is_recoverable_isolate_runtime_error() classifies as recoverable,
+        # so the job recycles the container and retries that test case -- but the kill is
+        # logged because it is otherwise invisible, and a run of these means the outer
+        # allowance is too tight for this host rather than that submissions are slow.
         with suppress(Exception):
             await loop.run_in_executor(executor, lambda: container.kill(signal="SIGKILL"))
         RUN_TIMEOUT_TOTAL.labels(language_id=language.id, timeout_kind="outer_asyncio").inc()
+        logger.warning(
+            f"Outer safety timeout ({outer_timeout_s:.3f}s) fired for language '{language.id}' on "
+            f"container '{container_id[:12]}' at a {limits.time_limit_ms}ms limit; the container was "
+            "destroyed to stop the exec and this test case is reported as TLE without reading the "
+            "isolate meta file. Raise NOCA_JUDGE_OUTER_TIMEOUT_FIXED_OVERHEAD_S if this repeats."
+        )
         return RunResult(verdict=Verdict.TLE, wall_time_ms=int(inner_wall_limit_s * 1000))
 
     cgroup_peak_pids = await loop.run_in_executor(executor, _read_isolate_cgroup_peak_pids, container)

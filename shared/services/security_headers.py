@@ -55,7 +55,7 @@ def apply_security_headers(headers: MutableHeaders, *, settings: SecurityHeaderS
     """Apply shared security headers to a mutable response-header mapping."""
     _setdefault_header(headers, "X-Content-Type-Options", "nosniff")
     _setdefault_header(headers, "Referrer-Policy", "strict-origin-when-cross-origin")
-    _setdefault_header(headers, "X-Frame-Options", "DENY")
+    _setdefault_header(headers, "X-Frame-Options", "SAMEORIGIN")
     _setdefault_header(
         headers,
         "Permissions-Policy",
@@ -82,8 +82,8 @@ def _build_csp() -> str:
         [
             "default-src 'self'",
             "base-uri 'self'",
-            "object-src 'none'",
-            "frame-ancestors 'none'",
+            "object-src 'self'",
+            "frame-ancestors 'self'",
             "img-src 'self' data: blob:",
             "font-src 'self' data:",
             "style-src 'self' 'unsafe-inline'",

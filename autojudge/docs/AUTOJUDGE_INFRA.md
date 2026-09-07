@@ -111,6 +111,19 @@ judgment tables and unaffected by this fencing.
   - acquires one idle container, immediately schedules a replacement, and destroys the used container after the run
   - runs contestant programs through `isolate --init/--run/--cleanup` for each executed test case
   - if a problem has no per-language limit row for the submission language, the worker uses the problem fallback resource limits with exactly 1 repetition
+  - the stored time limit is the budget shared by *all* repetitions of one test case (BOCA
+    `safeexec -r$nruns -t$time` semantics), not the budget for one execution. isolate cannot
+    enforce a budget across separate invocations, so the worker emulates it by re-slicing:
+    each repetition is launched with whatever is left, and the case is TLE once the budget
+    is spent
+  - because that per-repetition slice decays toward zero by design, the outer
+    `asyncio.wait_for()` watchdog is floored at `inner_wall_limit + NOCA_JUDGE_OUTER_TIMEOUT_FIXED_OVERHEAD_S`.
+    That watchdog bounds a whole Docker exec round trip, whose overhead is fixed and unrelated
+    to the time limit, so scaling it off the decaying slice alone made it fire on Docker
+    latency — and firing it means SIGKILLing the run container, since Docker cannot kill a
+    single exec. The killed container then fails every later exec with a 409, which
+    `is_recoverable_isolate_runtime_error()` classifies as recoverable so the job recycles the
+    container and retries that test case instead of failing the judgment
   - treats isolate meta output as the authoritative source for time and memory persisted to PostgreSQL
 - Current isolation strategy:
   - Docker containers remain the outer safety boundary

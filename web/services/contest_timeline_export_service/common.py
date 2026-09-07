@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -48,8 +48,10 @@ class EventKind(IntEnum):
     OVERRIDE = 120
     ANNOUNCEMENT = 130
     CLARIFICATION_CREATED = 140
+    CLARIFICATION_ACQUIRED = 145
     CLARIFICATION_ANSWERED = 150
     TASK_CREATED = 160
+    TASK_ACQUIRED = 165
     TASK_FINISHED = 170
     SCOREBOARD_STOP = 180
     ANSWERS_STOP = 190
@@ -75,6 +77,7 @@ class SubmissionContext:
     submission: Submission
     team_label: str
     problem_ref: str
+    submission_ref: str
 
 
 def attachment_safe(value: str) -> str:
@@ -135,7 +138,6 @@ def render_markdown(contest: Contest, events: list[TimelineEvent]) -> str:
         f"# Contest Timeline: {contest.contest_name}",
         "",
         "Best-effort report from persisted contest history.",
-        "Some transient lock acquisitions are not historically recoverable.",
         "",
         "```text",
         timeline_table(table_rows(events)),

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -22,6 +22,15 @@ either a :class:`~shared.services.valkey_service.runtime.ValkeyRuntime` or a raw
 ``valkey.asyncio.Valkey`` client and never raise on a Valkey outage: writes are
 dropped silently, reads degrade to "everyone offline", and the count returns
 ``None`` (kept distinct from a genuine count of ``0``).
+
+The live key holds a small **value** as well as a TTL. A writer that has nothing
+to say stores the literal ``"1"``; a writer that knows *where* the user is -- the
+Web module stores the client address, so contest staff can see which seat a team
+is working from -- passes it as ``value``. Readers must key "online" on the key's
+existence, never on its literal content: :func:`get_users_online_map` answers
+the yes/no question and :func:`get_users_presence_values` hands back the value
+for the callers that want it, and both share one ``mget`` path so they can never
+disagree on which ids were asked for.
 """
 
 from __future__ import annotations
@@ -39,9 +48,10 @@ PRESENCE_PREFIX = "noca:user-presence"
 MAX_PRESENCE_BATCH = 500
 
 # Atomically refresh the live key (with TTL) and the online sorted set.
-# KEYS[1]=live key, KEYS[2]=online set; ARGV[1]=ttl, ARGV[2]=score, ARGV[3]=user id.
+# KEYS[1]=live key, KEYS[2]=online set;
+# ARGV[1]=ttl, ARGV[2]=score, ARGV[3]=user id, ARGV[4]=value stored under the live key.
 _MARK_ONLINE_SCRIPT = """
-redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
+redis.call('SET', KEYS[1], ARGV[4], 'EX', ARGV[1])
 redis.call('ZADD', KEYS[2], ARGV[2], ARGV[3])
 return 1
 """
@@ -93,6 +103,7 @@ async def mark_user_online(
     domain: str,
     user_id: str,
     ttl_seconds: int,
+    value: str = "1",
 ) -> None:
     """Refresh a user's presence, keeping them online for ``ttl_seconds``.
 
@@ -105,6 +116,10 @@ async def mark_user_online(
         domain: Identity domain namespace.
         user_id: Stable user identifier.
         ttl_seconds: Expiry of the live marker, in seconds.
+        value: Content stored under the live key, for readers that want more
+            than yes/no -- the Web module stores the client address. Blank
+            falls back to ``"1"`` so the key always holds something; being
+            online is decided by the key existing, never by this value.
     """
     try:
         await client.eval(
@@ -115,6 +130,7 @@ async def mark_user_online(
             str(max(1, ttl_seconds)),
             str(int(time.time())),
             user_id,
+            value or "1",
         )
     except Exception as exc:
         # Never raise: a Valkey outage must not break the request marking online.
@@ -180,6 +196,59 @@ async def count_online_users(
         return None
 
 
+def _distinct_ids(user_ids: list[str]) -> list[str]:
+    """Return the ids to query: stripped, deduplicated, capped at the batch size."""
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_id in user_ids:
+        candidate = (raw_id or "").strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        unique_ids.append(candidate)
+        if len(unique_ids) >= MAX_PRESENCE_BATCH:
+            break
+    return unique_ids
+
+
+async def _read_live_values(
+    client: Any,
+    *,
+    domain: str,
+    user_ids: list[str],
+) -> dict[str, str | None]:
+    """Read the live-key values for ``user_ids`` in one ``mget``.
+
+    This is the single read path behind both public readers. An unreachable
+    Valkey, or a client answering ``None``, reports every requested id as absent
+    (``None``), which the callers interpret as offline.
+    """
+    unique_ids = _distinct_ids(user_ids)
+    if not unique_ids:
+        return {}
+
+    try:
+        values = await client.mget([user_live_key(domain, user_id) for user_id in unique_ids])
+    except Exception as exc:
+        # Never raise: degrade to "everyone offline" when Valkey is unreachable.
+        logger.warning(f"Presence read failed for domain {domain}: {str(exc)}")
+        return dict.fromkeys(unique_ids)
+
+    if values is None:
+        return dict.fromkeys(unique_ids)
+
+    return {user_id: _decode_value(value) for user_id, value in zip(unique_ids, values, strict=True)}
+
+
+def _decode_value(value: Any) -> str | None:
+    """Normalise one ``mget`` element to text, keeping absence as ``None``."""
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
 async def get_users_online_map(
     client: Any,
     *,
@@ -198,30 +267,32 @@ async def get_users_online_map(
         user_ids: User identifiers to check.
 
     Returns:
-        Mapping from each requested id to its current online state.
+        Mapping from each requested id to its current online state. A user is
+        online when the live key exists, whatever it holds.
     """
-    unique_ids: list[str] = []
-    seen: set[str] = set()
-    for raw_id in user_ids:
-        candidate = (raw_id or "").strip()
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
-        unique_ids.append(candidate)
-        if len(unique_ids) >= MAX_PRESENCE_BATCH:
-            break
+    values = await _read_live_values(client, domain=domain, user_ids=user_ids)
+    return {user_id: value is not None for user_id, value in values.items()}
 
-    if not unique_ids:
-        return {}
 
-    try:
-        values = await client.mget([user_live_key(domain, user_id) for user_id in unique_ids])
-    except Exception as exc:
-        # Never raise: degrade to "everyone offline" when Valkey is unreachable.
-        logger.warning(f"Presence get_users_online_map failed for domain {domain}: {str(exc)}")
-        return {user_id: False for user_id in unique_ids}
+async def get_users_presence_values(
+    client: Any,
+    *,
+    domain: str,
+    user_ids: list[str],
+) -> dict[str, str | None]:
+    """Return ``{user_id: live value or None}`` for the given users in one round-trip.
 
-    if values is None:
-        return {user_id: False for user_id in unique_ids}
+    Same dedupe, cap and failure behaviour as :func:`get_users_online_map`; the
+    difference is that the value stored by the writer (``"1"`` by default, the
+    client address when the Web module wrote it) is handed back instead of a
+    boolean. ``None`` means the user is offline.
 
-    return {user_id: value is not None for user_id, value in zip(unique_ids, values, strict=True)}
+    Args:
+        client: Connected raw Valkey client or ``ValkeyRuntime``.
+        domain: Identity domain namespace.
+        user_ids: User identifiers to check.
+
+    Returns:
+        Mapping from each requested id to the live key's value, or ``None``.
+    """
+    return await _read_live_values(client, domain=domain, user_ids=user_ids)

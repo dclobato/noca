@@ -13,7 +13,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from shared.queue_schema import JudgeJob
 from shared.services.admin_audit import record_admin_action
 from shared.services.rejudge_cooldown import acquire_rejudge_cooldown, release_rejudge_cooldown
-from shared.services.scoreboard_cache import invalidate_scoreboard_cache
+from shared.services.scoreboard_cache import invalidate_contest_result_caches
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_problem_helpers import _html, _is_edit_allowed, _is_limits_edit_allowed, _redirect
@@ -334,7 +334,7 @@ async def _queue_limit_batch_rejudges(
             priority=True,
         )
     if new_judgments:
-        await invalidate_scoreboard_cache(runtime, str(ctx.contest.id))
+        await invalidate_contest_result_caches(runtime, str(ctx.contest.id))
         flash(f"Queued {len(new_judgments)} submissions for rejudging.", FlashCategory.SUCCESS)
     else:
         if cooldown_held:

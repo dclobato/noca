@@ -29,6 +29,7 @@ from arena.routes.admin_problem_form_views import (
     edit_form_extras,
     form_fields,
     parse_expected_difficulty,
+    problem_edit_url,
     problem_list_url,
     process_problem_image,
     render_problem_form,
@@ -477,9 +478,9 @@ async def admin_problem_update(
             status_code=422,
         )
 
-    if save_action not in {"enable", "disable"}:
+    if save_action not in {"enable", "disable", "keep_editing"}:
         return await render_error(
-            errors=("Choose Save and enable or Save and disable.",),
+            errors=("Choose Save and keep editing, Save and enable, or Save and disable.",),
             error_tab=active_tab or "metadata",
         )
 
@@ -585,12 +586,24 @@ async def admin_problem_update(
     # (removing it is allowed and leaves an incomplete draft), and gating the
     # transition alone would let that Save keep an unjudgeable problem published.
     # "Save and disable" stays ungated, so a broken problem can still be edited.
-    enable = save_action == "enable"
+    # "Save and keep editing" preserves the current enabled state.
+    if save_action == "enable":
+        enable = True
+    elif save_action == "disable":
+        enable = False
+    else:
+        enable = problem.enabled
+
     if enable:
         gate_error = await problem_enablement_error(session, problem)
         if gate_error is not None:
+            message = (
+                f"Cannot enable this problem. {gate_error}"
+                if save_action == "enable"
+                else f"Cannot keep this problem enabled. {gate_error}"
+            )
             return await render_error(
-                errors=(f"Cannot enable this problem. {gate_error}",),
+                errors=(message,),
                 error_tab=active_tab or "metadata",
             )
     problem.enabled = enable
@@ -602,6 +615,25 @@ async def admin_problem_update(
     await bump_public_export_generation(session, "arena", problem.id)
     await session.commit()
     confirm_form_draft(request, problem_definition_draft_key("arena", problem_id=problem.id))
+    if save_action == "keep_editing":
+        edit_url = problem_edit_url(
+            request,
+            problem.id,
+            tab=active_tab,
+            page=return_page,
+            per_page=return_per_page,
+            search=return_search,
+            sort_by=return_sort_by,
+            owner_id=return_owner_id,
+            category_slugs=return_category_slugs,
+            language=return_language,
+            enabled=return_enabled,
+            editorial=return_editorial,
+            next_url=safe_next,
+        )
+        flash(f"Problem #{problem.arena_number} saved.", FlashCategory.SUCCESS)
+        return RedirectResponse(url=edit_url, status_code=303)
+
     publication_state = "enabled" if problem.enabled else "disabled"
     flash(
         f"Problem #{problem.arena_number} updated and {publication_state}.",

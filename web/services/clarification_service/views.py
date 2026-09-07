@@ -32,6 +32,7 @@ class ClarificationView:
     answered_at: datetime.datetime | None
     answer_read_at: datetime.datetime | None
     acquired_at: datetime.datetime | None
+    service_started_at: datetime.datetime | None
     hidden: bool
     hidden_at: datetime.datetime | None
     created_at: datetime.datetime
@@ -78,7 +79,15 @@ def to_view(
     actor_id: str | None,
     unread: bool,
 ) -> ClarificationView:
-    """Project one clarification to its role-scoped DTO."""
+    """Project one clarification to its role-scoped DTO.
+
+    ``acquired_at`` reflects a *live* lock only, and is left ``None`` here for
+    ``merge_clarification_views`` to fill in -- it doubles as the "someone is
+    working on this right now" signal the templates gate buttons on.
+    ``service_started_at`` is the persisted acquisition instant and carries no
+    such meaning: it is set whenever the row was last acquired, whether or not
+    that lock still exists.
+    """
     return ClarificationView(
         id=clari.id,
         problem_id=clari.problem_id,
@@ -91,6 +100,7 @@ def to_view(
         answered_at=clari.answered_at,
         answer_read_at=clari.answer_read_at,
         acquired_at=None,
+        service_started_at=clari.acquired_at,
         hidden=clari.hidden,
         hidden_at=clari.hidden_at,
         created_at=clari.created_at,

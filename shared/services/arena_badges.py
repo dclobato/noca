@@ -22,7 +22,7 @@ problem's population requires having loaded all of it.
 Data access lives in ``arena_badge_data``, the aggregate rules (streaks,
 problem counts, FULL_CLEAR) in ``arena_badge_rules``, and the dynamic
 CLEAN_CODE rule in ``arena_badge_rules_cleancode``. See
-``docs/SHARED_SERVICES.md`` and ``docs/ARCHITECTURE.md`` for the model.
+``docs/SHARED_SERVICES.md`` and ``docs/ARCHITECTURE_RATING.md`` for the model.
 """
 
 from __future__ import annotations

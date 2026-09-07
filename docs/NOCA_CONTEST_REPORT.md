@@ -159,19 +159,25 @@ re-sort the table in the browser: by team name (A to Z), by total runs
 ordering ranks teams by the Wilson score lower bound of their accepted share,
 a sample-size-aware rate, so a lucky 1/1 does not outrank a solid 40/50.
 
-### 8. Runs by time (10-minute windows)
+### 8. Runs by time
 
-A stacked bar chart of all judged runs bucketed into 10-minute windows, based
-on each submission's contest-relative timestamp (in seconds, divided into
-600-second windows). Submissions without a valid non-negative contest
-timestamp are excluded from the chart. Each bar's total height is that
-window's run volume, split into an accepted segment (`AC`, or `AC + PE` when
-the contest accepts PE) and a non-accepted segment, so you can see when
-accepted solutions arrived relative to overall submission activity.
+A stacked bar chart of all judged runs bucketed into time windows based
+on each submission's contest-relative timestamp. For contests lasting up to
+5 hours (<= 300 minutes), 10-minute windows are used. For longer contests,
+the window width is dynamically set to the smallest multiple of 10 minutes
+that keeps the number of nominal buckets bounded at 30 (`ceil(duration_minutes / 300) * 10`).
 
-The windows span the whole contest duration (`ceil(duration_minutes / 10)`
+Submissions without a valid non-negative contest timestamp are excluded from the
+chart. Submissions submitted at the exact contest duration endpoint
+(`timestamp_seconds == duration_minutes * 60`) are included in the final nominal
+bucket. Each bar's total height is that window's run volume, split into an
+accepted segment (`AC`, or `AC + PE` when the contest accepts PE) and a
+non-accepted segment, so you can see when accepted solutions arrived relative to
+overall submission activity.
+
+The nominal windows span the contest duration (`ceil(duration_minutes / window_minutes)`
 windows), extended with extra windows when a run's timestamp lands beyond the
-contest duration.
+nominal contest duration.
 
 ## Where the code lives
 

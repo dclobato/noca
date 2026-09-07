@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -43,7 +43,7 @@ from autojudge.verdict import CaseResult, aggregate_verdict, worst_resource_usag
 from shared.enumerations import Verdict
 from shared.language_registry import get_language
 from shared.queue_schema import VerdictEvent
-from shared.services.scoreboard_cache import invalidate_scoreboard_cache
+from shared.services.scoreboard_cache import invalidate_contest_result_caches
 from shared.tc_zip import normalize_testcase_bytes
 
 logger = logging.getLogger(__name__)
@@ -369,7 +369,7 @@ async def process_submission_job(
                     update_kind="autojudge",
                 ),
             )
-        await invalidate_scoreboard_cache(valkey, submission.contest_id)
+        await invalidate_contest_result_caches(valkey, submission.contest_id)
         return
 
     await db.set_judgment_judging(judgment_id, attempt_token, contest_start_time=submission.contest_start_time)
@@ -449,7 +449,7 @@ async def process_submission_job(
                     update_kind="autojudge",
                 ),
             )
-        await invalidate_scoreboard_cache(valkey, submission.contest_id)
+        await invalidate_contest_result_caches(valkey, submission.contest_id)
         return
 
     try:
@@ -602,7 +602,7 @@ async def process_submission_job(
                     update_kind="autojudge",
                 ),
             )
-        await invalidate_scoreboard_cache(valkey, submission.contest_id)
+        await invalidate_contest_result_caches(valkey, submission.contest_id)
     except (PoolExhaustedError, PoolShutdownError) as exc:
         await db.set_judgment_failed(
             judgment_id,

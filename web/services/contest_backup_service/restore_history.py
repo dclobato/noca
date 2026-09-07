@@ -123,8 +123,15 @@ async def restore_clarifications(
     ``is_announcement`` comes straight from the archive: the only supported version
     states it, and validation refused any archive that omits it, so there is nothing
     left to infer from the author's recorded role.
+
+    ``acquired_at`` / ``acquired_timestamp_seconds`` are contest history for an
+    *answered* clarification -- restored as archived, the same as ``answered_at``.
+    For one still open, they describe a Valkey lock that is not restored along
+    with it, so they are cleared: left archived, they would report a growing
+    service time against a handler who no longer holds anything.
     """
     for clarification in clarifications:
+        answered = clarification.get("answered_at") is not None
         await session.execute(
             insert(clarifications_t),
             [
@@ -138,6 +145,7 @@ async def restore_clarifications(
                         "judge_id": remap_optional(state.user_map, clarification.get("judge_id")),
                         "hidden_by_judge_id": remap_optional(state.user_map, clarification.get("hidden_by_judge_id")),
                         "hidden_by_admin_id": remap_optional(state.user_map, clarification.get("hidden_by_admin_id")),
+                        **({} if answered else {"acquired_at": None, "acquired_timestamp_seconds": None}),
                     },
                 )
             ],
@@ -145,8 +153,16 @@ async def restore_clarifications(
 
 
 async def restore_tasks(session: AsyncSession, tasks: list[dict[str, Any]], state: RestoreState) -> None:
-    """Restore staff tasks with nullable actors and problems remapped."""
+    """Restore staff tasks with nullable actors and problems remapped.
+
+    ``acquired_at`` / ``acquired_timestamp_seconds`` are contest history for a
+    *finished* task -- restored as archived, the same as ``finished_at``. For
+    one still open, they describe a Valkey lock that is not restored along with
+    it, so they are cleared: left archived, they would report a growing service
+    time against a handler who no longer holds anything.
+    """
     for task in tasks:
+        finished = task.get("finished_at") is not None
         await session.execute(
             insert(tasks_t),
             [
@@ -158,6 +174,7 @@ async def restore_tasks(session: AsyncSession, tasks: list[dict[str, Any]], stat
                         "team_id": state.user_map[task["team_id"]],
                         "staff_id": remap_optional(state.user_map, task.get("staff_id")),
                         "problem_id": remap_optional(state.problem_map, task.get("problem_id")),
+                        **({} if finished else {"acquired_at": None, "acquired_timestamp_seconds": None}),
                     },
                 )
             ],

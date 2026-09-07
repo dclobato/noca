@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +70,7 @@ from shared.services.scoreboard_projection import (
     compute_icpc,
     ordinal_to_label,
 )
+from shared.services.team_absence_status import load_absent_teams
 
 if TYPE_CHECKING:
     from animator.services.feed_cache import AnimatorFeedCache
@@ -105,6 +106,7 @@ class _Projection:
     standings: list[TeamStanding]
     snapshot: ScoreboardSnapshot
     has_started: bool
+    absent: frozenset[str] = frozenset()
 
 
 def _empty_projection(contest: ContestRecord, reference: datetime) -> _Projection:
@@ -144,6 +146,7 @@ async def _project(
     contest: ContestRecord,
     now: datetime | None = None,
     site_id: str | None = None,
+    valkey: Any | None = None,
 ) -> _Projection:
     """Load contest rows once and compute a global or site projection.
 
@@ -159,6 +162,12 @@ async def _project(
     teams = await load_teams(session, contest.id)
     if site_id is not None:
         teams = [team for team in teams if team.site_id == site_id]
+    # Absence is only actionable while the contest runs; afterwards it is
+    # history, and the ended-contest snapshot cache holds entries far too long
+    # for a presence marker to stay honest in one.
+    absent: frozenset[str] = frozenset()
+    if contest.is_running_at(reference):
+        absent = await load_absent_teams(session, contest.id, since=contest.start_time_utc, valkey=valkey)
     problem_records = await load_problems(session, contest.id)
     submission_records, judgments = await load_submission_rows(session, contest.id)
     if site_id is not None:
@@ -193,6 +202,7 @@ async def _project(
         standings=standings,
         snapshot=snapshot,
         has_started=True,
+        absent=absent,
     )
 
 
@@ -201,6 +211,7 @@ async def build_snapshot(
     contest: ContestRecord,
     now: datetime | None = None,
     site_id: str | None = None,
+    valkey: Any | None = None,
 ) -> ScoreboardSnapshot:
     """Build the public scoreboard snapshot for an enabled contest.
 
@@ -213,7 +224,7 @@ async def build_snapshot(
     Returns:
         A shared ``ScoreboardSnapshot`` computed with public freeze visibility.
     """
-    projection = await _project(session, contest, now=now, site_id=site_id)
+    projection = await _project(session, contest, now=now, site_id=site_id, valkey=valkey)
     return projection.snapshot
 
 
@@ -301,6 +312,7 @@ def snapshot_to_response(
     cutoffs: MedalCutoffs | None = None,
     has_started: bool,
     recent_events: list[RecentEventResponse] | None = None,
+    absent: frozenset[str] = frozenset(),
 ) -> ScoreboardSnapshotResponse:
     """Map a shared snapshot to the typed public response model.
 
@@ -321,6 +333,10 @@ def snapshot_to_response(
         recent_events: Freeze-safe activity backlog seeding a freshly loaded
             ticker, if any. Defaults to empty, which is what a pre-start
             projection and every ad-hoc caller want.
+        absent: Ids of teams that have not signed in since the contest
+            started. Defaults to empty, so a caller that omits it marks nobody
+            absent -- the safe direction, since a wrongly absent team is the
+            visible mistake and a wrongly present one merely says nothing.
 
     Returns:
         The typed snapshot response, each row carrying its medal band.
@@ -342,6 +358,7 @@ def snapshot_to_response(
             team_name=row.team_name,
             team_fullname=row.team_fullname,
             site_name=team_by_id[row.team_id].site_name if row.team_id in team_by_id else None,
+            absent=row.team_id in absent,
             problems_solved=row.problems_solved,
             total_time=row.total_time,
             problems={
@@ -381,6 +398,7 @@ async def build_snapshot_response(
     site_id: str | None = None,
     cutoffs: MedalCutoffs | None = None,
     cache: AnimatorFeedCache | None = None,
+    valkey: Any | None = None,
 ) -> ScoreboardSnapshotResponse:
     """Build and serialize a global or site scoreboard snapshot response.
 
@@ -417,6 +435,7 @@ async def build_snapshot_response_cached(
     site_id: str | None = None,
     cutoffs: MedalCutoffs | None = None,
     cache: AnimatorFeedCache | None = None,
+    valkey: Any | None = None,
 ) -> tuple[ScoreboardSnapshotResponse, int]:
     """Like :func:`build_snapshot_response`, also reporting the seconds it stays cached.
 
@@ -440,7 +459,7 @@ async def build_snapshot_response_cached(
     resolved_cutoffs = cutoffs
 
     async def build() -> ScoreboardSnapshotResponse:
-        projection = await _project(session, contest, now=reference, site_id=site_id)
+        projection = await _project(session, contest, now=reference, site_id=site_id, valkey=valkey)
         pending_submissions = build_pending_submissions(
             projection.standings,
             projection.submission_records,
@@ -466,6 +485,7 @@ async def build_snapshot_response_cached(
             cutoffs=resolved_cutoffs,
             has_started=projection.has_started,
             recent_events=recent_events,
+            absent=projection.absent,
         )
 
     if cache is None:

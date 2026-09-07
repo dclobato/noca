@@ -22,7 +22,7 @@ def test_security_headers_include_csp_report_only_and_browser_baseline() -> None
     )
 
     assert headers["X-Content-Type-Options"] == "nosniff"
-    assert headers["X-Frame-Options"] == "DENY"
+    assert headers["X-Frame-Options"] == "SAMEORIGIN"
     assert headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert "camera=()" in headers["Permissions-Policy"]
     assert headers["Cross-Origin-Opener-Policy"] == "same-origin"

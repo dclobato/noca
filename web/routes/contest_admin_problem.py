@@ -16,6 +16,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from shared.enumerations import ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
 from shared.services.admin_audit import record_admin_action
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.services.form_draft import confirm_form_draft, problem_definition_draft_key
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_editor_save import abandon_swap, open_save_swap, stage_test_cases
@@ -438,6 +439,7 @@ async def new_problem_submit(
 
     pid = problem.id
     await commit_with_edit_swap(ctx.session, swap)
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     confirm_form_draft(
         request,
         problem_definition_draft_key("web", contest_id=ctx.contest.login_slug, validator_type=strategy.value),
@@ -480,6 +482,7 @@ async def move_problem_htmx(
 
     await move_problem(ctx.session, ctx.contest, problem, new_ordinal)
     await ctx.session.commit()
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
 
     problems = await get_contest_problems(ctx.session, ctx.contest)
     problem_rows = [(p, _label(p.ordinal), len(p.test_cases)) for p in problems]
@@ -545,6 +548,7 @@ async def remove_problem(
         detail=f"contest={ctx.contest.login_slug}",
     )
     await ctx.session.commit()
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
 
     try:
         await anyio.to_thread.run_sync(lambda: delete_problem_statement(pid, settings.PROBLEM_STATEMENT_DIR))

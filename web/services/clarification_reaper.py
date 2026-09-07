@@ -52,6 +52,11 @@ async def conclude_finished_contest_clarifications(
         clarification.answered_at = current_time
         clarification.answered_timestamp_seconds = compute_timestamp_seconds(contest.start_time, current_time)
         clarification.judge_id = contest.owner_user_id
+        # An administrative close is not a handled service: clearing the
+        # acquisition here keeps a clarification abandoned hours earlier from
+        # reporting a multi-hour service time against whoever last held it.
+        clarification.acquired_at = None
+        clarification.acquired_timestamp_seconds = None
         concluded += 1
 
     if concluded > 0:

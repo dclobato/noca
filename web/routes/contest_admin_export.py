@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.problem_package.upload import OwnedTemporaryFileResponse, temporary_package_path
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_helpers import _html
+from web.services.export_rate_limit import web_admin_export_rate_limit
 
 router = APIRouter(prefix="/c/{slug}/admin", tags=["contest_admin"])
 
@@ -33,17 +35,18 @@ async def import_export(
     )
 
 
-@router.get("/export-animeitor", name="export_animeitor")
+@router.get("/export-animeitor", name="export_animeitor", dependencies=[Depends(web_admin_export_rate_limit)])
 async def export_animeitor(
     request: Request,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> Response:
     """Download a ZIP file compatible with the maratona-animeitor consumer."""
-    from web.services.animeitor_export_service import AnimeitorExportError, build_animeitor_zip
+    from web.services.animeitor_export_service import AnimeitorExportError, write_animeitor_zip
 
     try:
-        filename, zip_bytes = await build_animeitor_zip(ctx.session, ctx.contest)
+        with temporary_package_path() as destination:
+            filename = await write_animeitor_zip(ctx.session, ctx.contest, destination)
     except AnimeitorExportError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(
@@ -51,14 +54,14 @@ async def export_animeitor(
             status_code=303,
         )
 
-    return Response(
-        content=zip_bytes,
+    return OwnedTemporaryFileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
     )
 
 
-@router.get("/export-events", name="export_contest_timeline")
+@router.get("/export-events", name="export_contest_timeline", dependencies=[Depends(web_admin_export_rate_limit)])
 async def export_contest_timeline(
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> Response:
@@ -73,7 +76,7 @@ async def export_contest_timeline(
     )
 
 
-@router.get("/users-per-site-report", name="users_per_site_report")
+@router.get("/users-per-site-report", name="users_per_site_report", dependencies=[Depends(web_admin_export_rate_limit)])
 async def users_per_site_report(
     request: Request,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),

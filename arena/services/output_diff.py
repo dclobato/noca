@@ -21,7 +21,7 @@ line of context -- from two inputs that are both bounded before they get here:
 Because the page can never compare beyond the stored excerpt, the excerpt cap
 also bounds how much of a secret case's expected output any sequence of wrong
 submissions can reveal. That trade-off is accepted and stated in
-``docs/ARCHITECTURE.md``.
+``docs/ARCHITECTURE_ARENA.md``.
 
 The module is pure: no I/O, no ORM, no settings.
 """

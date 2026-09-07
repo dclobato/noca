@@ -13,6 +13,7 @@ from shared.db_schema import submission_interactive_attempts
 from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from shared.services.custom_validator import status_view
 from shared.services.lock_service import get_lock
+from shared.services.problem_package.upload import OwnedTemporaryFileResponse, temporary_package_path
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models import (
@@ -33,6 +34,7 @@ from web.routes.contest_submissions_helpers import (
     submission_highlight_assets,
 )
 from web.services.chief_judge_permissions import is_chief_judge
+from web.services.export_rate_limit import web_team_download_rate_limit
 from web.services.judging_service import (
     can_confirm_verdict,
     can_override_verdict,
@@ -40,7 +42,7 @@ from web.services.judging_service import (
     get_judging_history,
 )
 from web.services.judgment_utils import get_active_judgment
-from web.services.submission_service import build_team_submissions_zip
+from web.services.submission_service import write_team_submissions_zip
 
 router = APIRouter(prefix="/c/{slug}/submissions", tags=["contest_submissions"])
 
@@ -64,7 +66,7 @@ __all__ = [
 ]
 
 
-@router.get("/download-all", name="team_submissions_download")
+@router.get("/download-all", name="team_submissions_download", dependencies=[Depends(web_team_download_rate_limit)])
 async def download_all_sources(
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
@@ -76,19 +78,21 @@ async def download_all_sources(
 
     assert isinstance(ctx.actor, User)
     try:
-        filename, zip_bytes = await build_team_submissions_zip(
-            ctx.session,
-            ctx.contest,
-            ctx.actor,
-            statement_dir=settings.PROBLEM_STATEMENT_DIR,
-        )
+        with temporary_package_path() as destination:
+            filename = await write_team_submissions_zip(
+                ctx.session,
+                ctx.contest,
+                ctx.actor,
+                statement_dir=settings.PROBLEM_STATEMENT_DIR,
+                destination=destination,
+            )
     except ValueError as exc:
         return Response(content=str(exc), status_code=409)
 
-    return Response(
-        content=zip_bytes,
+    return OwnedTemporaryFileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
     )
 
 

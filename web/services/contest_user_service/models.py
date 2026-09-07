@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,9 +25,51 @@ _ROLE_NAME_MAP = {
 }
 _ROLE_EXPORT_MAP = {value: key for key, value in _ROLE_NAME_MAP.items()}
 _CSV_REQUIRED_HEADERS = {"username", "fullname", "role", "password"}
-_CSV_OPTIONAL_HEADERS = {"site", "location", "email"}
+_CSV_OPTIONAL_HEADERS = {"site", "location", "email", "allow_concurrent_login"}
 BatchUserRow = dict[str, object]
 EMAIL_UNSET = object()
+
+
+#: What a batch row may write in `allow_concurrent_login`, mapped to its value.
+#:
+#: Spelled out rather than parsed loosely because the two mistakes are not
+#: symmetric: a typo read as `false` would silently restrict a whole roster,
+#: while a typo read as `true` would silently leave it unrestricted. Anything
+#: outside this table fails the row and says so.
+_BOOL_FIELD_VALUES = {
+    "true": True,
+    "yes": True,
+    "1": True,
+    "false": False,
+    "no": False,
+    "0": False,
+}
+
+
+def parse_optional_bool_field(raw: object) -> bool | None:
+    """Read a tri-state boolean out of one batch row field.
+
+    Args:
+        raw: The value the file carried, of whatever type the parser produced.
+
+    Returns:
+        ``True`` or ``False`` when the row states one, and ``None`` when the row
+        is silent -- the field absent, empty, or whitespace -- which means "use
+        the import's default" rather than "false".
+
+    Raises:
+        ValueError: If the row states something that is neither.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().casefold()
+    if not text:
+        return None
+    if text not in _BOOL_FIELD_VALUES:
+        raise ValueError(f"Expected one of {', '.join(sorted(_BOOL_FIELD_VALUES))}, got {raw!r}.")
+    return _BOOL_FIELD_VALUES[text]
 
 
 @dataclass
@@ -43,6 +85,7 @@ class UserImportResult:
     site: str | None
     location: str | None
     detail: str | None
+    allow_concurrent_login: bool | None = None
 
 
 @dataclass

@@ -202,7 +202,10 @@ async def _load_problem_view_data(ctx: ContestContext, problem: Problem) -> dict
         "tc_contents": tc_contents,
         "sample_interactions": sample_interactions,
         "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
-        "has_tc_explanation": any(item[3] for item in tc_contents),
+        # Both sample test cases and sample interactions carry Markdown explanations,
+        # and an interactive problem has only the latter (all its cases are secret).
+        "has_explanation_markdown": any(item[3] for item in tc_contents)
+        or any(si.explanation for si in sample_interactions),
         "has_pdf": has_pdf,
         "has_md": has_md,
         "md_content": md_content,
@@ -387,6 +390,11 @@ async def problem_detail(
     if problem is None:
         raise HTTPException(status_code=404)
     label = _label(problem.ordinal)
+    # Prev/next follow the same ordinal ordering that assigns the labels, so the
+    # buttons walk the contest exactly as the scoreboard and the list do.
+    problem_index = problems.index(problem)
+    prev_problem = problems[problem_index - 1] if problem_index > 0 else None
+    next_problem = problems[problem_index + 1] if problem_index + 1 < len(problems) else None
     view_data = await _load_problem_view_data(ctx, problem)
     tc_contents = cast("list[tuple[int, str, str, str | None]]", view_data["tc_contents"])
     all_languages = cast("list[Language]", view_data["all_languages"])
@@ -425,10 +433,12 @@ async def problem_detail(
                 "contest": ctx.contest,
                 "problem": problem,
                 "label": label,
+                "prev_label": _label(prev_problem.ordinal) if prev_problem else None,
+                "next_label": _label(next_problem.ordinal) if next_problem else None,
                 "tc_contents": tc_contents,
                 "sample_interactions": view_data["sample_interactions"],
                 "has_custom_validator": view_data["has_custom_validator"],
-                "has_tc_explanation": view_data["has_tc_explanation"],
+                "has_explanation_markdown": view_data["has_explanation_markdown"],
                 "has_pdf": view_data["has_pdf"],
                 "has_md": view_data["has_md"],
                 "md_content": view_data["md_content"],
@@ -470,7 +480,7 @@ async def problem_print(
                 "tc_contents": view_data["tc_contents"],
                 "sample_interactions": view_data["sample_interactions"],
                 "has_custom_validator": view_data["has_custom_validator"],
-                "has_tc_explanation": view_data["has_tc_explanation"],
+                "has_explanation_markdown": view_data["has_explanation_markdown"],
                 "has_pdf": view_data["has_pdf"],
                 "has_md": view_data["has_md"],
                 "md_content": view_data["md_content"],

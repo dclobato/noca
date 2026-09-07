@@ -26,6 +26,7 @@
       ? require("./cell-format.js")
       : (typeof window !== "undefined" ? window : {}).AnimatorCellFormat;
   var MODAL_SELECTOR = "#team-media-modal";
+  var ABSENT_LABEL = "No sign of life since the contest started";
 
   function findTrigger(th) {
     for (var i = 0; i < th.children.length; i++) {
@@ -57,6 +58,23 @@
     th.appendChild(site);
   }
 
+  // The team never signed in since the contest started. The glyph goes *inside*
+  // the trigger so it stays on the name line -- the trigger is a block element,
+  // so a sibling span would drop to a line of its own -- and so it joins the
+  // button's accessible name instead of being announced as a stray image.
+  function appendAbsentMarker(doc, button, team) {
+    if (!team.absent) {
+      return;
+    }
+    var marker = doc.createElement("i");
+    marker.setAttribute("class", "material-symbols-outlined animator-team-absent-icon");
+    marker.setAttribute("role", "img");
+    marker.setAttribute("aria-label", ABSENT_LABEL);
+    marker.setAttribute("title", ABSENT_LABEL);
+    marker.textContent = "person_off";
+    button.appendChild(marker);
+  }
+
   function appendMedal(doc, th, team, options) {
     if (typeof options.createMedalImage !== "function") {
       return;
@@ -76,6 +94,11 @@
     button.setAttribute("data-team-id", team.team_id);
     button.setAttribute("title", label);
     button.textContent = label;
+    if (team.absent) {
+      th.setAttribute("data-team-absent", "");
+    } else {
+      th.removeAttribute("data-team-absent");
+    }
 
     // Remove and re-append the same button synchronously. Event handlers and
     // Bootstrap's relatedTarget retain the object identity across live updates.
@@ -83,6 +106,7 @@
       th.removeChild(th.children[0]);
     }
     th.appendChild(button);
+    appendAbsentMarker(doc, button, team);
     appendSite(doc, th, team, opts.siteClass);
     appendMedal(doc, th, team, opts);
     return button;

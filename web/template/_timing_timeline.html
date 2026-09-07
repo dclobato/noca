@@ -1,5 +1,11 @@
 {# ── TIMING TIMELINE ─────────────────────────────────────────── #}
 {#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
   Two modes, both rendered by contest-timing-timeline.js:
 
   * Form mode (default, contest create/edit): the script reads the live values
@@ -9,27 +15,39 @@
     `timeline_duration` / `timeline_freeze` / `timeline_blind` before the
     include; the values travel as data attributes and the script renders once.
 #}
+{% set timeline_is_static = timeline_static is defined and timeline_static %}
 <div id="timing-timeline-wrapper"
      class="{{ timeline_margin_class | default("mb-3") }}"
-     {% if timeline_static is defined and timeline_static %} data-duration-minutes="{{ timeline_duration }}" data-freeze-minutes="{{ timeline_freeze }}" data-blind-minutes="{{ timeline_blind }}" {% endif %}>
+     {% if timeline_is_static %} data-timeline-static="true" data-duration-minutes="{{ timeline_duration }}" data-freeze-minutes="{{ timeline_freeze }}" data-blind-minutes="{{ timeline_blind }}" {% endif %}>
     <p class="form-text mb-1">Contest timing overview</p>
-    <div class="progress timing-timeline-bar">
-        <div class="progress-bar timeline-seg-fallback timing-timeline-seg-full"
-             id="timeline-seg-fallback"
-             role="progressbar"
-             aria-label="Contest duration"></div>
-        <div class="progress-bar timeline-seg-live timing-timeline-seg d-none"
-             id="timeline-seg-live"
-             role="progressbar"
-             aria-label="Live scoreboard"></div>
-        <div class="progress-bar timeline-seg-frozen timing-timeline-seg d-none"
-             id="timeline-seg-frozen"
-             role="progressbar"
-             aria-label="Frozen scoreboard"></div>
-        <div class="progress-bar timeline-seg-silence timing-timeline-seg d-none"
-             id="timeline-seg-silence"
-             role="progressbar"
-             aria-label="Full silence"></div>
+    <div class="{{ 'timing-timeline-track' if timeline_is_static else '' }}">
+        <div class="progress timing-timeline-bar">
+            <div class="progress-bar timeline-seg-fallback timing-timeline-seg-full"
+                 id="timeline-seg-fallback"
+                 role="progressbar"
+                 aria-label="Contest duration"></div>
+            <div class="progress-bar timeline-seg-live timing-timeline-seg d-none"
+                 id="timeline-seg-live"
+                 role="progressbar"
+                 aria-label="Live scoreboard"></div>
+            <div class="progress-bar timeline-seg-frozen timing-timeline-seg d-none"
+                 id="timeline-seg-frozen"
+                 role="progressbar"
+                 aria-label="Frozen scoreboard"></div>
+            <div class="progress-bar timeline-seg-silence timing-timeline-seg d-none"
+                 id="timeline-seg-silence"
+                 role="progressbar"
+                 aria-label="Full silence"></div>
+        </div>
+        {% if timeline_is_static %}
+            <div id="timeline-now-marker"
+                 class="timing-timeline-now-marker"
+                 role="img"
+                 aria-label="Current contest position is updating"
+                 hidden>
+                <span class="timing-timeline-now-label" aria-hidden="true">Now</span>
+            </div>
+        {% endif %}
     </div>
     <div class="d-flex gap-3 small mt-1 timing-timeline-legend">
         <span class="timeline-legend-live">

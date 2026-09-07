@@ -53,11 +53,6 @@
     color: var(--bs-body-color);
 }
 
-[data-bs-theme="dark"] .noca-sample-pre {
-    background-color: var(--bs-secondary-bg);
-    color: var(--bs-body-color);
-}
-
 /* Live submission feed — shared rules in shared/static/css/common.css */
 .live-feed-summary {
     border-top: 1px solid var(--bs-border-color);

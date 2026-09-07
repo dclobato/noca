@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,6 +40,21 @@ def elapsed_since(reference: datetime, *, now: datetime) -> timedelta:
     """
     comparable_now = normalize_now_for_reference(now, reference)
     return comparable_now - reference
+
+
+def format_elapsed_minutes(reference: datetime, *, now: datetime) -> str:
+    """Format non-negative elapsed wall time as whole minutes.
+
+    Args:
+        reference: Earlier timestamp used as the subtraction baseline.
+        now: Timestamp that ends the elapsed interval.
+
+    Returns:
+        Whole elapsed minutes in the compact ``"Xm"`` UI format. Negative
+        clock differences are clamped to zero.
+    """
+    total_seconds = max(0, int(elapsed_since(reference, now=now).total_seconds()))
+    return f"{total_seconds // 60}m"
 
 
 def is_timeout_exceeded(reference: datetime, timeout_minutes: int, *, now: datetime) -> bool:

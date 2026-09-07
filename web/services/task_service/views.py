@@ -28,6 +28,7 @@ class TaskView:
     problem_id: str | None
     finished_at: datetime.datetime | None
     acquired_at: datetime.datetime | None
+    service_started_at: datetime.datetime | None
     source_size_bytes: int
     created_at: datetime.datetime
     created_timestamp_seconds: int
@@ -35,7 +36,14 @@ class TaskView:
 
 
 def to_view(task: Task, *, actor_id: str | None) -> TaskView:
-    """Project one task to its role-scoped DTO."""
+    """Project one task to its role-scoped DTO.
+
+    ``acquired_at`` reflects a *live* lock only, and is left ``None`` here for
+    ``merge_task_views`` to fill in -- it doubles as the "someone is working on
+    this right now" signal the templates gate buttons on. ``service_started_at``
+    is the persisted acquisition instant and carries no such meaning: it is set
+    whenever the row was last acquired, whether or not that lock still exists.
+    """
     return TaskView(
         id=task.id,
         type=task.type,
@@ -44,6 +52,7 @@ def to_view(task: Task, *, actor_id: str | None) -> TaskView:
         problem_id=task.problem_id,
         finished_at=task.finished_at,
         acquired_at=None,
+        service_started_at=task.acquired_at,
         source_size_bytes=task.source_size_bytes,
         created_at=task.created_at,
         created_timestamp_seconds=task.created_timestamp_seconds,

@@ -91,6 +91,14 @@ class TeamStandingResponse(BaseModel):
     ``medal`` is the band this row's rank falls into under the cutoffs in force
     for the requested scope, or ``None`` when the row wins no medal or the scope
     has no cutoffs configured.
+
+    ``absent`` marks a team that has not signed in since the contest
+    started, so the board can show the venue staff an empty seat. It lives on
+    this module-owned response rather than on the shared ``TeamStanding``
+    because that projection is cached in snapshots that are written once and
+    never invalidated -- a presence flag stored inside one would freeze with the
+    standings. It is always ``False`` outside a running contest: before the
+    start nobody is late, and afterwards an absence is history.
     """
 
     rank: int
@@ -102,6 +110,7 @@ class TeamStandingResponse(BaseModel):
     total_time: int
     problems: dict[str, ProblemCellResponse]
     medal: MedalBand | None = None
+    absent: bool = False
 
 
 class PendingSubmissionResponse(BaseModel):
@@ -135,7 +144,8 @@ class RecentEventResponse(BaseModel):
         kind: ``submitted`` (still unjudged), ``first`` (first solve of the
             problem), ``balloon`` (this team's solve), or ``verdict`` (any other
             judged result).
-        team_name: Short team name.
+        team_name: Short team name (the team's login).
+        team_fullname: Full team name, which is what the rail displays.
         problem_label: Spreadsheet-style problem label.
         verdict: Verdict code, present on every judged kind and ``None`` for
             ``submitted``.
@@ -145,6 +155,7 @@ class RecentEventResponse(BaseModel):
     minute: int
     kind: RecentEventKind
     team_name: str
+    team_fullname: str
     problem_label: str
     verdict: str | None = None
 

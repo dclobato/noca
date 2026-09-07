@@ -62,12 +62,13 @@ def _submission(
     timestamp_minutes: int,
     sub_id: str | None = None,
     created_at: datetime | None = None,
+    extra_seconds: int = 0,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=sub_id or str(uuid4()),
         team_id=team_id,
         problem_id=problem_id,
-        timestamp_seconds=timestamp_minutes * 60,
+        timestamp_seconds=timestamp_minutes * 60 + extra_seconds,
         created_at=created_at,
     )
 
@@ -396,7 +397,7 @@ def _standing(solved: int, total_time: int, last_accepted: int | None) -> TeamSt
         problems_solved=solved,
         total_time=total_time,
         problems={},
-        last_accepted_minutes=last_accepted,
+        last_accepted_seconds=last_accepted,
     )
 
 
@@ -413,7 +414,7 @@ def test_score_key_orders_by_solves_then_time_then_last_accepted() -> None:
 
 
 def test_score_key_sorts_a_team_with_no_solves_last_in_its_group() -> None:
-    """A missing last-accepted minute never orders a team ahead of a scoring one."""
+    """A missing last-accepted second never orders a team ahead of a scoring one."""
     assert standing_score_key(_standing(0, 0, None)) > standing_score_key(_standing(0, 0, 0))
     assert standing_score_key(_standing(0, 0, None)) == standing_score_key(_standing(0, 0, None))
 
@@ -447,8 +448,8 @@ def test_icpc_tiebreak_by_last_accepted_when_time_equal() -> None:
 
     by_name = {s.team_name: s for s in standings}
     assert by_name["Early"].total_time == by_name["Late"].total_time == 60
-    assert by_name["Early"].last_accepted_minutes == 50
-    assert by_name["Late"].last_accepted_minutes == 55
+    assert by_name["Early"].last_accepted_seconds == 50 * 60
+    assert by_name["Late"].last_accepted_seconds == 55 * 60
     assert by_name["Early"].rank == 1
     assert by_name["Late"].rank == 2
 
@@ -479,7 +480,7 @@ def test_icpc_shared_rank_when_last_accepted_also_ties() -> None:
     )
 
     assert [s.rank for s in standings] == [1, 1]
-    assert {s.last_accepted_minutes for s in standings} == {50}
+    assert {s.last_accepted_seconds for s in standings} == {50 * 60}
 
 
 def test_icpc_teams_without_solves_carry_no_last_accepted() -> None:
@@ -505,9 +506,9 @@ def test_icpc_teams_without_solves_carry_no_last_accepted() -> None:
 
     by_name = {s.team_name: s for s in standings}
     assert by_name["Solver"].rank == 1
-    assert by_name["Solver"].last_accepted_minutes == 30
-    assert by_name["NoneA"].last_accepted_minutes is None
-    assert by_name["NoneB"].last_accepted_minutes is None
+    assert by_name["Solver"].last_accepted_seconds == 30 * 60
+    assert by_name["NoneA"].last_accepted_seconds is None
+    assert by_name["NoneB"].last_accepted_seconds is None
     assert by_name["NoneA"].rank == by_name["NoneB"].rank == 2
 
 
@@ -531,7 +532,66 @@ def test_icpc_last_accepted_is_the_latest_solve_not_the_first() -> None:
         },
     )
 
-    assert standings[0].last_accepted_minutes == 80
+    assert standings[0].last_accepted_seconds == 80 * 60
+
+
+def test_icpc_tiebreak_separates_last_solves_inside_the_same_minute() -> None:
+    """Two teams whose last solves share a minute are still split by the second.
+
+    Everything else stays on minute resolution: both teams show the same solve
+    minute and the same total time, and only the third ranking key sees that one
+    of them finished 30 seconds earlier.
+    """
+    team_early = _team(username="Early")
+    team_late = _team(username="Late")
+    problem = _problem(ordinal=1)
+
+    early = _submission(team_early.id, problem.id, timestamp_minutes=50, extra_seconds=10)
+    late = _submission(team_late.id, problem.id, timestamp_minutes=50, extra_seconds=40)
+
+    standings = _compute(
+        contest=_contest(wa_penalty=20),
+        teams=[team_early, team_late],
+        problems=[problem],
+        submissions=[early, late],
+        judgments={early.id: _judgment(Verdict.AC), late.id: _judgment(Verdict.AC)},
+    )
+
+    by_name = {s.team_name: s for s in standings}
+    assert by_name["Early"].total_time == by_name["Late"].total_time == 50
+    assert by_name["Early"].problems["A"].solved_at_minutes == 50
+    assert by_name["Late"].problems["A"].solved_at_minutes == 50
+    assert by_name["Early"].last_accepted_seconds == 50 * 60 + 10
+    assert by_name["Late"].last_accepted_seconds == 50 * 60 + 40
+    assert by_name["Early"].rank == 1
+    assert by_name["Late"].rank == 2
+
+
+def test_snapshot_from_dict_widens_a_legacy_minute_tiebreak_to_seconds() -> None:
+    """A snapshot stored before the change keeps a comparable tie-break value."""
+    data = {
+        "contest_id": "c1",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "is_frozen": False,
+        "problems": ["A"],
+        "balloon_colors": ["ff0000"],
+        "standings": [
+            {
+                "rank": 1,
+                "team_id": "t1",
+                "team_name": "Alpha",
+                "team_fullname": "Alpha",
+                "problems_solved": 1,
+                "total_time": 30,
+                "last_accepted_minutes": 30,
+                "problems": {},
+            }
+        ],
+    }
+
+    snapshot = snapshot_from_dict(data)
+
+    assert snapshot.standings[0].last_accepted_seconds == 30 * 60
 
 
 # ---------------------------------------------------------------------------
@@ -915,4 +975,4 @@ def test_snapshot_from_dict_tolerates_missing_optional_fields() -> None:
     standing = snapshot.standings[0]
     assert standing.team_fullname == "Alpha"  # falls back to team_name
     assert standing.problems["A"].is_first_balloon is False
-    assert standing.last_accepted_minutes is None
+    assert standing.last_accepted_seconds is None

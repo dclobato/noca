@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.export_rate_limit import arena_teacher_report_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.routes.class_route_guards import html, problem_set_list_url, require_problem_set_manager
 from arena.services import arena_class_full_report_service
@@ -81,6 +82,7 @@ def _format_rate(rate: float | None) -> str:
     "/classes/{class_id}/problem-sets/report",
     response_class=HTMLResponse,
     name="arena_class_full_report",
+    dependencies=[Depends(arena_teacher_report_rate_limit)],
 )
 async def class_full_report(
     request: Request,
@@ -147,6 +149,7 @@ async def class_full_report(
 @router.get(
     "/classes/{class_id}/problem-sets/report/csv",
     name="arena_class_full_report_csv",
+    dependencies=[Depends(arena_teacher_report_rate_limit)],
 )
 async def class_full_report_csv(
     request: Request,

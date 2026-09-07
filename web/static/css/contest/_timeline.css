@@ -1,14 +1,69 @@
 /*
- * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  NOCA -- Next Online Contest Administrator
+ *  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
 /* ── Contest timing timeline ─────────────────────────────────────────────── */
 .timing-timeline-bar {
     height: 1rem;
+}
+
+.timing-timeline-track {
+    position: relative;
+    padding-top: 1.25rem;
+}
+
+.timing-timeline-now-marker {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    pointer-events: none;
+    transition: left 1s linear;
+}
+
+.timing-timeline-now-marker::after {
+    position: absolute;
+    top: 1rem;
+    bottom: 0;
+    left: -1px;
+    width: 2px;
+    background-color: var(--bs-body-color);
+    content: '';
+}
+
+.timing-timeline-now-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 0.1875rem 0.3rem;
+    border-radius: 0.25rem;
+    background-color: var(--bs-body-color);
+    color: var(--bs-body-bg);
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    transform: translateX(-50%);
+}
+
+.timing-timeline-now-marker[data-edge='start'] .timing-timeline-now-label {
+    transform: none;
+}
+
+.timing-timeline-now-marker[data-edge='end'] .timing-timeline-now-label {
+    transform: translateX(-100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .timing-timeline-now-marker {
+        transition: none;
+    }
 }
 
 .timing-timeline-seg {
@@ -70,4 +125,3 @@
     mask: url('/static/img/x.svg') center / contain no-repeat;
     -webkit-mask: url('/static/img/x.svg') center / contain no-repeat;
 }
-

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -16,7 +17,7 @@ from shared.services.scoreboard_projection import penalizing_verdicts, submissio
 from shared.timing import icpc_minutes_from_seconds
 from web.services.assorted_utils import format_site_identity
 
-from .common import ordinal_to_label, pct
+from .common import compute_time_window_minutes, ordinal_to_label, pct
 from .models import (
     CellValue,
     ContestReport,
@@ -115,6 +116,11 @@ def compute_contest_report(
     penalty_attempts_before_solve: defaultdict[tuple[str, str], int] = defaultdict(int)
     solve_minute_by_team_problem: dict[tuple[str, str], int] = {}
 
+    window_minutes = compute_time_window_minutes(contest.duration_minutes)
+    window_seconds = window_minutes * 60
+    contest_end_seconds = contest.duration_minutes * 60
+    nominal_windows = max(math.ceil(contest.duration_minutes / window_minutes), 1)
+
     total_runs = 0
     total_acpe = 0
 
@@ -171,7 +177,10 @@ def compute_contest_report(
                     penalty_attempts_before_solve[solve_key] += 1
 
         if timestamp_seconds is not None and timestamp_seconds >= 0:
-            window_index = timestamp_seconds // 600
+            if timestamp_seconds <= contest_end_seconds:
+                window_index = min(timestamp_seconds // window_seconds, nominal_windows - 1)
+            else:
+                window_index = timestamp_seconds // window_seconds
             window_all[window_index] += 1
             if accepted:
                 window_accepted[window_index] += 1
@@ -251,7 +260,12 @@ def compute_contest_report(
         total_runs,
     )
     team_rows = build_team_rows(problem_infos, team_total, team_accepted, team_problem_total, team_display_map)
-    time_windows = build_time_windows(contest.duration_minutes, window_all, window_accepted)
+    time_windows = build_time_windows(
+        contest.duration_minutes,
+        window_all,
+        window_accepted,
+        window_minutes=window_minutes,
+    )
     problem_race = build_problem_race(problem_infos, solve_records)
 
     # Per-team solved count and ICPC penalty minutes, over every active team
@@ -295,6 +309,7 @@ def compute_contest_report(
         language_verdict_totals=language_verdict_totals,
         team_problem=team_rows,
         time_windows=time_windows,
+        time_window_minutes=window_minutes,
         problem_race=problem_race,
         highlights=highlights,
         performance=performance,

@@ -21,6 +21,8 @@ from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from fastapi import UploadFile
+from starlette.responses import FileResponse
+from starlette.types import Receive, Scope, Send
 
 from shared.services.problem_package.constants import MAX_UPLOAD_BYTES
 from shared.services.problem_package.errors import PackageError
@@ -29,6 +31,17 @@ from shared.services.problem_package.staging import STAGING_PREFIX
 _CHUNK_BYTES = 64 * 1024
 _MAX_FILENAME_CHARS = 96
 _FILENAME_FALLBACK = "problem"
+
+
+class OwnedTemporaryFileResponse(FileResponse):
+    """Stream an owned file and remove it on every response exit path."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Send the file, removing it after success, failure, or cancellation."""
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 @asynccontextmanager
@@ -71,7 +84,7 @@ async def spool_upload(
 def temporary_package_path(*, directory: Path | None = None) -> Iterator[Path]:
     """Yield an owned temporary path for a package the caller is about to build.
 
-    A successful build leaves the path for a ``FileResponse`` background task.
+    A successful build leaves the path for ``OwnedTemporaryFileResponse``.
     If building the archive raises or is cancelled, the context removes the
     partial file because no response will ever take ownership of it.
     """

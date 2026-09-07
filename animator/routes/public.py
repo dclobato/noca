@@ -164,6 +164,7 @@ async def contest_meta(
     dependencies=[Depends(enforce_public_rate_limit)],
 )
 async def contest_snapshot(
+    request: Request,
     contest: EnabledContest,
     db: DbSession,
     scope: PublicScopeDep,
@@ -181,7 +182,15 @@ async def contest_snapshot(
     verdict or submission event, a phase change, or the TTL.
     """
     snapshot, max_age = await build_snapshot_response_cached(
-        db, contest, site_id=scope.site_id, cutoffs=scope.medal_cutoffs, cache=cache
+        db,
+        contest,
+        site_id=scope.site_id,
+        cutoffs=scope.medal_cutoffs,
+        cache=cache,
+        # Presence is written by Web under the shared `contest` domain; the
+        # animator only reads it, so an install without Valkey simply falls back
+        # to the sign-in window rather than losing the marker.
+        valkey=getattr(request.app.state, "valkey_runtime", None),
     )
     response.headers["Cache-Control"] = f"public, max-age={max_age}"
     return snapshot

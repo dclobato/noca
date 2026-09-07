@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,8 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from shared.enumerations import RoleEnum
+from shared.services.team_absence_status import load_absent_teams
+from web.config import settings
 from web.models.users import User
 from web.services.site_service import list_contest_sites
 
@@ -73,12 +76,18 @@ class ScoreboardDisplayData:
             site filter, which is why it is separate from the names below.
         team_site_names: Team id to site name, absent for an unassigned team.
         sites: The contest's sites, in the order the filter lists them.
+        teams_absent: Ids of teams that have not signed in since the
+            contest started, marked as absent on the board. Empty unless the
+            contest is currently running: before the start nobody is late, and
+            after the end an absence is history rather than something the venue
+            staff can still act on.
     """
 
     team_names: dict[str, str]
     team_site_ids: dict[str, str | None]
     team_site_names: dict[str, str]
     sites: list[ScoreboardSite]
+    teams_absent: frozenset[str] = frozenset()
 
 
 def scoreboard_display_key(contest_id: str) -> str:
@@ -92,6 +101,7 @@ def _to_dict(data: ScoreboardDisplayData) -> dict[str, Any]:
         "team_site_ids": data.team_site_ids,
         "team_site_names": data.team_site_names,
         "sites": [{"id": site.id, "sitename": site.sitename} for site in data.sites],
+        "teams_absent": sorted(data.teams_absent),
     }
 
 
@@ -105,6 +115,7 @@ def _from_dict(payload: Any) -> ScoreboardDisplayData | None:
             team_site_ids=dict(payload["team_site_ids"]),
             team_site_names=dict(payload["team_site_names"]),
             sites=[ScoreboardSite(id=str(site["id"]), sitename=str(site["sitename"])) for site in payload["sites"]],
+            teams_absent=frozenset(str(team_id) for team_id in payload["teams_absent"]),
         )
     except KeyError, TypeError, ValueError:
         return None
@@ -118,18 +129,35 @@ def _decode(cached: Any) -> ScoreboardDisplayData | None:
         return None
 
 
-async def _load_display_data(session: AsyncSession, contest_id: str) -> ScoreboardDisplayData:
+async def _load_display_data(
+    session: AsyncSession,
+    contest_id: str,
+    signed_in_since: datetime | None,
+    valkey: Any | None = None,
+) -> ScoreboardDisplayData:
     """Read one contest's scoreboard display data from the database."""
     result = await session.execute(
         select(User).where(User.contest_id == contest_id, User.role == RoleEnum.TEAM).options(selectinload(User.site))
     )
     teams = result.scalars().all()
     sites = await list_contest_sites(session, contest_id)
+    absent: frozenset[str] = frozenset()
+    if signed_in_since is not None:
+        # Presence is read inside the five-second entry because it moves far
+        # faster than a roster does: a team that opens a page becomes present
+        # within one clock poll, and the marker has to follow it that quickly.
+        absent = await load_absent_teams(
+            session,
+            contest_id,
+            since=signed_in_since,
+            valkey=valkey if settings.PRESENCE_ENABLED else None,
+        )
     return ScoreboardDisplayData(
         team_names={team.id: team.fullname for team in teams},
         team_site_ids={team.id: team.site_id for team in teams},
         team_site_names={team.id: team.site.sitename for team in teams if team.site is not None},
         sites=[ScoreboardSite(id=site.id, sitename=site.sitename) for site in sites],
+        teams_absent=absent,
     )
 
 
@@ -137,6 +165,7 @@ async def get_scoreboard_display_data(
     session: AsyncSession,
     contest_id: str,
     valkey: Any,
+    signed_in_since: datetime | None = None,
 ) -> ScoreboardDisplayData:
     """Return one contest's scoreboard display data, from cache when possible.
 
@@ -144,9 +173,16 @@ async def get_scoreboard_display_data(
         session: Active database session, used only on a cache miss.
         contest_id: Contest whose teams and sites are wanted.
         valkey: Process Valkey runtime, or ``None`` when unavailable.
+        signed_in_since: Instant the sign-in window opens at -- the contest
+            start while the contest is running -- or ``None`` to skip the
+            never-signed-in lookup entirely. An entry cached while the contest
+            was still running keeps its markers for the rest of its 5 s TTL,
+            which is the same boundary staleness the names and sites already
+            carry.
 
     Returns:
-        The team names, team-to-site mappings, and site list the page renders.
+        The team names, team-to-site mappings, site list, and absent teams the
+        page renders.
     """
     cache_key = scoreboard_display_key(contest_id)
     if valkey is not None:
@@ -160,7 +196,7 @@ async def get_scoreboard_display_data(
                 if data is not None:
                     return data
 
-    data = await _load_display_data(session, contest_id)
+    data = await _load_display_data(session, contest_id, signed_in_since, valkey)
     if valkey is not None:
         try:
             await valkey.set(cache_key, json.dumps(_to_dict(data)), ex=_TTL_S)

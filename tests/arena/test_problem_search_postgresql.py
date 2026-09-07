@@ -371,12 +371,28 @@ async def test_postgresql_search_behavior_and_int4_bounds(
     ) == ["Creative Commons Attribution 4.0"]
     await _assert_problem_picker_behavior(session, owner_id)
 
+    # Every optional column the suggestion predicates touch is populated on the
+    # whole corpus, and that is what makes the plan assertions below stable.
+    # `ix_arena_problems_source_trgm`, `ix_arena_problems_author_trgm`,
+    # `ix_arena_problems_license_trgm` and
+    # `ix_arena_problems_license_search_vector_gin` are all *partial* indexes on
+    # `<column> IS NOT NULL`. Leaving `source` and `license` NULL across the
+    # corpus made that bare NOT NULL test the most selective thing in the
+    # predicate, so the planner served an entire branch by scanning one of those
+    # partial indexes end to end and rechecking everything else as a filter --
+    # a plan that names neither the trigram index the branch is supposed to use
+    # nor the full-text index the FTS branch is supposed to use, and whose choice
+    # flipped between the two on nothing more than the table's page count. With
+    # the columns populated the NOT NULL test matches every row and each branch
+    # is planned on the index it actually needs. `author` was already populated,
+    # which is exactly why its assertion never failed.
     await session.execute(
         text(
             """
             INSERT INTO arena_problems (
                 id, arena_number, title, owner_id, author, author_is_owner,
-                enabled, problem_statement, statement_language, validator_type
+                enabled, problem_statement, source, license,
+                statement_language, validator_type
             )
             SELECT
                 md5('fts-plan-' || series::text),
@@ -390,6 +406,8 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                     THEN repeat('ordinary statement text ', 40) || ' statementmarker'
                     ELSE repeat('ordinary statement text ', 40)
                 END,
+                'Planner catalogue volume ' || series,
+                'Planner Public License ' || series,
                 'en'::statementlanguage,
                 'standard'::problemvalidatortype
             FROM generate_series(1, 5000) AS series

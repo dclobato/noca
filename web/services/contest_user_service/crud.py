@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -34,8 +34,16 @@ async def create_user(
     email: str | None = None,
     site_id: str | None = None,
     location: str | None = None,
+    allow_concurrent_login: bool = True,
 ) -> tuple[User, str]:
-    """Create a contest user and persist it immediately."""
+    """Create a contest user and persist it immediately.
+
+    Args:
+        allow_concurrent_login: Whether this user may hold several sessions from
+            several places once the contest starts. The default matches the
+            column's, so a caller that says nothing creates the user the way
+            every user behaved before the single-session policy existed.
+    """
     ensure_contest_user_add_or_edit_allowed(contest)
     ensure_role_allowed(role)
     username = normalize_username(username)
@@ -50,6 +58,7 @@ async def create_user(
         email_normalizado=None,
         site_id=site.id if site is not None else None,
         location=location or None,
+        allow_concurrent_login=allow_concurrent_login,
     )
     new_user.site = site
     new_user.email_normalizado = normalize_optional_email(email)
@@ -88,8 +97,20 @@ async def update_user(
     email: str | None | object = EMAIL_UNSET,
     site_id: str | None = None,
     location: str | None = None,
+    allow_concurrent_login: bool | None = None,
 ) -> str | None:
-    """Update a contest user's profile fields and optional password."""
+    """Update a contest user's profile fields and optional password.
+
+    Args:
+        allow_concurrent_login: The new session policy for this user, or
+            ``None`` to leave it as it is. It is deliberately tri-state rather
+            than a plain bool: the credentials-only path and every caller that
+            does not render the control must be able to leave the flag alone
+            rather than silently reset it to the default. Setting it to ``True``
+            also releases the user's IP binding, matching the contest-wide lift
+            -- an address kept past the rule that recorded it is a trap the next
+            time the rule is applied.
+    """
     ensure_contest_user_add_or_edit_allowed(contest)
     ensure_role_allowed(role)
     if role is not RoleEnum.JUDGE:
@@ -103,6 +124,15 @@ async def update_user(
     user.site_id = site.id if site is not None else None
     user.site = site
     user.location = location or None
+    if allow_concurrent_login is not None:
+        user.allow_concurrent_login = allow_concurrent_login
+        if allow_concurrent_login:
+            # Releasing one user follows the contest-wide lift: the rule is off
+            # for them, so the address it recorded is gone rather than waiting
+            # to be enforced again if the rule comes back. No epoch bump -- the
+            # policy has stopped applying, so there is no session to supersede.
+            user.locked_ip = None
+            user.locked_at = None
 
     actual_password: str | None = None
     if password:

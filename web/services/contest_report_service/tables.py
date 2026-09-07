@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -359,18 +359,19 @@ def build_time_windows(
     duration_minutes: int,
     window_all: defaultdict[int, int],
     window_accepted: defaultdict[int, int],
+    window_minutes: int = 10,
 ) -> list[TimeWindow]:
-    """Build 10-minute histogram windows."""
-    num_windows = max(math.ceil(duration_minutes / 10), 1)
+    """Build histogram windows."""
+    num_windows = max(math.ceil(duration_minutes / window_minutes), 1)
     if window_all:
         num_windows = max(num_windows, max(window_all.keys()) + 1)
 
     windows: list[TimeWindow] = []
     for index in range(num_windows):
-        start = index * 10
+        start = index * window_minutes
         windows.append(
             TimeWindow(
-                label=f"{start}-{start + 10}",
+                label=f"{start}-{start + window_minutes}",
                 all_count=window_all[index],
                 accepted_count=window_accepted[index],
             )

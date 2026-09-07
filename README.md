@@ -569,8 +569,9 @@ Rating, AI Assistant, Mailer, Health Monitor, and Animator directly instead of
 placing them in containers.
 
 The repository's implementation conventions are documented in
-[AGENTS.md](AGENTS.md), the detailed architecture is in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and accepted-but-unimplemented
+[AGENTS.md](AGENTS.md), the architecture is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and its per-module companions
+(`docs/ARCHITECTURE_<MODULE>.md`), and accepted-but-unimplemented
 work is tracked in [ROADMAP.md](ROADMAP.md), a reading guide that links into
 the Gitea issues holding each full contract.
 

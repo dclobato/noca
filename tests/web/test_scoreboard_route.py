@@ -24,10 +24,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
+from shared.enumerations import RoleEnum
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
 from web.models.site import Site
-from web.models.users import UberAdmin, User
+from web.models.users import Login_History, UberAdmin, User
 from web.routes import contest_score
 from web.services.assorted_utils import format_hidden_window
 from web.services.scoreboard import ProblemResult, ScoreboardSnapshot, TeamStanding
@@ -633,3 +634,52 @@ async def test_frozen_band_states_the_hidden_window(
     html = _squash(await _get_scoreboard(uberadmin, session, contest, snapshot))
 
     assert "Scoreboard Frozen · last 35 min hidden" in html
+
+
+@pytest.mark.asyncio
+async def test_a_team_that_absent_is_marked_on_the_running_board(
+    session: AsyncSession,
+    running_contest: Contest,
+    uberadmin: UberAdmin,
+    team_user: User,
+) -> None:
+    """Mark the no-show with the icon, and drop the mark once it signs in.
+
+    The icon rather than the muted row is what is asserted: colour alone is not
+    the marker, it only reinforces one.
+    """
+    snapshot = _one_problem_snapshot(team_user, None)
+
+    absent_html = _squash(await _get_scoreboard(uberadmin, session, running_contest, snapshot))
+    assert "noca-team-absent-icon" in absent_html
+    assert "noca-team-absent" in absent_html
+    assert "No sign of life since the contest started" in absent_html
+
+    session.add(Login_History(user_id=team_user.id, dta_login=running_contest.start_time + timedelta(minutes=1)))
+    await session.flush()
+
+    present_html = _squash(await _get_scoreboard(uberadmin, session, running_contest, snapshot))
+    assert "noca-team-absent" not in present_html
+
+
+@pytest.mark.asyncio
+async def test_the_absence_marker_is_not_shown_outside_a_running_contest(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    """An ended contest marks nobody: an absence is history, not an alert."""
+    team = User(
+        username="team_late",
+        fullname="Team Late",
+        role=RoleEnum.TEAM,
+        contest_id=stopped_contest.id,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    team.password = "TestPass1!"
+    session.add(team)
+    await session.flush()
+
+    html = _squash(await _get_scoreboard(uberadmin, session, stopped_contest, _one_problem_snapshot(team, None)))
+
+    assert "noca-team-absent" not in html

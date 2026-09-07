@@ -197,6 +197,11 @@ async def acquire_clarification(
         raise ClarificationLockUnavailableError("Clarification locks are currently unavailable.")
     if not acquired:
         raise ClarificationAlreadyAcquiredError("This clarification is already acquired by another judge.")
+
+    now = _utcnow()
+    clarification.acquired_at = now
+    clarification.acquired_timestamp_seconds = compute_timestamp_seconds(contest.start_time, now)
+    await session.flush()
     return clarification
 
 

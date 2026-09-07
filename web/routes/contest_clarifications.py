@@ -4,6 +4,8 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
+import datetime
+
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import select
@@ -16,6 +18,8 @@ from web.routes.contest_clarifications_helpers import (
     _ALLOWED,
     _build_problem_map,
     _build_user_map,
+    _compute_queue_time_map,
+    _compute_service_time_map,
     _html,
     _needs_user_map,
     _problem_map_from_list,
@@ -82,22 +86,22 @@ async def view(
 
     user_map = await _build_user_map(ctx.session, ctx.contest) if _needs_user_map(ctx.actor) else {}
 
-    return _html(
-        templates.TemplateResponse(
-            request,
-            "contest/clarifications.html",
-            {
-                "current_user": ctx.actor,
-                "contest": ctx.contest,
-                "clarifications": clarifications,
-                "lock_service_available": lock_service_available,
-                "problems": problems,
-                "problem_map": problem_map,
-                "user_map": user_map,
-                "sort_by": normalized_sort,
-            },
-        )
-    )
+    now_aware = datetime.datetime.now(datetime.UTC)
+    context: dict[str, object] = {
+        "current_user": ctx.actor,
+        "contest": ctx.contest,
+        "clarifications": clarifications,
+        "lock_service_available": lock_service_available,
+        "problems": problems,
+        "problem_map": problem_map,
+        "user_map": user_map,
+        "sort_by": normalized_sort,
+        "queue_time_map": _compute_queue_time_map(clarifications, now_aware),
+    }
+    if _needs_user_map(ctx.actor):
+        context["service_time_map"] = _compute_service_time_map(clarifications, now_aware)
+
+    return _html(templates.TemplateResponse(request, "contest/clarifications.html", context))
 
 
 @router.get("/list", response_class=HTMLResponse, name="contest_clarifications_list")
@@ -119,18 +123,18 @@ async def list_partial(
     )
     problem_map = await _build_problem_map(ctx.session, ctx.contest)
 
-    return _html(
-        templates.TemplateResponse(
-            request,
-            "contest/clarifications_list.html",
-            {
-                "current_user": ctx.actor,
-                "contest": ctx.contest,
-                "clarifications": clarifications,
-                "lock_service_available": lock_service_available,
-                "problem_map": problem_map,
-                "user_map": await _build_user_map(ctx.session, ctx.contest) if _needs_user_map(ctx.actor) else {},
-                "sort_by": normalized_sort,
-            },
-        )
-    )
+    now_aware = datetime.datetime.now(datetime.UTC)
+    context: dict[str, object] = {
+        "current_user": ctx.actor,
+        "contest": ctx.contest,
+        "clarifications": clarifications,
+        "lock_service_available": lock_service_available,
+        "problem_map": problem_map,
+        "user_map": await _build_user_map(ctx.session, ctx.contest) if _needs_user_map(ctx.actor) else {},
+        "sort_by": normalized_sort,
+        "queue_time_map": _compute_queue_time_map(clarifications, now_aware),
+    }
+    if _needs_user_map(ctx.actor):
+        context["service_time_map"] = _compute_service_time_map(clarifications, now_aware)
+
+    return _html(templates.TemplateResponse(request, "contest/clarifications_list.html", context))

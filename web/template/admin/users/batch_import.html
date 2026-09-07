@@ -43,6 +43,7 @@
                                             <th>Email</th>
                                             <th>Site</th>
                                             <th>Location</th>
+                                            <th>Sessions</th>
                                             <th>Status</th>
                                             <th>Password</th>
                                             <th>Details</th>
@@ -59,7 +60,15 @@
                                                 <td>{{ r.role }}</td>
                                                 <td>{{ r.email or "-" }}</td>
                                                 <td>{{ r.site or "-" }}</td>
-                                                <td>{{ r.location or "-" }}</td>
+                                                <td class="small">
+                                                    {% if r.allow_concurrent_login is none %}
+                                                        <span class="text-muted" title="Left as it was">unchanged</span>
+                                                    {% elif r.allow_concurrent_login %}
+                                                        anywhere
+                                                    {% else %}
+                                                        <span class="text-warning-emphasis">one address</span>
+                                                    {% endif %}
+                                                </td>
                                                 <td>
                                                     <span class="badge {% if r.status == 'created' %} bg-success {% elif r.status == 'updated' %} bg-primary {% elif r.status == 'failed' %} bg-danger {% else %} bg-secondary {% endif %}">{{ r.status }}</span>
                                                 </td>
@@ -113,7 +122,7 @@
                     </div>
                 </div>
             {% endif %}
-            <div class="col-12 col-lg-7">
+            <div class="col-12">
                 <div class="card shadow-sm">
                     <div class="card-header">Upload file</div>
                     <div class="card-body">
@@ -134,6 +143,21 @@
                                        required>
                                 <div id="file-error" class="invalid-feedback"></div>
                             </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox"
+                                       class="form-check-input"
+                                       id="restrict_session"
+                                       name="restrict_session"
+                                       value="true"
+                                       {% if is_locked %}disabled{% endif %}>
+                                <label class="form-check-label" for="restrict_session">Limit new users to one session from one address</label>
+                                <div class="form-text">
+                                    The default for rows that carry no <code>allow_concurrent_login</code> field, and
+                                    only for the users this import <strong>creates</strong>. A row that updates an
+                                    existing user and says nothing leaves that user's setting alone, so re-uploading a
+                                    roster never reverses a per-team decision. Staff roles are always exempt.
+                                </div>
+                            </div>
                             <button type="submit"
                                     class="btn btn-primary btn-sm"
                                     id="submit-btn"
@@ -146,15 +170,15 @@
                     </div>
                 </div>
             </div>
-            <div class="col-lg-5">
-                <div class="card shadow-sm h-100">
+            <div class="col-12">
+                <div class="card shadow-sm">
                     <div class="card-body p-4">
                         <h3 class="h6 text-uppercase text-muted mb-3">File Format</h3>
                         <p class="small fw-semibold mb-1">CSV example</p>
-                        <pre class="bg-light rounded p-2 small noca-code-example">username,fullname,role,password,email,site,location
-alice,Alice Smith,team,,alice@example.com,Campus A,Room 3
-bob,Bob Jones,judge,SuperStrong1!,bob@example.com,,
-charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
+                        <pre class="bg-light rounded p-2 small noca-code-example">username,fullname,role,password,email,site,location,allow_concurrent_login
+alice,Alice Smith,team,,alice@example.com,Campus A,Room 3,false
+bob,Bob Jones,judge,SuperStrong1!,bob@example.com,,,
+charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2,</pre>
                         <p class="small fw-semibold mb-1 mt-3">JSON example</p>
                         <pre class="bg-light rounded p-2 small noca-code-example">[
   {
@@ -163,7 +187,8 @@ charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
     "role": "team",
     "email": "alice@example.com",
     "site": "Campus A",
-    "location": "Room 3"
+    "location": "Room 3",
+    "allow_concurrent_login": false
   },
   {
     "username": "bob",
@@ -223,6 +248,20 @@ charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
                                     </td>
                                     <td>Optional. Physical location within the site (max 16 chars).</td>
                                 </tr>
+                                <tr>
+                                    <td>
+                                        <code>allow_concurrent_login</code>
+                                    </td>
+                                    <td>
+                                        Optional. <code>true</code>, <code>yes</code>, <code>1</code> or
+                                        <code>false</code>, <code>no</code>, <code>0</code>. <code>false</code> limits
+                                        the user to one session from one address once the contest starts. Leave it
+                                        blank and the checkbox above decides for rows this import
+                                        <strong>creates</strong>. A value written here is a statement about that user,
+                                        so it also applies to a row that <strong>updates</strong> an existing one.
+                                        Anything else fails that row rather than being guessed at.
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                         <p class="text-muted small mt-2 mb-0">
@@ -237,9 +276,10 @@ charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
                     </div>
                 </div>
             </div>
-            {# Full width: unlike the Add User form, this page's right column is
-               already taken by the file-format card, and every row of the import
-               file carries a role choice this reference informs. #}
+            {# Full width, like every other card on this page: the upload form,
+               the file format and this reference read top to bottom in the order
+               an operator needs them, and every row of the import file carries a
+               role choice this reference informs. #}
             <div class="col-12">
                 {% with role_reference_intro = "What each value of the file's role column will be able to reach and do." %}
                     {% include "admin/users/_role_reference.html" %}

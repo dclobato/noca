@@ -33,6 +33,7 @@ from sqlalchemy.orm.attributes import get_history
 
 import arena.models.arena_problems  # noqa: F401 – register mapper before event.listen
 from arena.config import settings
+from arena.dependencies.export_rate_limit import ADMIN_EXPORT_LIMITER, TEACHER_REPORT_LIMITER
 from arena.dependencies.problem_export_rate_limit import PROBLEM_EXPORT_LIMITER
 from arena.dependencies.user_read_rate_limit import USER_READ_LIMITER
 from arena.models.arena_problems import ArenaProblem
@@ -178,6 +179,8 @@ def _reset_auth_fallback_limiters() -> Generator[None]:
     SIGNUP_REQUEST_RATE_LIMITER._buckets.clear()
     USER_READ_LIMITER._buckets.clear()
     PROBLEM_EXPORT_LIMITER._buckets.clear()
+    ADMIN_EXPORT_LIMITER._buckets.clear()
+    TEACHER_REPORT_LIMITER._buckets.clear()
     AI_REVIEW_RATE_LIMITER._buckets.clear()
     GEOCODE_USER_RATE_LIMITER._buckets.clear()
     reset_local_windows()
@@ -188,6 +191,8 @@ def _reset_auth_fallback_limiters() -> Generator[None]:
     SIGNUP_REQUEST_RATE_LIMITER._buckets.clear()
     USER_READ_LIMITER._buckets.clear()
     PROBLEM_EXPORT_LIMITER._buckets.clear()
+    ADMIN_EXPORT_LIMITER._buckets.clear()
+    TEACHER_REPORT_LIMITER._buckets.clear()
     AI_REVIEW_RATE_LIMITER._buckets.clear()
     GEOCODE_USER_RATE_LIMITER._buckets.clear()
     reset_local_windows()

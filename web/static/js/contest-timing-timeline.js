@@ -1,8 +1,8 @@
-// NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  NOCA -- Next Online Contest Administrator
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 // Renders the "Contest timing overview" bar in two modes:
 //
@@ -21,6 +21,7 @@
     var SEG_LIVE = document.getElementById('timeline-seg-live');
     var SEG_FROZEN = document.getElementById('timeline-seg-frozen');
     var SEG_SILENCE = document.getElementById('timeline-seg-silence');
+    var NOW_MARKER = document.getElementById('timeline-now-marker');
 
     if (!WRAPPER || !SEG_FALLBACK || !SEG_LIVE || !SEG_FROZEN || !SEG_SILENCE) return;
 
@@ -64,6 +65,43 @@
         setSegment(SEG_LIVE, pLive);
         setSegment(SEG_FROZEN, pFrozen);
         setSegment(SEG_SILENCE, pSilence);
+    }
+
+    function isFiniteNumber(value) {
+        return typeof value === 'number' && Number.isFinite(value);
+    }
+
+    function updateNowMarker(event) {
+        if (!NOW_MARKER || !event.detail) return;
+
+        var nowMs = event.detail.nowMs;
+        var startMs = event.detail.startMs;
+        var endMs = event.detail.endMs;
+        if (!isFiniteNumber(nowMs) || !isFiniteNumber(startMs) ||
+            !isFiniteNumber(endMs) || endMs <= startMs) {
+            NOW_MARKER.hidden = true;
+            return;
+        }
+
+        // The marker only means something while the contest is running.
+        // Outside that window clamping used to pin it to whichever edge was
+        // nearer -- and there it stayed, since every later tick clamps to the
+        // same place, reading as a live position the contest does not have.
+        if (nowMs < startMs || nowMs > endMs) {
+            NOW_MARKER.hidden = true;
+            return;
+        }
+
+        var percent = ((nowMs - startMs) / (endMs - startMs)) * 100;
+        var edge = percent === 0 ? 'start' : percent === 100 ? 'end' : 'inside';
+
+        NOW_MARKER.style.left = percent.toFixed(4) + '%';
+        NOW_MARKER.dataset.edge = edge;
+        NOW_MARKER.hidden = false;
+        NOW_MARKER.setAttribute(
+            'aria-label',
+            'Current contest position: ' + Math.round(percent) + '% elapsed'
+        );
     }
 
     function update() {
@@ -110,4 +148,8 @@
             if (el) el.addEventListener('input', update);
         });
     });
+
+    if (NOW_MARKER) {
+        document.addEventListener('noca:contest-clock-tick', updateNowMarker);
+    }
 })();

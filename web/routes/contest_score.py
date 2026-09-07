@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -157,6 +157,7 @@ async def view(
                     "snapshot": None,
                     "team_display_map": {},
                     "team_site_name_map": {},
+                    "teams_absent": frozenset(),
                     "problem_cell_colors": [],
                     "frozen_hidden_window": None,
                     "viewer_role": "public",
@@ -186,7 +187,12 @@ async def view(
     # snapshot, so a scoreboard hit that finds a cached snapshot does no
     # database work at all -- these two queries used to run on every refresh of
     # the most-polled page in a live contest.
-    display = await get_scoreboard_display_data(ctx.session, contest.id, valkey)
+    # Absent teams are wanted only while the contest runs: before the start
+    # nobody is late, and after the end the absence is history rather than
+    # something the venue staff can still act on. Passing None there skips the
+    # lookup entirely rather than computing a set the template will not use.
+    signed_in_since = contest.start_time if contest.is_running else None
+    display = await get_scoreboard_display_data(ctx.session, contest.id, valkey, signed_in_since)
     sites = display.sites
     site_options = _site_filter_options(actor, sites)
     show_site_filter = len(sites) > 1
@@ -224,6 +230,7 @@ async def view(
                 "snapshot": snapshot,
                 "team_display_map": team_display_map,
                 "team_site_name_map": team_site_name_map,
+                "teams_absent": display.teams_absent,
                 "problem_cell_colors": _css_safe_balloon_colors(snapshot),
                 "frozen_hidden_window": frozen_hidden_window,
                 "site_options": site_options,

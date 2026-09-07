@@ -47,7 +47,7 @@ from shared.services.problem_editor_header import (
     EditorAction,
     EditorLink,
     ProblemEditorHeaderView,
-    publish_state_actions,
+    arena_problem_editor_actions,
 )
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.sample_interactions import (
@@ -266,6 +266,51 @@ def problem_list_url(
     base_url = str(request.url_for("arena_admin_problem_list"))
     url = f"{base_url}?{'&'.join(query_parts)}" if query_parts else base_url
     return f"{url}#{quote(anchor, safe='')}" if anchor else url
+
+
+def problem_edit_url(
+    request: Request,
+    problem_id: str,
+    *,
+    tab: str = "",
+    page: str = "1",
+    per_page: str = "25",
+    search: str = "",
+    sort_by: str = admin_problem_service.DEFAULT_SORT,
+    owner_id: str = "",
+    category_slugs: list[str] | None = None,
+    language: str = "",
+    enabled: str = "",
+    editorial: str = "",
+    next_url: str = "",
+) -> str:
+    """Build a problem editor edit URL preserving active tab, next URL, and list-return state."""
+    params: dict[str, str] = {}
+    if tab:
+        params["tab"] = tab
+    if page and page != "1":
+        params["page"] = page
+    if per_page and per_page != str(DEFAULT_PER_PAGE):
+        params["per_page"] = per_page
+    if search:
+        params["search"] = search
+    if sort_by and sort_by != admin_problem_service.DEFAULT_SORT:
+        params["sort_by"] = sort_by
+    if owner_id:
+        params["owner_id"] = owner_id
+    if language:
+        params["language"] = language
+    if enabled:
+        params["enabled"] = enabled
+    if editorial:
+        params["editorial"] = editorial
+    if next_url:
+        params["next"] = next_url
+    qs_parts = urlencode(params)
+    category_qs = urlencode({"category_slugs": category_slugs or []}, doseq=True)
+    query_parts = [part for part in (qs_parts, category_qs) if part]
+    base_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
+    return f"{base_url}?{'&'.join(query_parts)}" if query_parts else base_url
 
 
 def selected_cats_data(all_categories: list[Any], category_ids: list[str]) -> list[dict[str, str]]:
@@ -494,7 +539,7 @@ def build_problem_form_view(
             title=f"Edit problem #{problem.arena_number}",
             form_id="edit-form",
             subtitle=problem.title,
-            actions=publish_state_actions(),
+            actions=arena_problem_editor_actions(),
             back_url=back_url,
             links=(
                 EditorLink(label="Judgment data", url=judgment_url, icon="rule"),

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,6 +14,7 @@ from typing import Any
 
 import valkey.asyncio as aivalkey
 
+from shared.services.contest_report_cache import contest_report_generation_key
 from shared.services.scoreboard_cache import (
     scoreboard_final_key,
     scoreboard_frozen_key,
@@ -61,6 +62,7 @@ class ContestValkeyPurgeResult:
 def contest_runtime_keys(targets: ContestValkeyTargets) -> tuple[str, ...]:
     """Build every direct Valkey key owned by the target contest."""
     keys = {
+        contest_report_generation_key(targets.contest_id),
         scoreboard_full_key(targets.contest_id),
         scoreboard_public_key(targets.contest_id),
         scoreboard_frozen_key(targets.contest_id),

@@ -170,6 +170,7 @@ def test_isolate_settings_defaults():
     assert settings.ISOLATE_BINARY_PATH == "/usr/local/bin/isolate"
     assert settings.ISOLATE_WALL_TIME_MULTIPLIER >= 1.0
     assert settings.OUTER_TIMEOUT_MULTIPLIER >= 1.0
+    assert settings.OUTER_TIMEOUT_FIXED_OVERHEAD_S >= 0.0
 
 
 def test_image_naming_is_supported_value():

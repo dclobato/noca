@@ -371,6 +371,19 @@ tasks = Table(
         server_default="0",
         comment="Seconds since contest start when the task was created.",
     ),
+    Column(
+        "acquired_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Time when the task was last acquired by its handler. Reset on every acquire; not cleared "
+        "on release, since an unfinished task's service time is never read from it.",
+    ),
+    Column(
+        "acquired_timestamp_seconds",
+        Integer,
+        nullable=True,
+        comment="Seconds since contest start when the task was last acquired.",
+    ),
     Column("finished_at", DateTime(timezone=True), nullable=True, comment="Time when the task was finished"),
     Column(
         "finished_timestamp_seconds",

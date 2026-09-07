@@ -543,6 +543,10 @@ queued mail simply waits and is dropped at the TTL.**
 |----------|---------|-------------|
 | `NOCA_WEB_ENABLE_TASK_REAPER` | `false` | Enable the in-process task reaper. Active task expiration is handled by Valkey TTL locks; the reaper still auto-concludes leftover tasks after the contest ends. |
 | `NOCA_WEB_TASK_REAPER_INTERVAL_SECONDS` | `1800` | How often the task reaper runs (180–1800 s) |
+| `NOCA_WEB_PRESENCE_ENABLED` | `true` | Track which contest teams are active right now, so the scoreboard's absence marker means "no sign of life" rather than "has not signed in since the start". Written on ordinary authenticated `GET`s (the contest clock, which every contest page re-fetches every 60 s) and read by both scoreboards and by the team status map (`/c/{slug}/team-status`), which also shows the address the marker carries. Disabling it falls back to the sign-in window alone, which marks a team that logged in before the contest opened and never signed in again (#219), and the team status map then reports every signed-in team offline and says why. |
+| `NOCA_WEB_PRESENCE_TTL_SECONDS` | `180` | Seconds a team stays "present" after its last authenticated page activity (60–900). The floor is the 60 s contest clock, so the default leaves room for two missed polls before a team that is still there is reported absent. |
+| `NOCA_WEB_ENABLE_SESSION_LOCK_REAPER` | `false` | Enable the in-process session-lock reaper, which clears the single-session IP bindings (`users.locked_ip`) of contests that have ended. Enable it **only if this deployment re-runs a contest by moving its start time**: such a contest would otherwise begin enforcing against addresses recorded at its previous sitting and refuse every team from a seat it never sat in. A re-run staged as a new contest starts with no bindings, so the loop has nothing to do. Releasing after the end is safe whenever it runs — the policy stops enforcing at the end instant, so the row is already inert — and it never touches `session_epoch`, since there is nothing left to supersede and bumping would sign out teams still reading their runs and the final scoreboard. |
+| `NOCA_WEB_SESSION_LOCK_REAPER_INTERVAL_SECONDS` | `1800` | How often the session-lock reaper runs (180–1800 s) |
 
 ### Submission Form
 
@@ -788,6 +792,25 @@ per-request guard. It is deliberately Arena's own variable rather than a reuse o
 | `NOCA_ARENA_PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS` | `10` | Downloads accepted per user in each window; the next gets `429` with `Retry-After`. |
 | `NOCA_ARENA_PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
 
+### Arena per-user export and report limiting
+
+The admin problem export builds a full package per request, the security-events CSV
+streams the whole Arena-side log, and the four teacher report routes aggregate a
+class's submissions per hit. Each surface carries a per-user fixed-window budget
+(`arena/dependencies/export_rate_limit.py`), separate from the others so a teacher
+paging through reports never spends an administrator's export allowance (#157).
+Over budget the answer is `429` + `Retry-After`; the budget is charged on every
+request, including one the route's own guard then refuses.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_ENABLED` | `true` | Enable the admin downloads budget (bucket `arena:admin-export`): `GET /admin/problems/{id}/export` and `GET /admin/dashboard/security-events.csv`. |
+| `NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS` | `20` | Admin downloads accepted per user in each window. |
+| `NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
+| `NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_ENABLED` | `true` | Enable the teacher reports budget (bucket `arena:teacher-report`): the class-wide and per-set report pages, the per-student drill-down, and the class CSV under `/classes/{id}/problem-sets/`. |
+| `NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_MAX_REQUESTS` | `60` | Report page loads and CSV downloads accepted per user in each window. Looser than the downloads because a teacher browses and re-sorts them as pages. |
+| `NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
+
 ### Per-problem export limiting
 
 `GET /c/{slug}/problems/{label}/export` builds a contestant-facing problem
@@ -808,6 +831,37 @@ widened by editing a problem.
 | `NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_ENABLED` | `true` | Enable the per-actor budget on per-problem package downloads. |
 | `NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_MAX_REQUESTS` | `10` | Package downloads accepted per actor in each window; the next gets `429` with `Retry-After`. A contestant downloads a given problem once. |
 | `NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds for per-actor package downloads. |
+
+### Per-actor export and report limiting
+
+Web's heavy exports and reports build something per request that grows with the
+contest, and until #157 none of them had any cap but the actor's patience. They are
+authenticated and mostly staff-gated, which bounds *who* may call them, not *how
+often*. Each **surface** now carries a per-actor fixed-window budget of its own
+(`web/services/export_rate_limit.py`), stacked under whatever router ceiling
+applies, refusing with `429` + `Retry-After` when spent. They are separate buckets
+on purpose: ordinary report navigation must not spend the allowance of an
+unrelated administrative download.
+
+The key is the actor's domain **and** contest, not the bare login
+(`web_actor_key`): a contest login is unique only per contest, and an UberAdmin
+`admin` is not the contest user `admin`. The budgets are charged on every request,
+including one the route's own role check then refuses.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_ENABLED` | `true` | Enable the contest-admin downloads budget (bucket `web:admin-export`): `GET /c/{slug}/admin/problems/{id}/export`, `/export-animeitor`, `/export-events`, `/users-per-site-report`, and `/users/export.json`. |
+| `NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS` | `20` | Contest-admin downloads accepted per actor in each window. |
+| `NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
+| `NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_ENABLED` | `true` | Enable the reports-page budget (bucket `web:contest-report`) on `GET /c/{slug}/reports/`, which aggregates every submission per hit. |
+| `NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_MAX_REQUESTS` | `60` | Reports page loads accepted per actor in each window. Looser than the downloads: staff refresh and re-scope it by site during a contest. |
+| `NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
+| `NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_ENABLED` | `true` | Enable the per-team budget (bucket `web:team-download`) on `GET /c/{slug}/submissions/download-all`, the one heavy export a team reaches. |
+| `NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_MAX_REQUESTS` | `5` | Own-submissions ZIP downloads accepted per team in each window. A team downloads its sources once. |
+| `NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
+| `NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_ENABLED` | `true` | Enable the per-UberAdmin budget (bucket `web:uberadmin-export`) on `GET /uberadmin/security-events.csv`, which streams the whole Web security-event log. |
+| `NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS` | `10` | Security-events CSV downloads accepted per UberAdmin in each window. |
+| `NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS` | `600` | Fixed-window length in seconds. |
 
 ### Signup rate limiting
 
@@ -1350,6 +1404,7 @@ For the full startup behavior matrix covering image sync, pull policy, and lazy 
 | `NOCA_JUDGE_ISOLATE_MAX_BOXES` | `1000` | Number of distinct isolate box-ids the worker allocates from (`0 .. value-1`). Each live run container holds one unique box-id for its lifetime so concurrent containers never collide on the shared host cgroup `box-N` (the cause of intermittent `Cannot remove control group /sys/fs/cgroup/box-0` init/cleanup failures). Must not exceed isolate's configured `num_boxes` (default 1000); assumes a single autojudge worker process per host. |
 | `NOCA_JUDGE_ISOLATE_WALL_TIME_MULTIPLIER` | `3` | Multiplier applied to each problem's CPU time limit to compute the authoritative inner isolate `--wall-time` budget (1.0–10.0). |
 | `NOCA_JUDGE_OUTER_TIMEOUT_MULTIPLIER` | `2` | Multiplier applied to the computed inner isolate wall-time budget to derive the outer `asyncio.wait_for()` safety timeout (1.0–10.0). |
+| `NOCA_JUDGE_OUTER_TIMEOUT_FIXED_OVERHEAD_S` | `5` | Fixed seconds added to the inner wall-time budget as a **floor** under the outer safety timeout (0.0–120.0). The outer timeout bounds an entire Docker `exec` round trip, whose cost is fixed infrastructure overhead unrelated to the problem's time limit, so a purely multiplicative timeout fires on Docker latency alone once the budget is short — killing the run container and stamping a phantom TLE on a submission that finished inside its limit. Repetitions reach that regime by design, because each repetition runs with whatever is left of the test case's shared budget. This allowance never reaches the contestant: isolate enforces `--time`/`--wall-time` inside the container. |
 | `NOCA_JUDGE_COMPILE_TIMEOUT_S` | `180` | Global ceiling for the compile phase in seconds (minimum 5 s). Per-language values configured in the database take precedence when set. |
 | `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` | `67108864` (64 MiB) | Global hard ceiling for stdout handling per test case. This is a **hard ceiling**, never a fallback: every problem states an output limit of its own (the column is NOT NULL, defaulting to 65536), so the effective limit is always `min(problem_or_language_output_limit, NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` (minimum 1024). |
 | `NOCA_JUDGE_STDOUT_EXCERPT_BYTES` | `8192` | How many bytes of contestant stdout to persist in `submission_test_results.stdout_excerpt` for display in the UI (minimum 256). |
@@ -1364,7 +1419,14 @@ Timeout formulas:
 
 - `cpu_limit_s = time_limit_ms / 1000.0`
 - `inner_wall_limit_s = cpu_limit_s * NOCA_JUDGE_ISOLATE_WALL_TIME_MULTIPLIER`
-- `outer_timeout_s = inner_wall_limit_s * NOCA_JUDGE_OUTER_TIMEOUT_MULTIPLIER`
+- `outer_timeout_s = max(inner_wall_limit_s * NOCA_JUDGE_OUTER_TIMEOUT_MULTIPLIER, inner_wall_limit_s + NOCA_JUDGE_OUTER_TIMEOUT_FIXED_OVERHEAD_S)`
+
+Only the inner budget is contestant-facing. `--time` and `--wall-time` are enforced by isolate
+inside the run container and decide the TLE verdict; the outer timeout is a watchdog over the
+Docker exec round trip, and when it fires the worker must SIGKILL the run container, because
+Docker offers no way to kill a single exec. `time_limit_ms` here is the budget handed to *this*
+execution, which for a repeated test case is the share of the shared budget still unspent — see
+[DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md).
 
 ### Idempotency Lock
 

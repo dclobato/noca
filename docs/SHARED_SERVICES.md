@@ -674,8 +674,8 @@ The rules:
 
 The module runs no queries and imports neither `web` nor `arena`: each caller
 gathers the facts with whatever query shape suits it, and the decision stays in
-one place. See [ARCHITECTURE.md](ARCHITECTURE.md) for why the strategy is stored
-rather than inferred.
+one place. See [ARCHITECTURE_SHARED.md](ARCHITECTURE_SHARED.md) for why the
+strategy is stored rather than inferred.
 
 ---
 
@@ -738,9 +738,11 @@ buttons attach to that. `form_id` names whichever applies, so the partial does n
 branch on which door it is drawing.
 
 `publish_state_actions()` words the enable/disable pair once, because Arena offers
-that same choice from both doors and two templates would drift. Contest passes no
-actions from its judgment editor at all: it has no publication state to set there,
-and the bar simply holds the Back link and the trailing group.
+that same choice from both doors and two templates would drift.
+`arena_problem_editor_actions()` extends this for the Arena definition editor by
+placing `Save and keep editing` first, followed by `Save and enable` and `Save and disable`.
+Contest passes no actions from its judgment editor at all: it has no publication state
+to set there, and the bar simply holds the Back link and the trailing group.
 
 `EditorNotice` feeds one notice slot, rendered by the definition shell between the
 action bar and the pane strip -- the same place the judgment shell puts its
@@ -957,7 +959,7 @@ Canonical location:
 | `journal.py` | the crash-safe on-disk journal format and the reconciliation loop |
 | `journal_recovery.py` | what recovery deletes, keeps, or restores for one stale journal |
 | `reconcile.py` | resolving stale journals at startup and before each import |
-| `upload.py` | chunked upload spooling, temp export paths, safe download filenames |
+| `upload.py` | chunked upload spooling, temp export paths, safe download filenames, and owned-file responses that unlink on every response exit path |
 | `merge.py` | `append_package_folder` — splices one built package ZIP into a containing archive (contest backups, public problem sets) |
 
 Main entrypoints:
@@ -986,7 +988,7 @@ Main entrypoints:
   `removal` flag, so recovery still decides from the quarantine on disk and a journal written
   without the key resolves identically
 - `reconcile_import_journals(session, domain=..., testcase_dir=..., statement_dir=...)`
-- `spool_upload(upload)` / `temporary_package_path()` / `safe_package_filename(title)`
+- `spool_upload(upload)` / `temporary_package_path()` / `safe_package_filename(title)` / `OwnedTemporaryFileResponse`
 
 `pypdf` is declared in `shared/pyproject.toml` rather than Web's: the shared reader owns PDF
 statement validation, and a lazy import of a dependency another package declares would make
@@ -2835,7 +2837,7 @@ Contract:
   time left in the current window rather than the full window length
 - client IP is `request.client.host` only — the proxy-corrected address after
   Uvicorn's `NOCA_FORWARDED_ALLOW_IPS` processing. `X-Forwarded-For` is never
-  read (see `docs/ARCHITECTURE.md` §4). A request with no client counts under
+  read (see `docs/ARCHITECTURE_SHARED.md`). A request with no client counts under
   `unknown`
 - fallback triggers: no Valkey client, a client that cannot run a script, a
   `None` or malformed script result, or a
@@ -2891,6 +2893,17 @@ Consumers:
   point is to stop one actor multiplying a bounded cost, never to refuse a
   partial to somebody reading normally. Each module's `docs/ROUTES.md` lists
   which routers carry it
+- Web's heavy exports and reports (`web/services/export_rate_limit.py`, four
+  buckets: `web:admin-export`, `web:contest-report`, `web:team-download`,
+  `web:uberadmin-export`, knobs `NOCA_WEB_{ADMIN_EXPORT,CONTEST_REPORT,TEAM_DOWNLOAD,UBERADMIN_EXPORT}_RATE_LIMIT_*`)
+  and Arena's (`arena/dependencies/export_rate_limit.py`, `arena:admin-export`
+  and `arena:teacher-report`, knobs
+  `NOCA_ARENA_{ADMIN_EXPORT,TEACHER_REPORT}_RATE_LIMIT_*`) -- the **per-surface**
+  consumers from #157, one tight route-level budget per kind of caller so
+  ordinary report navigation cannot spend an unrelated download's allowance.
+  Web's key (`web_actor_key`) now carries the token audience and contest id,
+  since a contest login is unique only per contest and an UberAdmin `admin` is
+  not the contest user `admin`; every Web per-actor budget shares that key
 - further per-route adoption is tracked by the rate-limit audit issue #158;
   this module deliberately applies itself to nothing on its own
 - long-lived SSE streams are bounded by a different primitive,
@@ -3154,8 +3167,77 @@ Canonical location:
 Notes:
 - arena computes rankings on demand without a scoreboard cache; the current
   consumers are web, autojudge (`autojudge/submission_job.py` calls
-  `invalidate_scoreboard_cache` to invalidate on verdict), and
+  `invalidate_contest_result_caches` to invalidate scoreboard and report data
+  on verdict), and
   `shared/services/valkey_service/contest_purge.py`
+
+---
+
+## `contest_report_cache.py`
+
+Purpose:
+- share the Web contest-report key format and post-commit generation rotation
+  with the autojudge worker and contest purge
+
+Constants:
+- `PAYLOAD_VERSION` — schema version embedded into data cache keys
+  (`noca:web:contest-report:v{PAYLOAD_VERSION}:...`) to ensure cache rollover
+  when report payload schemas change across deployments
+
+Main entrypoints:
+- `contest_report_generation_key(contest_id)` — the durable per-contest token
+  key rotated after report-relevant commits
+- `contest_report_data_key(contest_id, generation, site_id)` — the versioned,
+  generation-fenced data key for the all-sites or one-site projection
+- `invalidate_contest_report_cache(valkey, contest_id)` — best-effort token
+  rotation; a concurrent old build remains unreachable and expires after the
+  Web cache's 600-second safety TTL
+
+---
+
+## `team_absence_status.py`
+
+Purpose:
+- answer "which of this contest's teams show no sign of life", the question
+  behind the absence marker both scoreboards draw
+
+Main entrypoints:
+- `load_absent_teams(session, contest_id, *, since, valkey=None) -> frozenset[str]`
+  — what callers rendering the marker want: a team is returned only when it has
+  **neither** signed in since `since` **nor** been seen since
+- `load_teams_without_sign_in(session, contest_id, *, since) -> frozenset[str]`
+  — the sign-in half alone, one query over `login_history`
+
+Contract:
+- the two signals are paired because neither is sufficient. The sign-in window
+  alone reported present teams as absent (#219): **Start contest now** moves the
+  start to *now*, so every warm-up login becomes a login "before the start", and
+  the single-session policy (#216) makes that shape routine by design, since a
+  session opened before the start deliberately survives it
+- the window is nonetheless kept, because dropping it would trade that false
+  positive for a false negative: a team that opened the practice page during
+  warm-up and then walked away is exactly the no-show the marker exists for, and
+  only the window can still see it
+- presence comes from `user_presence.py` under the `contest` domain, written by
+  `web.services.contest_presence` on ordinary authenticated `GET`s. It can only
+  ever *remove* teams from the answer, so a deployment with presence disabled,
+  or one whose Valkey is unreachable, degrades exactly to the sign-in window
+  rather than to a blank board or a screen of false alarms
+- callers pass `since=None`-equivalent by simply not calling: Web skips the
+  lookup outside a running contest and the animator gates it on
+  `ContestRecord.is_running_at`, so an ended contest marks nobody
+
+Why it is shared:
+- the Web scoreboard and the animator live board must agree on what absence
+  means; two definitions would put a team in one state on the projector and the
+  other on the staff's screen
+
+Why the answer is **not** carried on `ScoreboardSnapshot`:
+- that projection is cached under keys written once and never invalidated (the
+  frozen and final scoreboards in `scoreboard_cache.py`), so a presence flag
+  stored inside one would freeze along with the standings and stay permanently
+  wrong. Each surface reads this beside its snapshot and merges the two at
+  render time
 
 ---
 
@@ -3185,7 +3267,7 @@ Key types and functions:
   viewer_sees_frozen)` — groups unresolved submissions by team/problem using the
   same freeze-visibility rule consumed by `compute_icpc` and animator pending lists
 - `standing_score_key(standing)` — the canonical ranking key
-  `(-problems_solved, total_time, last_accepted_minutes)`. `compute_icpc` both
+  `(-problems_solved, total_time, last_accepted_seconds)`. `compute_icpc` both
   sorts with it and decides shared ranks by comparing it, so the order and the
   tie test cannot disagree about what makes two teams equal. A team with no
   solves substitutes a sentinel that sorts it last within its group
@@ -3194,7 +3276,7 @@ Key types and functions:
   and participant-facing rules summaries consume this helper, so displayed
   rules cannot drift from scoreboard behavior
 - `compute_icpc(contest, teams, problems, submissions, judgments, freeze_at_seconds, viewer_sees_frozen)` — pure standings calculation; honors per-contest `wa_penalty`, `accept_pe`, and `ce_adds_penalty`, the strict freeze predicate (`timestamp_seconds > freeze_at_seconds`), pending cells, position-based tied ranks, and first-balloon marking ordered by `(timestamp_seconds, created_at, id)`
-- `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname`, `is_first_balloon`, or `last_accepted_minutes`
+- `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname`, `is_first_balloon`, or `last_accepted_seconds` (a payload carrying the pre-seconds `last_accepted_minutes` is widened back to seconds, so a permanently stored frozen or final snapshot stays comparable with freshly computed rows)
 
 ### Ranking rules
 
@@ -3208,11 +3290,15 @@ Key types and functions:
    the team never solved, contribute nothing. Which verdicts penalize comes from
    `penalizing_verdicts`, so `ce_adds_penalty` and `accept_pe` govern `CE` and
    `PE` here too.
-3. **Earliest last accepted submission.** `TeamStanding.last_accepted_minutes`
-   holds the contest minute of the team's *latest* solve, and the team that
-   finished earlier ranks higher. It is `None` for a team that solved nothing,
-   which sorts last within its group — only teams tied at zero solves and zero
-   total time can carry it, so the value is uniform wherever it applies.
+3. **Earliest last accepted submission.** `TeamStanding.last_accepted_seconds`
+   holds the contest **second** of the team's *latest* solve, and the team that
+   finished earlier ranks higher. This is the one place the scoreboard reads
+   finer than a minute: solve times, penalties, and total time are all truncated
+   ICPC minutes, so two teams whose last solves land in the same minute would
+   otherwise tie, and the second resolution separates them. It is `None` for a
+   team that solved nothing, which sorts last within its group — only teams tied
+   at zero solves and zero total time can carry it, so the value is uniform
+   wherever it applies.
 
 Teams equal on all three keys **share a rank number**, and the next distinct team
 takes its position-based rank (`1, 1, 3`), so no arbitrary order is ever
@@ -3907,9 +3993,10 @@ The Arena notification serialiser (`arena/routes/notifications.py`) uses this di
 
 Purpose:
 - track which end users are currently online, backed by Valkey, to drive the
-  green online-dot overlaid on user avatars
-- identity-domain aware (`arena` now, `contest` later) so the Web module can
-  reuse it without key collisions
+  green online-dot overlaid on user avatars, the contest scoreboard's absence
+  marker and the Web team status map
+- identity-domain aware (`arena` and `contest`) so the Web module reuses it
+  without key collisions
 
 Canonical location:
 - `shared/services/user_presence.py`
@@ -3918,9 +4005,10 @@ Key functions / constants:
 - `PRESENCE_PREFIX = "noca:user-presence"`, `MAX_PRESENCE_BATCH = 500`
 - `user_live_key(domain, user_id)` — `noca:user-presence:{domain}:live:{user_id}`; its existence means "online"
 - `online_set_key(domain)` — `noca:user-presence:{domain}:online`; sorted set (member = user id, score = last-seen epoch) used for counting
-- `mark_user_online(client, *, domain, user_id, ttl_seconds)` — atomic Lua `eval`: `SET ... EX` the live key + `ZADD` the online set (best-effort)
+- `mark_user_online(client, *, domain, user_id, ttl_seconds, value="1")` — atomic Lua `eval`: `SET <live key> <value> EX <ttl>` + `ZADD` the online set (best-effort). `value` is what the live key holds: `"1"` by default (Arena), the client address when the Web module writes it; blank falls back to `"1"`
 - `mark_user_offline(client, *, domain, user_id)` — atomic `DEL` live key + `ZREM` from the online set
-- `get_users_online_map(client, *, domain, user_ids) -> dict[str, bool]` — one batch `mget`; dedupes/caps ids
+- `get_users_online_map(client, *, domain, user_ids) -> dict[str, bool]` — one batch `mget`; dedupes/caps ids; online means the key exists, whatever it holds
+- `get_users_presence_values(client, *, domain, user_ids) -> dict[str, str | None]` — the same `mget` path, returning the stored value (`None` = offline); for readers that want the address, not just yes/no
 - `count_online_users(client, *, domain, ttl_seconds) -> int | None` — `ZREMRANGEBYSCORE` to purge stale members, then `ZCARD`; returns `None` when unavailable (kept distinct from a real `0`)
 
 Notes:
@@ -3928,6 +4016,11 @@ Notes:
   writes drop silently on outage, reads degrade to "everyone offline", and the count returns `None`
 - model mirrors `valkey_service/worker_presence.py` (live key + TTL + batch read); the online
   sorted set adds global counting without enumerating keys (no `SCAN`/set ops needed)
+- **readers key "online" on the key's existence, never on its literal value.** Both
+  readers share one private `mget` path (`_read_live_values`) so they cannot
+  disagree on which ids were asked for; the Web writer
+  (`web/services/contest_presence.py`) stores the client address so the team
+  status map can show where a team is, and Arena keeps the historical `"1"`
 - the Arena footer counter reads a cached value refreshed by the `_online_users_count_poller`
   background task (`arena/main.py`), so `count_online_users` is not called per request
 - Arena wiring: `arena/routes/presence.py` (heartbeat + status endpoints),
@@ -4169,14 +4262,31 @@ one edit, and a save that would still overflow fails before mutating anything.
 # Sample problem package
 
 `shared.services.sample_problem_package.build_sample_problem_package(destination)` writes the
-reference "A + B" import package (statement, three test cases with an explanation — one of them
-public — global limits, and `python3` / `rust` per-language limits) offered for download from both
-import pages. It writes to a caller-owned path, exactly as a real export does, and the routes
-stream it with a `FileResponse` that deletes the file afterwards.
+reference "A + B" import package (statement, editorial, three test cases with an explanation — one
+of them public — global limits, and `python3` / `rust` per-language limits) offered for download
+from both import pages. It writes to a caller-owned path, exactly as a real export does.
 
 It is generated from code rather than committed as a binary so it cannot drift from the reader,
-and it goes through the **shared writer**, so it carries every version-1 key and a valid `sha256`
+and it goes through the **shared writer**, so it carries every version-2 key and a valid `sha256`
 manifest — what a real export looks like. Its fields deliberately span both domains (Arena's
 `source` / `license` / `statement_language`, the Contest's `color` / `language_limits`), because
 the format is their union and each importer keeps what its own schema can store. Round-trip tests
 import it through both real importers.
+
+**Serving it (#157).** Both import routes (`GET /c/{slug}/admin/problems/import/sample`,
+`GET /admin/problems/import/sample`) call `sample_problem_package_response(request)`, which
+answers from a **per-process memo** rather than rebuilding the ZIP in a worker thread per hit:
+
+- `cached_sample_problem_package()` builds once — concurrent first callers serialize on a
+  `threading.Lock` and share the build — and returns a `SamplePackageBytes(content, etag)`.
+  The memo holds the *first build's bytes*; it deliberately does not assume two independent
+  builds are byte-identical, because `zipfile` stamps each member with the current time. The
+  logical content cannot change while a process runs, so nothing invalidates it at runtime.
+- The `ETag` is the strong SHA-256 of those bytes, so it differs across replicas and across
+  deployments — which is the point: a redeploy can change the package (`FORMAT_VERSION`, the
+  example itself) under the same URL, so the response carries
+  `Cache-Control: private, no-cache` (`SAMPLE_PACKAGE_CACHE_CONTROL`) rather than a long
+  `max-age`. The browser keeps its copy but revalidates every time; a matching `If-None-Match`
+  costs a bodyless `304` (via `StaticFiles.is_not_modified`, as the image helper does), and a
+  redeploy is picked up on the next request. `private` because the routes are authenticated.
+- `clear_sample_problem_package_memo()` exists for tests only.

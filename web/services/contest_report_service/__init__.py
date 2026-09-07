@@ -1,12 +1,12 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 """Pure contest report aggregation service."""
 
-from .common import ALL_VERDICTS
+from .common import ALL_VERDICTS, compute_time_window_minutes
 from .computation import compute_contest_report
 from .models import (
     ActiveTeamsHighlight,
@@ -48,4 +48,5 @@ __all__ = [
     "TeamRow",
     "TimeWindow",
     "compute_contest_report",
+    "compute_time_window_minutes",
 ]

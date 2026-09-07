@@ -171,6 +171,9 @@ def test_banner_states_the_ordered_ranking_keys() -> None:
     third = markup.index("Earliest last accepted solution")
     assert first < second < third, "keys must render in the order they are applied"
     assert "Teams tied on all three share a rank." in markup
+    # The third key is the only one read finer than a minute, so it says so.
+    assert "Earliest last accepted solution, to the second" in markup
+    assert "Lowest total time, in minutes" in markup
     # An ordered list, not prose: the sequence is the information.
     assert "noca-dashboard-rank-keys" in markup
     assert markup.count("<li>") >= 3
@@ -188,4 +191,14 @@ def test_banner_feeds_the_static_timing_timeline() -> None:
     assert 'data-duration-minutes="300"' in markup
     assert 'data-freeze-minutes="240"' in markup
     assert 'data-blind-minutes="270"' in markup
+    assert 'data-timeline-static="true"' in markup
+    assert 'id="timeline-now-marker"' in markup
     assert "contest-timing-timeline.js?v=test" in markup
+
+
+def test_form_timing_timeline_does_not_render_now_marker() -> None:
+    """The editor preview has no absolute contest clock to place on its bar."""
+    markup = _env().get_template("_timing_timeline.html").render()
+
+    assert 'data-timeline-static="true"' not in markup
+    assert 'id="timeline-now-marker"' not in markup

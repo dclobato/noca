@@ -377,16 +377,23 @@ def _area_gates() -> dict[str, Callable[[Actor, Contest], Any]]:
 
     reports = importlib.import_module("web.routes.contest_reports")
     solution_tests = importlib.import_module("web.routes.contest_solution_tests")
+    team_status = importlib.import_module("web.routes.contest_team_status")
     authorization = importlib.import_module("web.services.contest_service.authorization")
 
     allowed_report_roles = reports._ALLOWED
     allowed_solution_test_roles = solution_tests._ALLOWED
+    allowed_team_status_roles = team_status._ALLOWED
 
     def reports_gate(actor: Actor, contest: Contest) -> bool:
         return actor.role not in allowed_report_roles
 
     def solution_tests_gate(actor: Actor, contest: Contest) -> bool:
         return actor.role not in allowed_solution_test_roles
+
+    def team_status_gate(actor: Actor, contest: Contest) -> bool:
+        # No contest-state gate: the board is wanted before the gun (who has
+        # arrived) as much as during the contest, so role is the only rule.
+        return actor.role not in allowed_team_status_roles
 
     def administration_gate(actor: Actor, contest: Contest) -> bool:
         return not authorization.can_administer_contest(actor)
@@ -399,6 +406,7 @@ def _area_gates() -> dict[str, Callable[[Actor, Contest], Any]]:
         "tasks": tasks_gate,
         "solution_tests": solution_tests_gate,
         "reports": reports_gate,
+        "team_status": team_status_gate,
         "administration": administration_gate,
     }
 

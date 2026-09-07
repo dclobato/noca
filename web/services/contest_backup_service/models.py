@@ -13,11 +13,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 5
+FORMAT_VERSION = 7
 
 #: Every archive version this server restores.
 #:
-#: Version 5 is the only one. Strict row validation compares an archived row
+#: Version 7 is the only one. Strict row validation compares an archived row
 #: against the *live* table, so each earlier version needed its own set of
 #: columns-it-predates plus an inference rule for what those columns would have
 #: held -- one rule per version per column, each a place for the integrity check

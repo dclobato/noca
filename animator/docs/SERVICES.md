@@ -88,8 +88,10 @@ Provides:
   `PendingSubmissionResponse`
 - `RecentEventResponse` / `RecentEventKind` — one past contest event for seeding
   a freshly loaded activity rail. It carries the *parts* of the sentence
-  (`kind`, `team_name`, `problem_label`, `verdict`) and never the sentence, so
-  the seeded backlog and the live stream cannot drift into two vocabularies
+  (`kind`, `team_name`, `team_fullname`, `problem_label`, `verdict`) and never
+  the sentence, so the seeded backlog and the live stream cannot drift into two
+  vocabularies. The rail names the team with `team_fullname`, falling back to
+  the login, exactly as the board does
 - live SSE payloads for the `/events` stream: `VerdictPayload`,
   `RedactedVerdictPayload`, `SubmissionPayload`, `ScoreboardRefreshPayload`,
   `TimerTickPayload`
@@ -406,7 +408,7 @@ Behavior notes:
   outstanding.
 - **The cursor sweeps every row, bottom-up.** `focus_at_cursor` indexes
   `standings` from the end rather than comparing rank numbers, because teams tied
-  on all of `(solved, total_time, last_accepted_minutes)` share a rank. The order
+  on all of `(solved, total_time, last_accepted_seconds)` share a rank. The order
   is deterministic: teams load in `(username, id)` order and `compute_icpc` sorts
   stably on score alone. A row with nothing to reveal is
   still visited — the operator walks the whole table with the same key — and the
@@ -1181,7 +1183,8 @@ Provides:
 - `build_snapshot(session, contest, now=None, site_id=None)` — the underlying
   shared `ScoreboardSnapshot`
 - `snapshot_to_response(snapshot, pending_submissions=None, *, teams,
-  wa_penalty, cutoffs=None, has_started, recent_events=None)` — the Animator response mapper,
+  wa_penalty, cutoffs=None, has_started, recent_events=None,
+  absent=frozenset())` — the Animator response mapper,
   including team site names and accumulated per-cell attempt penalties
 - `build_pending_submissions(standings, submission_records, judgments, teams,
   problem_records, freeze_at_seconds)` — the authoritative, freeze-safe pending list
@@ -1220,6 +1223,18 @@ Behavior notes:
   adding a query. `TeamStandingResponse` therefore carries `team_fullname` and
   `site_name`. `ProblemCellResponse.penalty` is `attempts × wa_penalty` for both
   solved and unsolved cells; ranking still adds that penalty only after a solve.
+- **Absent teams.** While the contest is running (`ContestRecord.is_running_at`)
+  the projection also reads `shared.services.team_absence_status`, and every
+  standing carries `absent`: no successful sign-in since
+  `contest.start_time`. Outside a running contest the lookup is skipped and the
+  flag is `False` for everyone — before the start nobody is late, and the
+  ended-contest snapshot cache lives far too long for a presence marker to stay
+  honest inside it. The flag is on the animator's own `TeamStandingResponse`,
+  never on the shared `TeamStanding`, for the reason given in
+  `docs/SHARED_SERVICES.md`: the frozen and final scoreboard snapshots are
+  written once and never invalidated. A sign-in publishes no event, so the
+  board's own absence watch (`animator.js`) re-reads `/snapshot` on a timer
+  while any marker is showing.
 - **Pending list authority.** `build_pending_submissions` emits one entry per
   scoreboard cell whose `is_pending` is True (so it agrees with the `?` cells).
   It reuses shared `bucket_visible_pending_submissions` so the list and

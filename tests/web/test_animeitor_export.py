@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import tempfile
 import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -38,15 +40,26 @@ from web.services.animeitor_export_service import (
     AnimeitorExportError,
     AnimeitorRun,
     AnimeitorTeam,
-    build_animeitor_zip,
     map_verdict,
     serialize_contest_file,
     serialize_runs_file,
+    write_animeitor_zip,
 )
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def build_animeitor_zip(
+    session: AsyncSession,
+    contest: Contest,
+) -> tuple[str, bytes]:
+    """Adapt the disk writer to the existing archive-content assertions."""
+    with tempfile.TemporaryDirectory() as directory:
+        destination = Path(directory) / "animeitor.zip"
+        filename = await write_animeitor_zip(session, contest, destination)
+        return filename, destination.read_bytes()
 
 
 async def _make_language(session: AsyncSession) -> Language:

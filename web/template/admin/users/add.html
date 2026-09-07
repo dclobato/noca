@@ -112,6 +112,21 @@
                                        {% if is_locked %}disabled{% endif %}>
                                 <div class="form-text">Optional. Used to send credentials by email.</div>
                             </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox"
+                                       class="form-check-input"
+                                       id="restrict_session"
+                                       name="restrict_session"
+                                       value="true"
+                                       {% if form_data.restrict_session %}checked{% endif %}
+                                       {% if is_locked %}disabled{% endif %}>
+                                <label class="form-check-label" for="restrict_session">Limit to one session from one address</label>
+                                <div class="form-text">
+                                    Once the contest starts, this login works from a single computer at a time and only
+                                    from the address it first signs in from. Staff roles are always exempt, so this only
+                                    affects teams.
+                                </div>
+                            </div>
                             {% if not is_locked %}<button type="submit" class="btn btn-primary btn-sm">Create user</button>{% endif %}
                         </form>
                     </div>

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from fastapi import UploadFile
 
 from shared.services.problem_package import PackageError
 from shared.services.problem_package.upload import (
+    OwnedTemporaryFileResponse,
     safe_package_filename,
     spool_upload,
     temporary_package_path,
@@ -63,7 +65,7 @@ def test_temporary_package_path_is_left_for_the_caller(tmp_path: Path) -> None:
     with temporary_package_path(directory=tmp_path) as destination:
         destination.write_bytes(b"zip")
 
-    # Deliberately *not* removed here: a FileResponse's background task owns it.
+    # Deliberately not removed here: the eventual response owns it.
     assert destination.exists()
     destination.unlink()
 
@@ -77,6 +79,79 @@ def test_temporary_package_path_is_removed_when_the_builder_fails(tmp_path: Path
         raise RuntimeError("build failed")
 
     assert not destination.exists()
+
+
+def _http_scope() -> dict[str, object]:
+    """Return the minimal ASGI HTTP scope needed by ``FileResponse``."""
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/download",
+        "raw_path": b"/download",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+        "root_path": "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_owned_temporary_response_removes_file_after_success(tmp_path: Path) -> None:
+    path = tmp_path / "success.zip"
+    path.write_bytes(b"zip")
+    response = OwnedTemporaryFileResponse(path)
+
+    async def receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def send(_message: object) -> None:
+        return None
+
+    await response(_http_scope(), receive, send)  # type: ignore[arg-type]
+
+    assert not path.exists()
+
+
+@pytest.mark.asyncio
+async def test_owned_temporary_response_removes_file_when_send_fails(tmp_path: Path) -> None:
+    path = tmp_path / "failure.zip"
+    path.write_bytes(b"zip")
+    response = OwnedTemporaryFileResponse(path)
+
+    async def receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def send(message: dict[str, object]) -> None:
+        if message["type"] == "http.response.body":
+            raise OSError("client disconnected")
+
+    with pytest.raises(OSError, match="client disconnected"):
+        await response(_http_scope(), receive, send)  # type: ignore[arg-type]
+
+    assert not path.exists()
+
+
+@pytest.mark.asyncio
+async def test_owned_temporary_response_removes_file_when_cancelled(tmp_path: Path) -> None:
+    path = tmp_path / "cancelled.zip"
+    path.write_bytes(b"zip")
+    response = OwnedTemporaryFileResponse(path)
+
+    async def receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def send(message: dict[str, object]) -> None:
+        if message["type"] == "http.response.body":
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await response(_http_scope(), receive, send)  # type: ignore[arg-type]
+
+    assert not path.exists()
 
 
 @pytest.mark.parametrize(

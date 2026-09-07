@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
+from arena.dependencies.export_rate_limit import arena_admin_export_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services.pagination_service import parse_page
 from shared.services.pagination_service import effective_per_page
@@ -94,6 +95,7 @@ async def admin_dashboard_security_events(
     "/security-events.csv",
     response_class=StreamingResponse,
     name="arena_admin_dashboard_security_events_csv",
+    dependencies=[Depends(arena_admin_export_rate_limit)],
 )
 async def admin_dashboard_security_events_csv(
     request: Request,

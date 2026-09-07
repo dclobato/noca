@@ -385,6 +385,22 @@ class Settings(NocaSettings):
         ),
     )
 
+    OUTER_TIMEOUT_FIXED_OVERHEAD_S: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=120.0,
+        description=(
+            "Fixed allowance, in seconds, added to the inner isolate wall-time budget as a "
+            "floor under the outer asyncio safety timeout. The outer timeout bounds a whole "
+            "Docker exec round trip, whose cost is fixed infrastructure overhead unrelated to "
+            "the problem's time limit, so a purely multiplicative timeout fires on Docker "
+            "latency alone once the budget is short — destroying the run container and "
+            "stamping a phantom TLE on a submission that finished inside its limit. This "
+            "allowance never reaches the contestant: isolate enforces --time/--wall-time "
+            "inside the container."
+        ),
+    )
+
     COMPILE_TIMEOUT_S: float = Field(
         default=180.0,
         ge=5.0,

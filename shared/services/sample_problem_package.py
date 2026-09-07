@@ -17,13 +17,33 @@ case — exactly what a package produced by a real export looks like. The fields
 *both* domains (Arena's ``source`` / ``license`` / ``statement_language``, the
 Contest's ``color`` / ``language_limits``), because the format is their union
 and each importer keeps what its own schema can store.
+
+Both import pages serve it through ``sample_problem_package_response``, which
+builds the ZIP **once per process** and answers every later request from the
+memoized bytes (#157). The logical content never changes while a build is
+running, so there is nothing to invalidate at runtime -- but the bytes are *not*
+deterministic across builds (``zipfile`` stamps each member with the current
+time), so the memo caches the first build's bytes rather than assuming two
+builds would agree. What *can* change is the deployment: a new
+``FORMAT_VERSION`` or a revised example ships under the same URL, so the
+response carries ``Cache-Control: private, no-cache`` and a content-derived
+``ETag`` rather than a long ``max-age``: a browser keeps its copy but
+revalidates every time, and a matching ``If-None-Match`` costs a bodyless
+``304`` while a redeploy is picked up on the next request.
 """
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+import anyio
+from fastapi import Request, Response
+from starlette.staticfiles import NotModifiedResponse, StaticFiles
 
 from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 from shared.services.problem_package.constants import FORMAT_VERSION
@@ -37,6 +57,15 @@ from shared.services.problem_package.model import (
 from shared.services.problem_package.writer import build_package
 
 SAMPLE_PACKAGE_FILENAME: Final = "noca-sample-problem-a-plus-b.zip"
+
+#: Revalidate on every request: the memo is per process, and a redeploy may
+#: change the package under the same URL. ``private`` because the route is
+#: authenticated, even though the package itself is documentation.
+SAMPLE_PACKAGE_CACHE_CONTROL: Final = "private, no-cache"
+
+#: ``StaticFiles`` owns the ``If-None-Match`` comparison; reuse it rather than
+#: reimplementing weak/strong tag matching (the image helper does the same).
+_CONDITIONAL: Final = StaticFiles()
 
 _STATEMENT: Final = """# A + B
 
@@ -109,6 +138,75 @@ def build_sample_problem_package(destination: Path) -> Path:
                 )
             )
         return build_package(_sample_package(tuple(cases)), destination, profile="full")
+
+
+@dataclass(frozen=True, slots=True)
+class SamplePackageBytes:
+    """The memoized sample package: its bytes and the strong ``ETag`` naming them."""
+
+    content: bytes
+    etag: str
+
+
+_memo: SamplePackageBytes | None = None
+_memo_lock = threading.Lock()
+
+
+def cached_sample_problem_package() -> SamplePackageBytes:
+    """Return the sample package, building it on the first call of the process.
+
+    Concurrent first callers serialize on a lock and share one build, so a
+    burst of first hits costs one build rather than one per request. Runs the
+    ZIP writer synchronously; call it through a worker thread from async code.
+
+    Returns:
+        The memoized bytes and their content-derived ``ETag``.
+    """
+    global _memo
+    memo = _memo
+    if memo is not None:
+        return memo
+    with _memo_lock:
+        if _memo is None:
+            with tempfile.TemporaryDirectory(prefix="noca-pkg-sample-memo-") as scratch:
+                content = build_sample_problem_package(Path(scratch) / SAMPLE_PACKAGE_FILENAME).read_bytes()
+            _memo = SamplePackageBytes(
+                content=content,
+                etag=f'"{hashlib.sha256(content).hexdigest()}"',
+            )
+        return _memo
+
+
+def clear_sample_problem_package_memo() -> None:
+    """Forget the memoized package so the next call rebuilds it (tests only)."""
+    global _memo
+    with _memo_lock:
+        _memo = None
+
+
+async def sample_problem_package_response(request: Request) -> Response:
+    """Serve the sample package as an attachment, answering ``304`` when it can.
+
+    Args:
+        request: The incoming request; its ``If-None-Match`` is honoured.
+
+    Returns:
+        The ZIP with ``ETag`` and ``Cache-Control: private, no-cache``, or a
+        bodyless ``304`` carrying the same headers when the client's tag matches.
+    """
+    package = await anyio.to_thread.run_sync(cached_sample_problem_package)
+    response = Response(
+        content=package.content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{SAMPLE_PACKAGE_FILENAME}"',
+            "Cache-Control": SAMPLE_PACKAGE_CACHE_CONTROL,
+            "ETag": package.etag,
+        },
+    )
+    if _CONDITIONAL.is_not_modified(response.headers, request.headers):
+        return NotModifiedResponse(response.headers)
+    return response
 
 
 def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:

@@ -211,3 +211,20 @@
 
 /* `.noca-icon-btn`, `.noca-drag-handle`, `.noca-sortable-*`, and
    `.noca-icon-btn-group` rules moved to shared/static/css/common.css */
+
+/* A team that has not signed in since the contest started. The icon carries the
+   meaning -- it is what a screen reader announces and what survives a projector
+   at the back of the hall -- and the muted name is only reinforcement, which is
+   why the tint is applied to the team cell alone. The rank and the score columns
+   keep full contrast on purpose: a no-show team's zeros are exactly what the
+   staff scanning the board are reading. */
+.noca-team-absent .noca-scoreboard-team-cell {
+    color: var(--bs-secondary-color);
+}
+
+.noca-team-absent-icon {
+    font-size: 1rem;
+    line-height: 1;
+    vertical-align: -0.15em;
+    color: var(--bs-secondary-color);
+}

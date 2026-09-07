@@ -310,6 +310,10 @@ async def test_build_user_export_row_omits_password_and_uses_site_name(
         "fullname": "Team Export",
         "role": "team",
         "site": "Campus A",
+        # Emitted always, not only when restricted: a missing field means "use
+        # the import's default", so omitting the common value would let an
+        # exported roster arrive carrying the destination's checkbox instead.
+        "allow_concurrent_login": "true",
     }
 
 
@@ -332,6 +336,7 @@ async def test_build_user_export_row_includes_email_when_present(
         "username": "user-email-export",
         "fullname": "User Export",
         "role": "user",
+        "allow_concurrent_login": "true",
         "email": "user.export@example.com",
     }
 
@@ -543,6 +548,7 @@ async def test_export_users_route_returns_import_compatible_json_without_passwor
             "username": "team-export",
             "fullname": "Team Export",
             "role": "team",
+            "allow_concurrent_login": "true",
             "email": "team.export@example.com",
             "site": "Campus A",
         }
@@ -667,3 +673,435 @@ def test_edit_user_template_keeps_credentials_editable_when_locked() -> None:
     # The save button is always rendered, relabelled when the contest is locked.
     assert "Save credentials" in edit_template
     assert "Only the email and password can still be updated." in edit_template
+
+
+# ---------------------------------------------------------------------------
+# The single-session flag on the three creation and edit paths (#216)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_created_user_is_permissive_unless_the_caller_says_otherwise(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """The default matches the column's, so a caller that says nothing changes nothing."""
+    site = await _create_site(session, running_contest.id, "Main")
+
+    default_user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_default",
+        fullname="Default",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+    )
+    restricted_user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_restricted",
+        fullname="Restricted",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+
+    assert default_user.allow_concurrent_login is True
+    assert restricted_user.allow_concurrent_login is False
+
+
+@pytest.mark.asyncio
+async def test_updating_a_user_without_naming_the_flag_leaves_it_alone(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """Tri-state rather than a bool: a caller that renders no control must not reset it.
+
+    The credentials-only path after a contest ends is one such caller, and so is
+    every batch row that updates an existing user.
+    """
+    site = await _create_site(session, running_contest.id, "Main")
+    user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_keep",
+        fullname="Keep",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+
+    await update_user(
+        session,
+        running_contest,
+        user,
+        fullname="Renamed",
+        role=RoleEnum.TEAM,
+        site_id=site.id,
+    )
+
+    assert user.allow_concurrent_login is False, "the flag survived an unrelated edit"
+
+
+@pytest.mark.asyncio
+async def test_updating_a_user_can_set_the_flag_both_ways(session: AsyncSession, running_contest, uberadmin) -> None:
+    site = await _create_site(session, running_contest.id, "Main")
+    user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_toggle",
+        fullname="Toggle",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+    )
+
+    await update_user(
+        session,
+        running_contest,
+        user,
+        fullname="Toggle",
+        role=RoleEnum.TEAM,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+    assert user.allow_concurrent_login is False
+
+    await update_user(
+        session,
+        running_contest,
+        user,
+        fullname="Toggle",
+        role=RoleEnum.TEAM,
+        site_id=site.id,
+        allow_concurrent_login=True,
+    )
+    assert user.allow_concurrent_login is True
+
+
+@pytest.mark.asyncio
+async def test_a_batch_import_applies_the_flag_to_creations_only(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """Re-uploading a roster must not reverse a per-team decision made since.
+
+    An import is a roster, not a policy: the rows it creates take the checkbox,
+    and the rows that update an existing user leave that user's flag where the
+    organiser put it.
+    """
+    site = await _create_site(session, running_contest.id, "Main")
+    existing, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_existing",
+        fullname="Existing",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=True,
+    )
+
+    result = await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [
+            {"username": "t_existing", "fullname": "Existing", "role": "team", "password": "", "site": "Main"},
+            {"username": "t_new", "fullname": "New", "role": "team", "password": "", "site": "Main"},
+        ],
+        allow_concurrent_login=False,
+    )
+
+    assert (result.created, result.updated) == (1, 1)
+    created = (
+        await session.execute(select(User).where(User.username == "t_new", User.contest_id == running_contest.id))
+    ).scalar_one()
+    await session.refresh(existing)
+    assert created.allow_concurrent_login is False, "the row the import created takes the setting"
+    assert existing.allow_concurrent_login is True, "the row it updated keeps its own"
+
+
+@pytest.mark.asyncio
+async def test_a_batch_row_may_state_the_flag_and_overrides_the_import_default(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """A value in the file is a statement about that user; the checkbox is only a default."""
+    await _create_site(session, running_contest.id, "Main")
+
+    result = await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [
+            {
+                "username": "t_row_false",
+                "fullname": "A",
+                "role": "team",
+                "password": "",
+                "site": "Main",
+                "allow_concurrent_login": "false",
+            },
+            {
+                "username": "t_row_true",
+                "fullname": "B",
+                "role": "team",
+                "password": "",
+                "site": "Main",
+                "allow_concurrent_login": "true",
+            },
+            {"username": "t_silent", "fullname": "C", "role": "team", "password": "", "site": "Main"},
+        ],
+        allow_concurrent_login=True,
+    )
+
+    assert result.created == 3
+    rows = {
+        user.username: user
+        for user in (await session.execute(select(User).where(User.contest_id == running_contest.id))).scalars()
+    }
+    assert rows["t_row_false"].allow_concurrent_login is False, "the row wins over the import default"
+    assert rows["t_row_true"].allow_concurrent_login is True
+    assert rows["t_silent"].allow_concurrent_login is True, "a silent row takes the default"
+
+
+@pytest.mark.asyncio
+async def test_a_stated_flag_applies_to_a_row_that_updates_an_existing_user(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """Silence leaves the flag alone; a stated value changes it, on update too."""
+    site = await _create_site(session, running_contest.id, "Main")
+    user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_update",
+        fullname="Update",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=True,
+    )
+
+    await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [
+            {
+                "username": "t_update",
+                "fullname": "Update",
+                "role": "team",
+                "password": "",
+                "site": "Main",
+                "allow_concurrent_login": "false",
+            }
+        ],
+        allow_concurrent_login=True,
+    )
+    await session.refresh(user)
+    assert user.allow_concurrent_login is False
+
+    await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [{"username": "t_update", "fullname": "Update", "role": "team", "password": "", "site": "Main"}],
+        allow_concurrent_login=True,
+    )
+    await session.refresh(user)
+    assert user.allow_concurrent_login is False, "a silent row does not reset what the file did not mention"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_flag_fails_its_row_rather_than_being_guessed(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """The two possible misreadings are both bad, so a typo is refused, not resolved.
+
+    Reading it as `false` would silently restrict a roster; reading it as `true`
+    would silently leave it unrestricted. Neither is a guess worth making.
+    """
+    await _create_site(session, running_contest.id, "Main")
+
+    result = await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [
+            {
+                "username": "t_typo",
+                "fullname": "Typo",
+                "role": "team",
+                "password": "",
+                "site": "Main",
+                "allow_concurrent_login": "flase",
+            }
+        ],
+        allow_concurrent_login=True,
+    )
+
+    assert (result.created, result.failed) == (0, 1)
+    assert "allow_concurrent_login" in (result.results[0].detail or "")
+    assert (
+        not (
+            await session.execute(select(User).where(User.username == "t_typo", User.contest_id == running_contest.id))
+        )
+        .scalars()
+        .all()
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_results_say_what_each_row_did_to_the_flag(session: AsyncSession, running_contest, uberadmin) -> None:
+    """`None` on an updated row means "left as the organiser set it", not a value chosen here."""
+    site = await _create_site(session, running_contest.id, "Main")
+    await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_known",
+        fullname="Known",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+    )
+
+    result = await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [
+            {"username": "t_known", "fullname": "Known", "role": "team", "password": "", "site": "Main"},
+            {"username": "t_fresh", "fullname": "Fresh", "role": "team", "password": "", "site": "Main"},
+        ],
+        allow_concurrent_login=False,
+    )
+
+    by_username = {row.username: row for row in result.results}
+    assert by_username["t_known"].allow_concurrent_login is None
+    assert by_username["t_fresh"].allow_concurrent_login is False
+
+
+@pytest.mark.asyncio
+async def test_a_csv_may_carry_the_flag_column(session: AsyncSession) -> None:
+    """The CSV header allowlist is strict, so the column has to be admitted explicitly."""
+    csv_bytes = (
+        b"username,fullname,role,password,email,site,location,allow_concurrent_login\n"
+        b"alice,Alice,team,,alice@example.com,Campus A,Room 3,false\n"
+    )
+
+    rows = parse_batch_upload("demo", "roster.csv", csv_bytes)
+
+    assert rows[0]["allow_concurrent_login"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_an_exported_roster_carries_the_policy_back_in(session: AsyncSession, running_contest, uberadmin) -> None:
+    """Export then import must not quietly change what it moved."""
+    site = await _create_site(session, running_contest.id, "Main")
+    restricted, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_round",
+        fullname="Round Trip",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+    await session.refresh(restricted, ["site"])
+    exported = build_user_export_row(restricted)
+    assert exported["allow_concurrent_login"] == "false"
+
+    # Re-imported into a contest whose upload checkbox says the opposite.
+    await batch_import_users(
+        session,
+        running_contest,
+        uberadmin,
+        [dict(exported)],
+        allow_concurrent_login=True,
+    )
+
+    await session.refresh(restricted)
+    assert restricted.allow_concurrent_login is False
+
+
+@pytest.mark.asyncio
+async def test_lifting_the_flag_for_one_user_releases_that_user_s_binding(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """The per-user edit follows the contest-wide lift, or the rule breaks in miniature.
+
+    An address kept past the rule that recorded it is a trap the next time the
+    rule is applied, whether it was one team or the whole contest that was let
+    go. No epoch bump either way: the policy has stopped applying to them, so
+    there is no session to supersede.
+    """
+    site = await _create_site(session, running_contest.id, "Main")
+    user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_release",
+        fullname="Release",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+    user.locked_ip = "203.0.113.10"
+    await session.flush()
+    epoch_before = user.session_epoch
+
+    await update_user(
+        session,
+        running_contest,
+        user,
+        fullname="Release",
+        role=RoleEnum.TEAM,
+        site_id=site.id,
+        allow_concurrent_login=True,
+    )
+
+    assert user.allow_concurrent_login is True
+    assert user.locked_ip is None
+    assert user.locked_at is None
+    assert user.session_epoch == epoch_before
+
+
+@pytest.mark.asyncio
+async def test_applying_the_flag_to_one_user_leaves_the_binding_to_the_next_request(
+    session: AsyncSession, running_contest, uberadmin
+) -> None:
+    """The other direction binds nothing itself; the user's next request does."""
+    site = await _create_site(session, running_contest.id, "Main")
+    user, _ = await create_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="t_apply",
+        fullname="Apply",
+        role=RoleEnum.TEAM,
+        password=None,
+        site_id=site.id,
+    )
+
+    await update_user(
+        session,
+        running_contest,
+        user,
+        fullname="Apply",
+        role=RoleEnum.TEAM,
+        site_id=site.id,
+        allow_concurrent_login=False,
+    )
+
+    assert user.allow_concurrent_login is False
+    assert user.locked_ip is None

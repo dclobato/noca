@@ -222,6 +222,14 @@ so those three tokens — and only those three — are re-pitched lighter for th
 dark theme. Components name the state token and never branch on theme
 themselves.
 
+A surface that *is* in one of those states — a card on the team status board —
+takes its wash from the matching `--noca-state-*-tint` token rather than mixing
+the state colour itself. The tints are the raw semantic hue over the clearest
+surface, thin in the light theme and roughly twice as strong in the dark one,
+because the lightened band colours mixed thin over near-black collapse red and
+amber into one grey. A component that needs a state wash names the tint; it
+does not mix its own.
+
 ### Presentation
 
 One deep field exists for the public presentation surfaces, and only for them.

@@ -182,6 +182,43 @@ class Settings(BaseSettings):
         validation_alias="NOCA_WEB_TASK_REAPER_INTERVAL_SECONDS",
         description="Polling interval for the task reaper in seconds (3 to 30 minutes).",
     )
+    PRESENCE_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_PRESENCE_ENABLED",
+        description=(
+            "Track which contest teams are currently active, so the scoreboard's absence marker means "
+            "'no sign of life' rather than 'has not signed in since the start'. Disabling it falls back to "
+            "the sign-in window alone, which marks a team that logged in before the contest opened and never "
+            "signed in again."
+        ),
+    )
+    PRESENCE_TTL_SECONDS: int = Field(
+        default=180,
+        ge=60,
+        le=900,
+        validation_alias="NOCA_WEB_PRESENCE_TTL_SECONDS",
+        description=(
+            "Seconds a team stays 'present' after its last authenticated page activity. The floor is the "
+            "contest clock, which every contest page re-fetches every 60 s, so the default leaves room for "
+            "two missed polls before a team that is still there is reported absent."
+        ),
+    )
+    ENABLE_SESSION_LOCK_REAPER: bool = Field(
+        default=False,
+        validation_alias="NOCA_WEB_ENABLE_SESSION_LOCK_REAPER",
+        description=(
+            "Whether the in-process session-lock reaper background task should run. Only needed by a "
+            "deployment that re-runs a contest by moving its start time; a re-run staged as a new contest "
+            "carries no bindings to release."
+        ),
+    )
+    SESSION_LOCK_REAPER_INTERVAL_SECONDS: int = Field(
+        default=1800,
+        ge=180,
+        le=1800,
+        validation_alias="NOCA_WEB_SESSION_LOCK_REAPER_INTERVAL_SECONDS",
+        description="Polling interval for the session-lock reaper in seconds (3 to 30 minutes).",
+    )
     SECURITY_EVENTS_RETENTION_DAYS: int = Field(
         default=180,
         ge=0,
@@ -393,6 +430,78 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
         description="Fixed-window length in seconds for per-actor problem package downloads.",
+    )
+
+    ADMIN_EXPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_ENABLED",
+        description="Enable the per-actor budget on contest-admin exports (package, Animeitor, timeline, users).",
+    )
+    ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=20,
+        ge=1,
+        validation_alias="NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS",
+        description="Contest-admin export downloads accepted per actor in each fixed window; the next gets 429.",
+    )
+    ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-actor contest-admin exports.",
+    )
+
+    CONTEST_REPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_ENABLED",
+        description="Enable the per-actor budget on the contest reports page.",
+    )
+    CONTEST_REPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_MAX_REQUESTS",
+        description="Contest reports page loads accepted per actor in each fixed window; the next gets 429.",
+    )
+    CONTEST_REPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-actor contest reports page loads.",
+    )
+
+    TEAM_DOWNLOAD_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_ENABLED",
+        description="Enable the per-actor budget on the team's own-submissions ZIP download.",
+    )
+    TEAM_DOWNLOAD_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=5,
+        ge=1,
+        validation_alias="NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_MAX_REQUESTS",
+        description="Own-submissions ZIP downloads accepted per team in each fixed window; the next gets 429.",
+    )
+    TEAM_DOWNLOAD_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-team submissions downloads.",
+    )
+
+    UBERADMIN_EXPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_ENABLED",
+        description="Enable the per-actor budget on the UberAdmin security-events CSV export.",
+    )
+    UBERADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS",
+        description="Security-events CSV downloads accepted per UberAdmin in each fixed window; the next gets 429.",
+    )
+    UBERADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-UberAdmin security-events exports.",
     )
 
     HEALTH_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
@@ -711,8 +820,11 @@ class Settings(BaseSettings):
     def session_keepalive_seconds(self) -> int:
         """Effective browser heartbeat cadence, in seconds.
 
-        Web has no presence feature, so the keepalive is all this timer does and
-        the cadence is derived from the token lifetime rather than configured.
+        Rotating the cookie is all this timer does, so the cadence is derived
+        from the token lifetime rather than configured. Presence does not ride
+        it: at the default lifetime this fires every 15 minutes, far too coarse
+        to tell a seat apart from an empty one, so presence rides the contest
+        clock instead (a `GET` every 60 s from every contest page).
         """
         return derived_keepalive_seconds(self.JWT_EXPIRE_SECONDS)
 

@@ -688,4 +688,50 @@ function findByTag(node, tag) {
   assert.strictEqual(sheet.textContent.indexOf("nth-child(6)"), -1, "stale columns are dropped");
 })();
 
+// ── Team cell: the never-signed-in marker ───────────────────────────────────
+(function testAbsentTeamMarker() {
+  const absentStanding = {
+    rank: 1,
+    team_id: "t9",
+    team_name: "team09",
+    team_fullname: "Team Nine",
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+    absent: true,
+  };
+  const row = render.buildRow(doc, [], absentStanding);
+  const th = row.childNodes[1];
+  assert.strictEqual(th.getAttribute("data-team-absent"), "");
+  const icons = findByTag(th, "i");
+  assert.strictEqual(icons.length, 1, "exactly one marker glyph");
+  assert.strictEqual(icons[0].textContent, "person_off");
+  assert.strictEqual(icons[0].getAttribute("role"), "img");
+  assert.ok(icons[0].getAttribute("aria-label").length > 0, "the glyph is announced, not silent");
+  // Inside the trigger, so it sits on the name line rather than a line of its own.
+  const button = findByTag(th, "button")[0];
+  assert.ok(button.childNodes.indexOf(icons[0]) !== -1);
+
+  // A team that signs in loses both the attribute and the glyph on the next
+  // refresh: the live board reconciles rows in place, so a stale marker would
+  // otherwise survive for the life of the page.
+  render.updateRow(doc, row, [], Object.assign({}, absentStanding, { absent: false }), {});
+  assert.strictEqual(th.getAttribute("data-team-absent"), null);
+  assert.strictEqual(findByTag(th, "i").length, 0);
+
+  // A payload with no such field at all -- the ceremony's projection -- marks
+  // nobody rather than throwing.
+  const plain = render.buildRow(doc, [], {
+    rank: 2,
+    team_id: "t10",
+    team_name: "team10",
+    team_fullname: "Team Ten",
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+  });
+  assert.strictEqual(plain.childNodes[1].getAttribute("data-team-absent"), null);
+  assert.strictEqual(findByTag(plain.childNodes[1], "i").length, 0);
+})();
+
 console.log("animator-render DOM contract: all assertions passed");

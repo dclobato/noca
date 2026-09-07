@@ -1133,7 +1133,7 @@ student's side is the judge's persisted `stdout_excerpt` (at most
 `EXPECTED_PREFIX_BYTES` (16 KB) prefix `read_testcase_output_prefix` returns. The
 excerpt cap therefore also caps how much of a secret answer any sequence of
 wrong submissions can reveal -- see the accepted trade-off in
-`docs/ARCHITECTURE.md`.
+`docs/ARCHITECTURE_ARENA.md`.
 
 **Constants:** `OUTPUT_MISMATCH_VERDICTS` (`WA`, `PE`: the only verdicts for
 which a comparison is built, so no expected-output read happens for TLE, RE,
@@ -1722,6 +1722,24 @@ the shared `shared.services.sse_connection_limit` lease.
 |--------|-------------|
 | `sse_slot_policy()` | Rebuilt from `settings` on every call (`SSE_LIMIT_ENABLED`, `SSE_MAX_PER_IP`, `SSE_MAX_PER_USER`, `SSE_CONNECTION_TTL_SECONDS`, `SSE_TRUSTED_CIDRS`). |
 | `enforce_sse_connection_caps(request, current_user)` | Yield dependency on `GET /live/events` and `GET /user/submissions/status/events`. Takes a per-IP slot and, when `get_streaming_arena_user` resolves a user, a per-user slot keyed on `ArenaUser.id` (an anonymous request holds only the IP slot -- the app-wide gate decides who may connect). Teardown runs on client disconnect and releases both. Refusal is `429` + `Retry-After: 5`; a Valkey outage admits the stream. |
+
+### `export_rate_limit.py`
+
+Per-user fixed-window budgets for Arena's heavy admin exports and teacher
+reports (#157), built with `shared.services.request_rate_limit.make_user_rate_limit_dependency`
+and keyed through `user_read_rate_limit.arena_user_key`, the one account key every
+Arena per-user limiter shares. One bucket per surface, deliberately, so a teacher's
+report browsing and an administrator's downloads never share a count.
+
+| Symbol | Description |
+|--------|-------------|
+| `arena_admin_export_rate_limit` | Bucket `arena:admin-export` (`NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min) on `GET /admin/problems/{id}/export` and `GET /admin/dashboard/security-events.csv`. |
+| `arena_teacher_report_rate_limit` | Bucket `arena:teacher-report` (`NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_*`, default 60 per 10 min) on the four `/classes/{id}/problem-sets/...` report routes. |
+| `admin_export_policy()` / `teacher_report_policy()` | Rebuilt from `settings` per request, so a knob change (and a test's monkeypatch) takes effect without rebuilding the dependency. |
+| `ADMIN_EXPORT_LIMITER` / `TEACHER_REPORT_LIMITER` | Process-local fallbacks used when Valkey is unavailable; both are reset around every test by `tests/arena/conftest.py`. |
+
+Charged on every request, including one the route's own guard then refuses. These
+bound *frequency*, not one request's cost.
 
 ### `auth.py`
 

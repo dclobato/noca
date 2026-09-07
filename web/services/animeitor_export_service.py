@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,9 +24,9 @@ separator) are confined here.
 
 from __future__ import annotations
 
-import io
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import anyio
 from sqlalchemy import func
@@ -174,16 +174,14 @@ def serialize_runs_file(runs: list[AnimeitorRun]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_zip_bytes(contest_content: str, runs_content: str, elapsed: int) -> bytes:
-    """Assemble Animeitor files into a ZIP archive."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+def _write_zip(destination: Path, contest_content: str, runs_content: str, elapsed: int) -> None:
+    """Write Animeitor files into a ZIP archive."""
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("contest", contest_content)
         zf.writestr("runs", runs_content)
         zf.writestr("time", str(elapsed))
         zf.writestr("version", "1.0")
         zf.writestr("icpc", "")
-    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -197,18 +195,19 @@ def _attachment_safe(value: str) -> str:
     return safe or "download"
 
 
-async def build_animeitor_zip(
+async def write_animeitor_zip(
     session: AsyncSession,
     contest: Contest,
-) -> tuple[str, bytes]:
-    """Build the Animeitor-compatible ZIP for a contest.
+    destination: Path,
+) -> str:
+    """Write the Animeitor-compatible ZIP for a contest.
 
     Args:
         session: Active async SQLAlchemy session.
         contest: The contest to export.
 
     Returns:
-        A ``(filename, zip_bytes)`` tuple.
+        The attachment filename.
 
     Raises:
         AnimeitorExportError: If the contest has no enrolled teams or no
@@ -316,6 +315,6 @@ async def build_animeitor_zip(
     )
     runs_content = serialize_runs_file(animeitor_runs)
 
-    zip_bytes = await anyio.to_thread.run_sync(_build_zip_bytes, contest_content, runs_content, elapsed)
+    await anyio.to_thread.run_sync(_write_zip, destination, contest_content, runs_content, elapsed)
     filename = f"animeitor-{_attachment_safe(contest.login_slug)}.zip"
-    return filename, zip_bytes
+    return filename

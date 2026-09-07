@@ -131,7 +131,7 @@
                             <tr>
                                 <th>Language</th>
                                 <th>Reps</th>
-                                <th>Time (ms)</th>
+                                <th>Total time (ms)</th>
                                 <th>Memory (KB)</th>
                                 <th>PIDs</th>
                                 <th>Output (bytes)</th>
@@ -189,6 +189,12 @@
                                                 {% else %}
                                                     <div>
                                                         <span class="badge bg-secondary-subtle text-secondary-emphasis">manual</span>
+                                                    </div>
+                                                {% endif %}
+                                                {% if lang_limit.repetitions and lang_limit.repetitions > 1 %}
+                                                    <div class="small text-muted">
+                                                        ≈ {{ lang_limit.time_limit_ms // lang_limit.repetitions }} ms per run
+                                                        across {{ lang_limit.repetitions }} reps
                                                     </div>
                                                 {% endif %}
                                             {% endif %}
@@ -266,7 +272,12 @@
                     </table>
                 </div>
                 <div class="px-3 pb-2 pt-1">
-                    <small class="text-muted">Leave all fields blank for a language to use the problem-level fallback limits above.</small>
+                    <small class="text-muted d-block">
+                        <strong>Total time</strong> is the budget shared by <em>all</em> repetitions of one test
+                        case, not the budget for a single execution. A submission is TLE as soon as its runs add
+                        up past it, so with 10 reps a 150 ms limit allows the program about 15 ms per run.
+                    </small>
+                    <small class="text-muted d-block">Leave all fields blank for a language to use the problem-level fallback limits above.</small>
                 </div>
             </div>
         </div>

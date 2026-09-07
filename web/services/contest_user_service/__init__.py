@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,8 +15,14 @@ from .queries import (
     get_contest_user_groups,
     get_user_by_username_in_contest,
     get_user_in_contest,
+    group_users_by_site,
     list_contest_sites_for_form,
     list_users_for_export,
+)
+from .session_binding import (
+    count_bound_teams,
+    count_restricted_teams,
+    set_contest_team_session_policy,
 )
 from .validation import (
     build_user_export_row,
@@ -46,7 +52,9 @@ __all__ = [
     "UserImportResult",
     "batch_import_users",
     "build_user_export_row",
+    "count_bound_teams",
     "count_contest_teams",
+    "count_restricted_teams",
     "count_teams_by_site",
     "create_user",
     "ensure_contest_user_add_or_edit_allowed",
@@ -57,6 +65,7 @@ __all__ = [
     "get_contest_user_groups",
     "get_user_by_username_in_contest",
     "get_user_in_contest",
+    "group_users_by_site",
     "list_contest_sites_for_form",
     "list_users_for_export",
     "normalize_batch_users_payload",
@@ -66,6 +75,7 @@ __all__ = [
     "remove_user",
     "resolve_or_create_import_site",
     "resolve_site_for_user",
+    "set_contest_team_session_policy",
     "role_requires_site",
     "update_user",
     "update_user_credentials",

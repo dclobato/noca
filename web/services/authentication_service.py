@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,8 +19,10 @@ from shared.enumerations import RoleEnum
 from shared.services.geolocation import GeolocationIP
 from shared.session_keepalive import refresh_window_seconds
 from web.config import settings
+from web.models.contest import Contest
 from web.models.users import Login_History, UberAdmin, User
 from web.services.contest_user_service import normalize_username
+from web.services.session_policy import SESSION_EPOCH_CLAIM, authorize_login
 
 
 class AuthAction(StrEnum):
@@ -285,15 +287,25 @@ class AuthenticationService:
 
         Returns:
             A signed JWT string for the authenticated contest user. The token
-            includes the user's role as audience and the contest ID in `extra_data`.
+            includes the user's role as audience, and the contest ID and the
+            epoch this login committed in `extra_data`.
 
         Raises:
-            ValueError: If the user does not exist in the given contest or the
-                password is invalid.
+            ValueError: If the user does not exist in the given contest, the
+                contest itself does not exist, or the password is invalid.
+            SessionIpLockedError: If the single-session policy governs this user
+                and their sessions are bound to a different client address. The
+                password was already proven, so this is deliberately not a
+                credentials failure: the caller must not count it against the
+                login throttle.
 
         Notes:
-            On success, this method writes a `Login_History` row and commits the
-            session before returning the token.
+            Every login advances the user's `session_epoch`, superseding every
+            other session they hold; the policy decides whether that is
+            *enforced* (see `web.services.session_policy`). The bump and any IP
+            binding are written into the caller's transaction and committed here
+            together with the `Login_History` row, so a login that fails on its
+            way out supersedes nothing.
         """
         username = normalize_username(username)
         result = await session.execute(select(User).where(User.username == username, User.contest_id == contest_id))
@@ -302,10 +314,15 @@ class AuthenticationService:
         if user is None or not check_password_hash(user.password_hash, password):
             raise ValueError("invalid_credentials")
 
+        contest = await session.get(Contest, contest_id)
+        if contest is None:
+            raise ValueError("invalid_credentials")
+        outcome = await authorize_login(session, user, contest, client_ip=ip_address)
+
         token = self.create_access_token(
             sub=user.username,
             audience=user.role.value,
-            extra_data={"contest_id": contest_id},
+            extra_data={"contest_id": contest_id, SESSION_EPOCH_CLAIM: outcome.session_epoch},
             session_started_at=self._now_epoch_seconds(),
         )
 

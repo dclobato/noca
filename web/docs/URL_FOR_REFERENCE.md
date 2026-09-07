@@ -150,12 +150,13 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 | `POST /c/{slug}/tasks/{task_id}/release` | `contest_tasks_release` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
 | `GET /c/{slug}/tasks/{task_id}/source` | `contest_tasks_source` | `slug=`, `task_id=` | `contest_tasks_source.py` |
 | `GET /c/{slug}/tasks/{task_id}/printout` | `contest_tasks_printout` | `slug=`, `task_id=` | `contest_tasks_source.py` |
-| `GET /c/{slug}/reports/` | `contest_reports` | `slug=`, `site=` | `contest_reports.py` |
+| `GET /c/{slug}/reports/` | `contest_reports` | `slug=`, `site=` | `contest_reports.py` (generation-keyed 10-minute aggregate cache) |
+| `GET /c/{slug}/team-status` | `contest_team_status` | `slug=`, `site=`, `show=` | `contest_team_status.py` |
 | `GET /c/{slug}/solution-tests/` | `contest_solution_tests` | `slug=` | `contest_solution_tests.py` |
 | `POST /c/{slug}/solution-tests/submit` | `contest_solution_tests_submit` | `slug=` | `contest_solution_tests.py` |
 | `GET /c/{slug}/solution-tests/{run_id}` | `contest_solution_test_detail` | `slug=`, `run_id=` | `contest_solution_tests.py` |
 | `GET /c/{slug}/solution-tests/{run_id}/status` | `contest_solution_test_status_partial` | `slug=`, `run_id=` | `contest_solution_tests.py` |
-| `GET /c/{slug}/submissions/download-all` | `team_submissions_download` | `slug=` | `contest_submissions.py` |
+| `GET /c/{slug}/submissions/download-all` | `team_submissions_download` | `slug=` | `contest_submissions.py` (temporary-file stream) |
 | `GET /c/{slug}/submissions/{submission_id}/review` | `submission_review` | `slug=`, `submission_id=` | `contest_submissions.py` |
 | `POST /c/{slug}/submissions/{submission_id}/acquire-review` | `submission_acquire_review` | `slug=`, `submission_id=` | `contest_submissions_review.py` |
 | `POST /c/{slug}/submissions/{submission_id}/release-review` | `submission_release_review` | `slug=`, `submission_id=` | `contest_submissions_review.py` |
@@ -185,7 +186,7 @@ credentials.
 | `POST /c/{slug}/admin/metadata` | `edit_metadata_submit` | `slug=` | `contest_admin_metadata.py` |
 | `GET /c/{slug}/admin/users` | `manage_users` | `slug=` | `contest_admin_reports.py` |
 | `GET /c/{slug}/admin/import_export` | `import_export` | `slug=` | `contest_admin_export.py` |
-| `GET /c/{slug}/admin/export-animeitor` | `export_animeitor` | `slug=` | `contest_admin_export.py` |
+| `GET /c/{slug}/admin/export-animeitor` | `export_animeitor` | `slug=` | `contest_admin_export.py` (temporary-file stream) |
 | `GET /c/{slug}/admin/export-events` | `export_contest_timeline` | `slug=` | `contest_admin_export.py` |
 | `GET /c/{slug}/admin/users-per-site-report` | `users_per_site_report` | `slug=` | `contest_admin_export.py` |
 | `POST /c/{slug}/admin/start-now` | `contest_start_now` | `slug=` | `contest_admin.py` |

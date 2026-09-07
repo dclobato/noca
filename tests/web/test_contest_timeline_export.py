@@ -283,6 +283,8 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         is_contest_public=False,
         created_at=running_contest.start_time + timedelta(minutes=6),
         created_timestamp_seconds=6 * 60,
+        acquired_at=running_contest.start_time + timedelta(minutes=6, seconds=30),
+        acquired_timestamp_seconds=6 * 60 + 30,
         answered_at=running_contest.start_time + timedelta(minutes=7),
         answered_timestamp_seconds=7 * 60,
     )
@@ -293,6 +295,7 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         question="Announcement",
         answer="Clarified sample formatting.",
         is_contest_public=True,
+        is_announcement=True,
         created_at=running_contest.start_time + timedelta(minutes=11),
         created_timestamp_seconds=11 * 60,
         answered_at=running_contest.start_time + timedelta(minutes=11),
@@ -305,7 +308,16 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         created_at=running_contest.start_time + timedelta(minutes=9),
         created_timestamp_seconds=9 * 60,
     )
-    session.add_all([clarification, announcement, general_clarification])
+    # A team is free to type the word into its own question; only `is_announcement`
+    # decides how the row is rendered.
+    impostor_clarification = Clarification(
+        team_id=team_user.id,
+        problem_id=problem_b.id,
+        question="Announcement",
+        created_at=running_contest.start_time + timedelta(minutes=10),
+        created_timestamp_seconds=10 * 60,
+    )
+    session.add_all([clarification, announcement, general_clarification, impostor_clarification])
 
     balloon_task = Task(
         team_id=team_user.id,
@@ -317,6 +329,8 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         source_size_bytes=0,
         created_at=running_contest.start_time + timedelta(minutes=16),
         created_timestamp_seconds=16 * 60,
+        acquired_at=running_contest.start_time + timedelta(minutes=16, seconds=30),
+        acquired_timestamp_seconds=16 * 60 + 30,
         finished_at=running_contest.start_time + timedelta(minutes=17),
         finished_timestamp_seconds=17 * 60,
     )
@@ -330,6 +344,8 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         source_size_bytes=10,
         created_at=running_contest.start_time + timedelta(minutes=13),
         created_timestamp_seconds=13 * 60,
+        acquired_at=running_contest.start_time + timedelta(minutes=13, seconds=30),
+        acquired_timestamp_seconds=13 * 60 + 30,
         finished_at=running_contest.start_time + timedelta(minutes=14),
         finished_timestamp_seconds=14 * 60,
     )
@@ -343,10 +359,28 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         source_size_bytes=0,
         created_at=running_contest.start_time + timedelta(minutes=19),
         created_timestamp_seconds=19 * 60,
+        acquired_at=running_contest.start_time + timedelta(minutes=19, seconds=30),
+        acquired_timestamp_seconds=19 * 60 + 30,
         finished_at=running_contest.start_time + timedelta(minutes=20),
         finished_timestamp_seconds=20 * 60,
     )
-    session.add_all([balloon_task, print_task, sos_task])
+    # Closed by the end-of-contest reaper: the reaper clears the acquisition, so
+    # this task must contribute an "issued" and a "concluded" row but no
+    # "acquired" one.
+    reaped_task = Task(
+        team_id=team_user.id,
+        staff_id=staff_user.id,
+        type=TaskType.BALLOON,
+        problem_id=problem_a.id,
+        source_code="",
+        source_hash=hashlib.sha256(b"").hexdigest(),
+        source_size_bytes=0,
+        created_at=running_contest.start_time + timedelta(minutes=21),
+        created_timestamp_seconds=21 * 60,
+        finished_at=running_contest.start_time + timedelta(minutes=22),
+        finished_timestamp_seconds=22 * 60,
+    )
+    session.add_all([balloon_task, print_task, sos_task, reaped_task])
     await session.commit()
 
     filename, content = await build_contest_timeline_report(session, running_contest)
@@ -357,16 +391,28 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
     assert "Autojudge starts" in content
     assert "Autojudge ends" in content
     assert "Judge publishes an announcement" in content
+    # The announcement is the only one: the team question reading "Announcement"
+    # renders as a clarification asked by the team.
+    assert content.count("Judge publishes an announcement") == 1
+    assert "Team asks for a clarification about problem B" in content
     assert "Team asks for a clarification" in content
     assert "a clarification about the contest in" in content
+    assert "Judge acquires a clarification" in content
     assert "Judge answers a clarification" in content
-    assert "Team issues a print task" in content
-    assert "Staff handles printout to a team" in content
-    assert "Team issues a SOS task" in content
-    assert "Staff answers a SOS task" in content
-    assert "Balloon task is issued" in content
-    assert "Team A (team_a) gets a balloon" in content
+    assert "Print task issued" in content
+    assert "Print task acquired" in content
+    assert "Print task concluded" in content
+    assert "SOS task issued" in content
+    assert "SOS task acquired" in content
+    assert "SOS task concluded" in content
+    assert "Balloon task issued" in content
+    assert "Balloon task concluded" in content
     assert "Submission is requeued for autojudge" in content
+    # Only the acquired balloon task reports a pickup; the reaper-closed one does not.
+    assert content.count("Balloon task acquired") == 1
+    assert f"submission {submission_a.id[:8]}" in content
+    assert f"submission {submission_b.id[:8]}" in content
+    assert "not historically recoverable" not in content
     assert "Scoreboard stops updating" in content
     assert "Answers stop being issued" in content
     assert "Contest ends" in content

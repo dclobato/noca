@@ -14,14 +14,21 @@ from typing import Any
 import pytest
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import web.dependencies as web_dependencies
 from web.dependencies import enforce_web_default_auth
 
 
-def _build_app() -> FastAPI:
-    """Build a small app with the production Web default auth dependency."""
+def _build_app(session: AsyncSession) -> FastAPI:
+    """Build a small app with the production Web default auth dependency.
+
+    The dependency takes the request's database session, because the
+    single-session policy it applies is decided against `users` rows, so the app
+    needs a real session factory even for the paths that never reach it.
+    """
     app = FastAPI(dependencies=[Depends(enforce_web_default_auth)])
+    app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)
 
     @app.get("/login")
     async def _login() -> dict[str, str]:
@@ -59,9 +66,9 @@ def _build_app() -> FastAPI:
 
 
 @pytest.mark.asyncio
-async def test_public_web_allowlist_does_not_require_auth() -> None:
+async def test_public_web_allowlist_does_not_require_auth(session: AsyncSession) -> None:
     """Public Web auth routes remain reachable without a session."""
-    app = _build_app()
+    app = _build_app(session)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/login")
@@ -78,9 +85,9 @@ async def test_public_web_allowlist_does_not_require_auth() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_web_auth_redirects_private_routes() -> None:
+async def test_default_web_auth_redirects_private_routes(session: AsyncSession) -> None:
     """Unlisted Web routes redirect anonymous users to the right login page."""
-    app = _build_app()
+    app = _build_app(session)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/private", follow_redirects=False)
@@ -93,14 +100,16 @@ async def test_default_web_auth_redirects_private_routes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_web_auth_allows_valid_cached_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_default_web_auth_allows_valid_cached_token(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A validated token lets the request reach the route handler."""
 
     def _valid_token(_request: Any) -> SimpleNamespace:
         return SimpleNamespace(valid=True)
 
     monkeypatch.setattr(web_dependencies, "get_validated_auth_token", _valid_token)
-    app = _build_app()
+    app = _build_app(session)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/private")
@@ -110,9 +119,9 @@ async def test_default_web_auth_allows_valid_cached_token(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_contest_auth_redirect_carries_the_page_to_return_to() -> None:
+async def test_contest_auth_redirect_carries_the_page_to_return_to(session: AsyncSession) -> None:
     """A bounced GET names itself; a bounced POST names the page it came from."""
-    app = _build_app()
+    app = _build_app(session)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         get_response = await client.get("/c/demo/private?tab=statement")

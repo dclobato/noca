@@ -1,12 +1,11 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 from __future__ import annotations
 
-import io
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -96,14 +95,15 @@ def _accepted_submission(entries: list[_ExportSubmission]) -> tuple[_ExportSubmi
     return None
 
 
-async def build_team_submissions_zip(
+async def write_team_submissions_zip(
     session: AsyncSession,
     contest: Contest,
     team: User,
     *,
     statement_dir: Path,
-) -> tuple[str, bytes]:
-    """Build the team submissions ZIP archive for a finished contest."""
+    destination: Path,
+) -> str:
+    """Write the team submissions ZIP archive for a finished contest."""
     problems = list(
         (
             await session.execute(
@@ -118,12 +118,13 @@ async def build_team_submissions_zip(
 
     zip_filename = f"submissions-{_attachment_safe(contest.login_slug)}-{_attachment_safe(team.username)}.zip"
     archive_problems = _prepare_team_submission_archive(problems, submissions)
-    zip_bytes = await anyio.to_thread.run_sync(
-        _build_team_submissions_zip_bytes,
+    await anyio.to_thread.run_sync(
+        _write_team_submissions_zip,
         archive_problems,
         statement_dir,
+        destination,
     )
-    return zip_filename, zip_bytes
+    return zip_filename
 
 
 def _prepare_team_submission_archive(
@@ -161,10 +162,13 @@ def _prepare_team_submission_archive(
     return archive_problems
 
 
-def _build_team_submissions_zip_bytes(archive_problems: list[_ExportProblemArchive], statement_dir: Path) -> bytes:
+def _write_team_submissions_zip(
+    archive_problems: list[_ExportProblemArchive],
+    statement_dir: Path,
+    destination: Path,
+) -> None:
     """Assemble the team submissions ZIP archive from plain export data."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for problem in archive_problems:
             folder_name = problem.folder_name
             zf.writestr(f"{folder_name}/", b"")
@@ -173,7 +177,7 @@ def _build_team_submissions_zip_bytes(archive_problems: list[_ExportProblemArchi
             if statement_path is None:
                 raise ValueError("Statement file is missing — cannot export.")
             statement_name = "statement.md" if statement_path.suffix == ".md" else "statement.pdf"
-            zf.writestr(f"{folder_name}/{statement_name}", statement_path.read_bytes())
+            zf.write(statement_path, f"{folder_name}/{statement_name}")
 
             problem_entries = problem.entries
             if not problem_entries:
@@ -193,8 +197,6 @@ def _build_team_submissions_zip_bytes(archive_problems: list[_ExportProblemArchi
                     f"{folder_name}/Other/{display_minutes:04d}-{entry.verdict.value}-{entry.source_filename}",
                     entry.source_code.encode("utf-8"),
                 )
-
-    return buffer.getvalue()
 
 
 SubmissionSort = Literal["time_asc", "time_desc", "problem_asc", "problem_desc"]

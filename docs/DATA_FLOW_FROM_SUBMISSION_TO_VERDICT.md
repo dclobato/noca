@@ -61,10 +61,14 @@ Judge worker
     │  7. Load test-case bytes from the shared filesystem and IDs from PostgreSQL
     │  8. Acquire a warm or on-demand run container for the language
     │  9. For each test case, including configured repetitions:
+    │     (the time limit is one budget shared by all repetitions of the case,
+    │      re-sliced so each repetition runs with what is left, TLE once spent)
     │     - inject input and artifact with put_archive()
     │     - reset isolate box state
     │     - run the program through isolate inside the container
     │     - read isolate meta as the authoritative time and memory result
+    │     - a fired outer watchdog kills the container; the next case's 409 is
+    │       recoverable, so the job recycles the container and retries that case
     │     - enforce the NOCA output cap (OLE precedes RE on fsize hits)
     │     - compare output
     │     - INSERT submission_test_results row under the attempt claim

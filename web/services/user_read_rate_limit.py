@@ -70,15 +70,29 @@ def user_read_policy() -> RateLimitPolicy:
 
 
 def web_actor_key(request: Request) -> str | None:
-    """Return the requesting actor's id, or ``None`` when the request has no session.
+    """Return the requesting actor's key, or ``None`` when the request has no session.
 
     Shared with the other per-actor Web limiters so every one of them counts
     the same identity: an actor cannot shed a budget by changing address, and
     two budgets cannot disagree about who is spending them.
+
+    The key is ``{audience}:{contest_id}:{login}`` for a contest actor and
+    ``{audience}:{login}`` for an UberAdmin, never the bare login. A contest
+    login is unique only per contest (``uq_users_contest_username``), and an
+    UberAdmin ``admin`` is not the contest user ``admin``; keyed on the subject
+    alone, three different people would spend one budget -- the same reasoning
+    that scopes the login lockout key to its contest.
     """
     validation = get_validated_auth_token(request)
     subject = getattr(validation, "sub", None) if validation is not None else None
-    return str(subject) if subject else None
+    if not subject:
+        return None
+    audience = getattr(validation, "aud", None) or "unknown"
+    extra = getattr(validation, "extra_data", None) or {}
+    contest_id = extra.get("contest_id")
+    if contest_id:
+        return f"{audience}:{contest_id}:{subject}"
+    return f"{audience}:{subject}"
 
 
 web_user_read_rate_limit: Callable[[Request], Awaitable[None]] = make_user_rate_limit_dependency(

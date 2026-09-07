@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.export_rate_limit import arena_teacher_report_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.routes.class_route_guards import (
     html,
@@ -43,6 +44,7 @@ router = APIRouter(tags=["arena-classes"])
     "/classes/{class_id}/problem-sets/{set_id}/report",
     response_class=HTMLResponse,
     name="arena_class_problem_set_report",
+    dependencies=[Depends(arena_teacher_report_rate_limit)],
 )
 async def class_problem_set_report(
     request: Request,
@@ -102,6 +104,7 @@ async def class_problem_set_report(
     "/classes/{class_id}/problem-sets/{set_id}/report/student/{user_id}",
     response_class=HTMLResponse,
     name="arena_class_problem_set_report_student",
+    dependencies=[Depends(arena_teacher_report_rate_limit)],
 )
 async def class_problem_set_report_student(
     request: Request,

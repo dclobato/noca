@@ -25,7 +25,7 @@
                         data-action="{{ request.url_for('problem_limit_change_batch_rejudge_all', slug=contest.login_slug, problem_id=problem.id, batch_id=batch.id) }}"
                         data-scope="every pending submission"
                         {% if total_pending == 0 %}disabled{% endif %}>
-                    {{ render_icon(icon="refresh-cw", classes="me-1") }}Rejudge All Pending
+                    {{ render_icon(icon="replay", classes="me-1") }}Rejudge All Pending
                 </button>
             </div>
         </div>
@@ -134,7 +134,7 @@
             <div class="modal-content">
                 <div class="modal-header bg-danger text-white">
                     <h5 class="modal-title" id="limit-rejudge-modal-label">
-                        {{ render_icon(icon="refresh-cw", classes="me-1") }} Queue rejudges
+                        {{ render_icon(icon="replay", classes="me-1") }} Queue rejudges
                     </h5>
                     <button type="button"
                             class="btn-close btn-close-white"

@@ -1,9 +1,9 @@
 /*
- * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  NOCA -- Next Online Contest Administrator
+ *  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
 "use strict";
@@ -62,6 +62,14 @@ function boot(fetchImpl) {
   const intervals = [];
   let now = T0;
   let calls = 0;
+  const events = [];
+
+  class CustomEvent {
+    constructor(type, options) {
+      this.type = type;
+      this.detail = options.detail;
+    }
+  }
 
   const ctx = {
     window: {},
@@ -71,7 +79,11 @@ function boot(fetchImpl) {
         if (id === "contest-phase") return phase;
         return null;
       },
+      dispatchEvent(event) {
+        events.push(event);
+      },
     },
+    CustomEvent,
     fetch: () => fetchImpl(calls++),
     setInterval: (fn, ms) => intervals.push({ fn, ms }),
     Date: { now: () => now },
@@ -88,6 +100,7 @@ function boot(fetchImpl) {
   return {
     countdown,
     phase,
+    events,
     intervals,
     setNow(value) { now = value; },
     /** Fire the one-second repaint interval, as the browser would. */
@@ -144,6 +157,10 @@ async function main() {
     assert.equal(app.countdown.textContent, "4h 00min until end");
     assert.equal(app.countdown.dataset.urgency, "normal");
     assert.equal(app.phase.dataset.phase, "running");
+    assert.equal(app.events[0].type, "noca:contest-clock-tick");
+    assert.equal(app.events[0].detail.nowMs, T0);
+    assert.equal(app.events[0].detail.startMs, T0 - HOUR);
+    assert.equal(app.events[0].detail.endMs, T0 + 4 * HOUR);
   }
 
   // ── Urgency advances on the one-second tick, not on the 60-second resync ───

@@ -54,6 +54,21 @@
                 </a>
             </div>
         </div>
+        {# Previous / Next problem navigation (top) #}
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            {% if prev_label %}
+                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=prev_label) }}"
+                   class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back", classes="me-1") }}{{ prev_label }}</a>
+            {% else %}
+                <span></span>
+            {% endif %}
+            {% if next_label %}
+                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=next_label) }}"
+                   class="btn btn-outline-secondary btn-sm">{{ next_label }}{{ render_icon(icon="arrow_forward", classes="ms-1") }}</a>
+            {% else %}
+                <span></span>
+            {% endif %}
+        </div>
         {# Quick submit form: source file + language only (problem is fixed to this page) #}
         {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
             <script id="runs-limits-data" type="application/json">{{ submit_limits | tojson }}</script>
@@ -129,7 +144,7 @@
                             type="application/pdf"
                             class="noca-pdf-embed">
                         <div class="p-4 text-center text-muted">
-                            {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                            {{ render_icon(icon="auto_stories_off", classes=["display-6", "d-block", "mb-2"]) }}
                             PDF statement is not available or your browser cannot display it inline.
                             <br>
                             <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
@@ -147,7 +162,7 @@
             {% else %}
                 <div class="card-body">
                     <div class="p-3 text-center text-muted">
-                        {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                        {{ render_icon(icon="auto_stories_off", classes=["display-6", "d-block", "mb-2"]) }}
                         No statement available for this problem.
                     </div>
                 </div>
@@ -272,9 +287,22 @@
                 <div class="text-muted small">No public sample test cases for this problem.</div>
             {% endif %}
         {% endif %}
-        <div class="mt-4">
+        {# Previous / Next problem navigation (bottom), with the back link centered #}
+        <div class="d-flex justify-content-between align-items-center mt-4">
+            {% if prev_label %}
+                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=prev_label) }}"
+                   class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back", classes="me-1") }}{{ prev_label }}</a>
+            {% else %}
+                <span></span>
+            {% endif %}
             <a href="{{ request.url_for('contest_problems', slug=contest.login_slug) }}"
                class="btn btn-outline-secondary btn-sm">← Back to Problems</a>
+            {% if next_label %}
+                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=next_label) }}"
+                   class="btn btn-outline-secondary btn-sm">{{ next_label }}{{ render_icon(icon="arrow_forward", classes="ms-1") }}</a>
+            {% else %}
+                <span></span>
+            {% endif %}
         </div>
     </div>
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
@@ -328,7 +356,7 @@
     {% endif %}
 {% endblock %}
 {% block extra_script %}
-    {% if has_md or has_tc_explanation %}
+    {% if has_md or has_explanation_markdown %}
         <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
                 defer></script>
         <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
@@ -342,7 +370,6 @@
         <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
                 defer></script>
     {% endif %}
-    {% if has_tc_explanation %}{% endif %}
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
         <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"
                 defer></script>

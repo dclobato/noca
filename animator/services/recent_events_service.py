@@ -99,6 +99,7 @@ def build_recent_events(
         client's rail in the order it would have received them live.
     """
     team_name_by_id = {team.id: team.username for team in teams}
+    team_fullname_by_id = {team.id: team.fullname for team in teams}
     label_by_problem = {problem.id: ordinal_to_label(problem.ordinal) for problem in problem_records}
 
     visible = [
@@ -125,6 +126,7 @@ def build_recent_events(
     # `visible[-0:]` is the whole list, so an explicit empty case is required.
     for submission in visible[-limit:] if limit > 0 else []:
         team_name = team_name_by_id.get(submission.team_id)
+        team_fullname = team_fullname_by_id.get(submission.team_id) or team_name or ""
         label = label_by_problem.get(submission.problem_id)
         # A submission whose team or problem is outside the scope cannot be
         # named, and the rail never renders raw identifiers.
@@ -141,6 +143,7 @@ def build_recent_events(
                     minute=minute,
                     kind="submitted",
                     team_name=team_name,
+                    team_fullname=team_fullname,
                     problem_label=label,
                 )
             )
@@ -154,6 +157,7 @@ def build_recent_events(
                 minute=minute,
                 kind=kind,
                 team_name=team_name,
+                team_fullname=team_fullname,
                 problem_label=label,
                 verdict=verdict.value,
             )

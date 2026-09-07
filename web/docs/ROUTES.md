@@ -92,7 +92,7 @@ the form body.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `POST` | `/session/heartbeat` | Rotates the caller's sliding session and returns `{"ok": true}`. Deliberately inert — no database, no Valkey, no request body — because the rotation is a side effect of the request being authenticated: the app-wide `enforce_web_default_auth` dependency marks every authenticated non-public path refresh-eligible, so the path staying off the public allowlist is the whole of this route's authentication. The refreshed cookie, when one is due, travels on the response headers. |
+| `POST` | `/session/heartbeat` | Rotates the caller's sliding session and returns `{"ok": true}`. The handler is deliberately inert — no database work of its own, no Valkey, no request body, no actor — because the rotation is a side effect of the request being authenticated: the app-wide `enforce_web_default_auth` dependency marks every authenticated non-public path refresh-eligible, so the path staying off the public allowlist is the whole of this route's authentication. The request itself still runs the single-session policy through that same dependency (see the Authentication section below), so a superseded or foreign-address session is bounced here like anywhere else and never handed a fresh cookie. The refreshed cookie, when one is due, travels on the response headers. |
 
 ---
 
@@ -128,17 +128,30 @@ inner spaces) and leaves a blank name without an account bucket at all.
 
 All non-public Web routes require a valid `noca_access_token` by default. The
 public allowlist is `/`, `/contests`, `/contests/past`, `/login`,
-`/c/{slug}/login`, `/health`, `/favicon.ico`, `/assets/*`, `/static/*`, and
-`/problem-set/*`. Route-local role checks remain the authoritative
-authorization layer after authentication.
+`/c/{slug}/login`, `/health`, `/favicon.ico`, `/assets/*`, `/static/*`,
+`/problem-set/*`, and `/announcements/*`. Route-local role checks remain the
+authoritative authorization layer after authentication.
+
+The same dependency applies the single-session policy to every authenticated
+request (`web/services/session_guard.py`). A contest user the policy governs is
+bounced to `/c/{slug}/login` -- with a flash saying which -- when a later login
+superseded the session, or when the request did not come from the address the
+user is bound to; a governed user who is not yet bound has the address bound by
+that first request, so a session opened before the contest started keeps working
+and binds where the team actually is. The check runs **before** the session is
+marked refresh-eligible, so a rejected session is never handed a rotated cookie,
+and it runs in the global dependency rather than in the actor resolvers so that
+`POST /session/heartbeat` -- which resolves no actor at all -- is governed like
+everything else. Staff, and users whose `allow_concurrent_login` is set, are
+unaffected.
 
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/login` | Renders the username-only UberAdmin login form. Accepts an optional same-origin path in `next_url`; missing or unsafe targets use `/uberadmin`. |
 | `POST` | `/login` | Authenticates an UberAdmin by username and password. Missing or invalid credentials re-render the form with an accessible inline error and retain the non-secret username. Auth throttling is keyed by ASGI client IP and hashed username. Successful login sets the `noca_access_token` HTTP-only cookie and redirects to the safe same-origin `next_url` or `/uberadmin`. Lockouts return `429` with `Retry-After` and show the retry interval. |
-| `POST` | `/logout` | Clears the `noca_access_token` cookie and redirects with a confirmation message. Contest-scoped users are redirected to `/c/{slug}/login`; other cases fall back to `/login`. The navbar exposes this POST form inside the account menu; it is never a link because a `GET` logout is prefetchable by browsers and extensions. |
+| `POST` | `/logout` | Clears the `noca_access_token` cookie and redirects with a confirmation message. Contest-scoped users are redirected to `/c/{slug}/login`; other cases fall back to `/login`. The navbar exposes this POST form inside the account menu; it is never a link because a `GET` logout is prefetchable by browsers and extensions. Also drops the actor's contest-presence marker at once, so the team status map stops showing the seat as online without waiting for the presence TTL. |
 | `GET` | `/c/{slug}/login` | Renders the contest login form for the given contest slug. Accepts an optional `next` query value -- the page to return to after login, which the default-auth redirect fills with the bounced request's own path (or, for a bounced `POST`, its same-origin `Referer`) -- kept only when it is a same-origin path inside `/c/{slug}/` other than the login page. Returns 404 if slug is not found or the contest is inactive. |
-| `POST` | `/c/{slug}/login` | Authenticates a contest user for an active contest. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` cookie on success, and redirects to the re-validated `next_url` form field or `/c/{slug}`. A failed attempt redirects back to the form keeping `next`. Lockouts return `429` with `Retry-After`. |
+| `POST` | `/c/{slug}/login` | Authenticates a contest user for an active contest. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` cookie on success, and redirects to the re-validated `next_url` form field or `/c/{slug}`. A failed attempt redirects back to the form keeping `next`. Lockouts return `429` with `Retry-After`. Every successful login advances the user's `session_epoch` and stamps it into the token; when the single-session policy governs the user and the contest is running, the login also binds `locked_ip` to its client address, and a login from any other address is refused after the password check with a flash naming the bound address -- it opens no session, supersedes none, and does not count against the throttle. |
 
 ---
 
@@ -150,7 +163,7 @@ All routes in this group require a valid UberAdmin JWT (`noca_access_token` cook
 |--------|-----|-------------|
 | `GET` | `/uberadmin` | Renders the UberAdmin dashboard. Displays three columns — Past, Live, and Upcoming contests — sourced from active contests in the database. Past contest cards include a Make inactive action. Also shows action buttons for creating contests, accessing the problem bank, viewing inactive contests, and managing UberAdmins. |
 | `GET` | `/uberadmin/security-events` | Renders the Web security-event log (auth failures, lockouts, existing-account signups, admin actions). Accepts optional `?event_type=`, `?per_page=` (10/25/50/100/500), and `?page=` filters; shows all retained matching Web rows through pagination. Route lives in `web/routes/uberadmin_security.py`. |
-| `GET` | `/uberadmin/security-events.csv` | Downloads the **complete** Web security-event log as a CSV attachment (UTF-8 BOM, newest first, one row per event with the JSON metadata in a single cell). Takes no query parameters: the export deliberately ignores the page's filters and pagination, and is scoped to `module=web` only. Route lives in `web/routes/uberadmin_security.py`. |
+| `GET` | `/uberadmin/security-events.csv` | Downloads the **complete** Web security-event log as a CSV attachment (UTF-8 BOM, newest first, one row per event with the JSON metadata in a single cell). Takes no query parameters: the export deliberately ignores the page's filters and pagination, and is scoped to `module=web` only. **Per-actor budget** `web:uberadmin-export` (`NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_*`, default 10 per 10 min): `429` + `Retry-After`. Route lives in `web/routes/uberadmin_security.py`. |
 | `GET` | `/uberadmin/lockouts` | Sign-in lockouts page: two password-confirmed forms (unlock an IP address, unlock a login) and, when a subject is prefilled through `?ip=`, `?identifier=` (a username) or `?identifier_hash=` (the exact throttle hash a security event recorded; the event viewer's *Unlock* links carry both), the subject's live status -- each active lock as `<module>/<action>`, `address`/`account`, the contest for a `contest-login` row, and the minutes left -- read from Valkey **and** this process's in-memory fallback. A prefilled login is read **wide** (every contest carrying the name) and each `contest-login` row is labelled from the `hash -> contest` map the resolver built; a lock whose hash is in no map (a hash-only prefill, or a name matching no account) stays unlabelled rather than guessed. The scope choice guards the unlock, not this read. The login form carries a **required** `Scope` select with a valueless `Select…` placeholder, an `All contests` option and every active contest (`contest_name (login_slug)`); with `?identifier_hash=` prefilled the form is instead hash-only -- the login is shown read-only and not submitted, and no select is rendered. A store that cannot answer renders *Status unknown*, never *Not locked*. Route lives in `web/routes/uberadmin_lockouts.py`. |
 | `POST` | `/uberadmin/lockouts/unlock-ip` | Lifts every `auth:rate-limit:web:*` **and** `auth:rate-limit:animator:*` failure counter and lock of one client address -- the animator has no admin surface of its own -- discovered by `SCAN` so a bucket added later is covered without a registry. It also clears that address's distinct-account set (`…:ip:{ip}:accounts`), the spray evidence gating an IP lock: unlocking an address asserts it is not spraying, and leaving the set would let the next burst re-lock on `max_failures` alone. An *account* unlock never clears one; Arena buckets for the same address are never touched, and the `unknown` no-client sentinel is refused. Form: `ip`, `password` (the shared `password-confirm` reconfirmation budget, checked before the hash; a locked UberAdmin gets the `429` page). Fail-closed: the process-local fallback is cleared first, and if Valkey cannot answer the flash says so and the `admin_action` row records `outcome=valkey_unavailable`. Otherwise audited as `action=unlock_ip`, `target_type=client_ip`, warning severity. Redirects back with `?ip=` so the status re-renders. Route lives in `web/routes/uberadmin_lockouts.py`. |
 | `POST` | `/uberadmin/lockouts/unlock-account` | Lifts the Web account lockouts behind a typed login **within one chosen scope**, and/or the exact bucket of an explicit event hash. `web`/`contest-login` is keyed on `{contest_id}:{username}` (a team login is unique only per contest), so `contest_scope` is **required** whenever `identifier` is non-blank and is validated here against the same active-contest list the form offered -- a blank or unknown scope unlocks nothing and is not audited. There is no default on purpose: the two mistakes are not symmetric, since a silent wide unlock and a narrow one look identical afterwards. `all` clears the bare-name `login` bucket, the `uberadmin:<id>` bucket, every contest's `{contest_id}:{username}` bucket and every matching `user:<id>`; a contest id clears only that contest's scoped bucket and its own users' `user:<id>` -- an UberAdmin is not a contest, so a scoped unlock never reaches a global bucket. An `identifier_hash` needs no scope (it names one exact bucket in one contest) and is always cleared; a request carrying both a typed login and a hash with no scope is refused. IP buckets are left alone. Form: `identifier` + `contest_scope` and/or `identifier_hash`, `password`. Audited as `action=unlock_account`, `target_type=login` naming the username, the scope and what it matched (`team042 in Other Contest (other-contest) (1 contest user)` / `team042 in all contests (…)`; logins are not secrets in Web), or `identifier_hash` with a prefix for a hash-only request. Same fail-closed rule as `unlock-ip`. Route lives in `web/routes/uberadmin_lockouts.py`. |
@@ -268,7 +281,8 @@ handle a task — see [Permission Model](#permission-model) below.
 | `POST` | `/c/{slug}/tasks/{task_id}/release` | s, cj (own), a, ua | `contest_tasks_staff.py` |
 | `GET` | `/c/{slug}/tasks/{task_id}/source` | s, cj (lock holder), a, ua | `contest_tasks_source.py` |
 | `GET` | `/c/{slug}/tasks/{task_id}/printout` | s, cj (lock holder), a, ua | `contest_tasks_source.py` |
-| `GET` | `/c/{slug}/reports/` | ua, a, j | `contest_reports.py` |
+| `GET` | `/c/{slug}/reports/` | ua, a, j | `contest_reports.py`; report and chart aggregates are cached per contest/site generation for 10 minutes, with post-commit invalidation and fail-open recomputation |
+| `GET` | `/c/{slug}/team-status` | ua, a, j, s | `contest_team_status.py` |
 | `GET` | `/c/{slug}/admin` | ua, a | `contest_admin.py` |
 | `GET` | `/c/{slug}/admin/counters` | ua, a | `contest_admin.py` |
 | `GET` | `/c/{slug}/admin/export-animeitor` | ua, a | `contest_admin.py` |
@@ -289,10 +303,13 @@ Scoring rules:
 - CE counts as a failed attempt only if `contest.ce_adds_penalty`.
 - Penalty time = `solved_at_minutes + (failed_attempts × contest.wa_penalty)`, where
   `solved_at_minutes` truncates the second offset to whole minutes.
-- Rank: teams sorted by `(problems_solved DESC, total_time ASC, last_accepted_minutes ASC)`
-  — the earlier last accepted submission breaks a tie on the first two keys, and a team
+- Rank: teams sorted by `(problems_solved DESC, total_time ASC, last_accepted_seconds ASC)`
+  — the earlier last accepted submission breaks a tie on the first two keys, compared in
+  whole seconds while every displayed time stays on minutes, and a team
   that solved nothing sorts last within its group. Teams equal on all three share the
   same rank, and the next distinct team takes its position-based rank.
+
+Absent teams: while `contest.is_running`, a team with no successful sign-in since `contest.start_time` is marked with a `person_off` glyph beside its name and a muted team cell (`shared.services.team_absence_status`, carried on the short-lived `scoreboard_display_cache` entry rather than on the snapshot, which the `:frozen` and `:final` keys would freeze it into). Before the start and after the end nobody is marked. The animator's live board draws the same marker from the same service.
 
 Caching: Valkey cache with three keys — `:full` for admin/judge (TTL 5 s), `:public` for all others (TTL 180 s), and `:final` for the released final scoreboard (no TTL, permanent). `:full` and `:public` are invalidated whenever a verdict is finalized or overridden.
 
@@ -318,7 +335,7 @@ Contestant-facing problem pages. Access is role- and state-dependent:
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/c/{slug}/problems/` | Problem card grid (one card per problem: balloon, label, title linked to detail, per-problem solving rate, download action for public materials). No admin-only test-case counts. A TEAM viewer additionally sees their own status per problem (Accepted/Judging/Attempted/Not attempted) as a card accent, derived from the same `ScoreboardSnapshot` the scoreboard uses so freeze visibility rules are inherited automatically. For a TEAM viewer of a running contest the grid also loads `htmx.min.js` and `problems-sse.js`, subscribing to the Runs page's `/c/{slug}/runs/events` SSE stream to live-refresh the grid and fire a confetti celebration on a newly-solved problem. |
-| `GET` | `/c/{slug}/problems/{problem_label}` | Problem detail: embedded PDF statement, side-by-side public test cases in monospaced preformatted text, back-to-list link. `problem_label` is case-insensitive (e.g. `A`, `B`, `AA`). Returns 404 if label not found. |
+| `GET` | `/c/{slug}/problems/{problem_label}` | Problem detail: embedded PDF statement, side-by-side public test cases in monospaced preformatted text, back-to-list link, and Previous/Next buttons (top and bottom) walking the contest's problems in ordinal order — the first problem gets no previous link, the last gets no next link. `problem_label` is case-insensitive (e.g. `A`, `B`, `AA`). Returns 404 if label not found. |
 | `GET` | `/c/{slug}/problems/{problem_label}/statement` | Serves the stored statement inline (Markdown when present, otherwise the PDF). Returns 404 when no statement file is stored. **Conditional**: served through `StaticFiles.file_response()`, so a request carrying a matching `If-None-Match`/`If-Modified-Since` gets a bodyless `304` costing one `stat()`, and a `200` streams instead of loading the file into memory. `Cache-Control: private, no-cache` — deliberately *not* a positive `max-age`, which would let a browser reuse the response without contacting the server and therefore without re-running the pre-start access check. The `Content-Disposition` filename is built with `safe_package_filename()`, so a title carrying quotes or non-ASCII characters cannot break the header. |
 | `GET` | `/c/{slug}/problems/{problem_label}/print` | Standalone print-friendly problem page (simple navbar + footer, no sidebar): statement, samples (test cases or sample interactions), and resource limits. PDF-statement problems link to the PDF instead of embedding it. The user prints via the browser (navbar Print button or Ctrl/Cmd+P). |
 | `GET` | `/c/{slug}/problems/{problem_label}/export` | Downloads the contestant-facing (`public` profile) package: statement, image, sample test cases and sample interactions. No `problem.json`, no limits, no secret test cases, no validator source, no editorial. **Per-actor request limit** (`web:problem-export`, `NOCA_WEB_PROBLEM_EXPORT_RATE_LIMIT_*`, default 10 per 10 min): `429` + `Retry-After`, applied whether or not the package is served from cache, and stacked under the router's loose `web:user-read` ceiling. When `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is configured the package is built once per problem into `problem-export/`, published atomically, and reused while its sidecar records both a matching SHA-256 and the problem's current `public_export_generation`; any change to the problem bumps that counter and the next download rebuilds. **In production the route answers `503` when the cache path is unset** — though Web refuses to start in that state, so this is the guard rather than the expected path; development keeps the per-request rebuild. `409` when a stored file the package needs is missing. |
@@ -330,7 +347,14 @@ Contestant-facing problem pages. Access is role- and state-dependent:
 Routes require a valid contest-scoped JWT or UberAdmin JWT. TEAM role is enforced at route level for submission. Visibility is role-scoped:
 - `ua`/`a`: all clarifications (including hidden); Team name and Judge name resolved from `user_map`. ADMIN may also acquire and answer clarifications, exactly like a judge — but the answer form itself stays blind, so answering is never done with the asker's identity on screen
 - `j`: all clarifications (including hidden); no judge/team identification; acquire and answer workflow
-- `t`: own + public, never hidden; auto-refresh via HTMX every 60 s
+- `t`: own + public, never hidden; auto-refresh via HTMX every 60 s before and
+  during the contest
+
+During a running contest, every role's clarification list refreshes through
+HTMX every 60 seconds. The **Queue time** column is visible to every role and
+shows whole minutes from question creation until answer, or until the current
+refresh for an open question. Announcements and hidden clarifications show `—`.
+Admins and uberadmins also see **Service time**, measured from acquisition.
 
 Timing is role-scoped too:
 
@@ -357,7 +381,7 @@ Route ownership is split across `contest_clarifications.py`,
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
 | `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | Full page. Shows the clarification list in every contest lifecycle state and, for teams while the contest is running, a submission form. `sort_by` orders Time or Problem in SQL and defaults to newest first. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `highlight-row.js`, `refresh-timer.js`, and `clarifications.js`. |
-| `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` with the clarification table in the requested server-side `sort_by` order. Polled every 60 s by team browsers. |
+| `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` with the clarification table in the requested server-side `sort_by` order. Polled every 60 s by every role while the contest is running; team browsers also poll before the contest starts. |
 | `POST` | `/c/{slug}/clarifications/answers/read` | t | Marks only the supplied `clarification_ids` that were rendered to the requesting team as unread — its own answered questions and the contest's visible announcements alike, since a team is notified about both through one list. Announcement acknowledgement is idempotent, so a page load racing the 60 s refresh is harmless. Returns 204. Called by `clarifications.js` after the full page or HTMX partial displays highlighted unread rows. |
 | `POST` | `/c/{slug}/clarifications/new` | t (running only) | Submit a new clarification. Form fields: `problem_id`, `question` (max 1024 chars). `can_request_clarification()` gates both the form and the service to the running contest window. On success redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Two per-team throttles apply, both counted in PostgreSQL: at most `NOCA_WEB_CLARIFICATION_RATE_LIMIT_MAX_UNANSWERED` unanswered questions at once (hidden rows excluded, since they will never be answered) and at most `NOCA_WEB_CLARIFICATION_RATE_LIMIT_MAX_REQUESTS` per `…_WINDOW_SECONDS`; either refusal is a danger flash plus a 303 back to `/c/{slug}/clarifications/`, the windowed one naming the next allowed time. Implemented in `contest_clarifications_submit.py`. |
 | `POST` | `/c/{slug}/clarifications/announcement` | a, j | Create a public announcement. Not throttled: the team limits apply to `create_clarification` only. Form fields: `problem_id`, `announcement` (max 1024 chars). Creates a clarification with `question="Announcement"`, `is_contest_public=True`, already answered. A JUDGE may publish only while the contest is running; a contest ADMIN and the contest's chief judge may publish at any point in the contest lifecycle (before the start and after the end included). The form is rendered from the `can_create_announcement` context flag and the same predicate is the authoritative guard in the service. On success flashes and redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
@@ -375,11 +399,17 @@ Route ownership is split across `contest_clarifications.py`,
 ## Contest Tasks (`web/routes/contest_tasks*.py`)
 
 Routes require a valid contest-scoped JWT or UberAdmin JWT. The USER role and non-chief JUDGEs have no access. STAFF, TEAM and the chief judge may only access after the contest starts (`is_running` or `is_past`); ADMIN and UBERADMIN always have access. Visibility is role-scoped:
-- `t` (team): own tasks only; SOS button shown while contest is running; PRINT creation appears only when `contest.allow_print_requests` is enabled; auto-refresh via HTMX every 60 s
-- `s` (staff): all tasks; acquire/finish/release workflow; auto-refresh via HTMX every 60 s
+- `t` (team): own tasks only; SOS button shown while contest is running; PRINT creation appears only when `contest.allow_print_requests` is enabled
+- `s` (staff): all tasks; acquire/finish/release workflow
 - `cj` (chief judge): same task-handling workflow as staff — the chief judge is the only JUDGE who may open this page
-- `a` (admin): all tasks with elapsed time column; may acquire and finish tasks like staff, and force-release a lock held by someone else
-- `ua` (uberadmin): all tasks with elapsed time column; force-release only — a finished task is attributed through `tasks.staff_id`, a foreign key into `users`, which has no uberadmin row
+- `a` (admin): all tasks with queue and service time columns; may acquire and finish tasks like staff, and force-release a lock held by someone else
+- `ua` (uberadmin): all tasks with queue and service time columns; force-release only — a finished task is attributed through `tasks.staff_id`, a foreign key into `users`, which has no uberadmin row
+
+Every role sees **Queue time**, measured in whole minutes from creation until
+finish, or until the current refresh for an unfinished task. Admins and
+uberadmins also see **Service time**, measured from acquisition. During a
+running contest, every permitted viewer's task list refreshes through HTMX
+every 60 seconds.
 
 Task types: `BALLOON` (auto-created by judgment module), `FIRST_BALLOON` (first accepted solve for a problem, rendered with a golden glow), `PRINT` (team uploads source for printing), `SOS` (help request).
 
@@ -390,8 +420,8 @@ and `contest_tasks_source.py`.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/tasks/` | ua, a, cj, s, t | Full page. TEAM sees SOS button and, when contest is running and `contest.allow_print_requests` is true, the Print modal/button, plus their own task list. STAFF sees all tasks with acquire buttons and a task detail modal; PRINT details offer the formatted printout and the raw source download as separate actions. ADMIN/UA sees all tasks with elapsed column and force-release buttons. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `refresh-timer.js`, and `tasks.js`. |
-| `GET` | `/c/{slug}/tasks/list` | ua, a, cj, s, t | HTMX partial. Returns `#tasks-list-wrapper` div with the current task table. Polled every 60 s by TEAM and STAFF browsers. |
+| `GET` | `/c/{slug}/tasks/` | ua, a, cj, s, t | Full page. TEAM sees SOS button and, when contest is running and `contest.allow_print_requests` is true, the Print modal/button, plus their own task list. STAFF sees all tasks with acquire buttons and a task detail modal; PRINT details offer the formatted printout and the raw source download as separate actions. Every role sees queue time; ADMIN/UA also sees service time and force-release buttons. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `refresh-timer.js`, and `tasks.js`. |
+| `GET` | `/c/{slug}/tasks/list` | ua, a, cj, s, t | HTMX partial. Returns `#tasks-list-wrapper` div with the current task table. Polled every 60 s by every permitted role while the contest is running. |
 | `POST` | `/c/{slug}/tasks/sos` | t | Create an SOS help-request task. No form fields. Requires contest to be running. Two per-team throttles apply, both counted in PostgreSQL: at most `NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_OPEN_SOS` unfinished SOS tasks at once (released when staff finishes one) and at most `NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_SOS_REQUESTS` per `…_WINDOW_SECONDS`. Flashes success or error; either refusal is a danger flash, the windowed one naming the next allowed time. Redirects to `GET /tasks/` (303). |
 | `POST` | `/c/{slug}/tasks/print` | t | Create a PRINT task. Form fields: `problem_id`, `source_file` (multipart upload). Validates: contest running, `contest.allow_print_requests=True`, non-empty problem selection, non-empty file, file within `contest.max_problem_file_size_bytes` (0 = unlimited). Blocks duplicate PRINT tasks (same team, problem, source hash while unfinished). Throttled to `NOCA_WEB_TEAM_TASK_RATE_LIMIT_MAX_PRINT_REQUESTS` per team per `…_WINDOW_SECONDS`. The throttle is the **last** check: every validation and the duplicate check run first, so their more specific messages are never masked — detecting a duplicate requires the source hash, and the upload is in any case already received and spooled by the multipart parser before the handler runs. Flashes and redirects to `GET /tasks/` (303). |
 | `POST` | `/c/{slug}/tasks/{task_id}/acquire` | s, a, cj | Acquire a Valkey-backed task lock. On success redirects to `/tasks/?open={task_id}` (303) so `tasks.js` auto-opens the detail modal. If Valkey is unavailable, flashes a degraded-mode warning and opens the task directly. Implemented in `contest_tasks_staff.py`. |
@@ -450,12 +480,60 @@ redaction.
 
 ---
 
+## Contest Team Status (`web/routes/contest_team_status.py`)
+
+The team status map shows the venue staff one card per team, grouped by site,
+so an empty seat is found by looking at a wall rather than by reading the
+standings for an absence of activity. It is built for triage at three hundred
+teams, not for inventory: inside a site the empty seats come first (offline,
+then never signed in, ties by full name) and the online teams fold into a count
+that unfolds on demand; a site with an empty seat is listed before a site
+without one, and a site where everyone is present is a single line. Which empty
+seat is the alarm depends on the phase and the page says which phase it is in:
+before the start a team that has not signed in yet is expected, so those teams
+fold into each site's count beside the online ones (worded "not signed in yet")
+and only a team that went offline is shown as a card; once the contest runs,
+never-signed-in teams are shown too and take the attention tint beside the red
+of a team that was there and vanished. A card carries the team's room (`users.location`) when
+one is set, and for admins and uberadmins links to the enrolled-user record;
+judges and staff see the same card with no link, because that page is closed to
+them. It is a contest section of its own -- not
+an administration page -- because judges and staff run the venue too and never
+reach `/c/{slug}/admin`. It is linked from the contest nav band and the contest
+dashboard for the four roles that may open it.
+
+Each team is in exactly one of three states, told three ways on its card (a
+surface tint, an icon and the word itself, so the board survives a projector,
+greyscale and a screen reader):
+
+- **online** -- the team's contest-presence marker exists
+  (`web/services/contest_presence.py`, written on the team's ordinary
+  authenticated `GET`s and expiring after `NOCA_WEB_PRESENCE_TTL_SECONDS`);
+- **never signed in** -- no successful sign-in at or after `contests.start_time`,
+  the same question `shared.services.team_absence_status.load_teams_without_sign_in`
+  answers for the scoreboard and the animator, reused rather than re-asked so the
+  three surfaces agree on who is late;
+- **offline** -- signed in after the start but not heard from within the TTL.
+
+The address beside a team is the one its presence marker carries when it is
+online (where it was last seen), or the address of its latest post-start
+sign-in when it is offline (labelled "last login"); a team that never signed in
+shows none. With `NOCA_WEB_PRESENCE_ENABLED=false`, or no Valkey runtime, nobody
+is reported online and the page says so.
+
+| Method | URL | Allowed | Description |
+|--------|-----|---------|-------------|
+| `GET` | `/c/{slug}/team-status` | ua, a, j, s | Full page. Query: `site=<site id or unassigned>` scopes the board to one site (an unknown value means all sites, as on the reports page); `show=<site key>` (repeatable) unfolds that site's folded teams (its online teams; before the start also the teams not signed in yet). The grid wrapper `#team-status-grid` polls the **current URL** through htmx every 10 s (`hx-trigger="every 10s"`, `hx-select="#team-status-grid"`, `hx-swap="outerHTML"`), so scope and unfolded sites survive the refresh. The poll URL is path and query, never the host, so a proxy with wrong forwarded headers cannot break it. The fold/unfold controls are links to the same route that, with htmx present, swap the board in place and push the URL (`hx-push-url`), so unfolding a site far down the page does not scroll the reader back to the top; the site picker tiles are plain links. Avatars are served by `GET /user/{id}/avatar` with a one-hour `Cache-Control` and a cache-busting `?v=`, so a swap re-downloads none. No contest-state gate: the board is wanted before the start (who has arrived) as much as during it. Other roles get `403`. |
+
+---
+
 ## Per-actor read ceiling
 
 Every `GET` route on the polled and contest-read routers -- `contest_runs`,
 `contest_tasks`, `contest_clarifications`, `contest_admin`,
-`contest_solution_tests`, `contest_admin_problem_validator`, `contest_problems`
-and `contest_score`, plus `GET /c/{slug}/runs/{id}/judging-history` -- carries a
+`contest_solution_tests`, `contest_admin_problem_validator`, `contest_problems`,
+`contest_score` and `contest_team_status`, plus
+`GET /c/{slug}/runs/{id}/judging-history` -- carries a
 **loose per-actor ceiling** (`web/services/user_read_rate_limit.py`, bucket
 `web:user-read`, knobs `NOCA_WEB_USER_READ_RATE_LIMIT_*`, default 300 per actor
 per minute). It is attached to the *router*, not to individual routes, so a
@@ -473,6 +551,26 @@ across addresses instead of punishing a shared one. Over budget the answer is
 `429` with `Retry-After`, and `shared/static/js/htmx-poll-backoff.js` parks the
 page's *timer-driven* partials for that long -- user-initiated requests are
 never cancelled.
+
+Eight routes build something per request that grows with the contest rather
+than rendering a bounded partial, and each carries a much tighter **per-actor
+budget of its own** (`web/services/export_rate_limit.py`, #157), one bucket per
+*surface* so ordinary report navigation cannot spend an unrelated download's
+allowance: `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20
+per 10 min) on the contest-admin downloads -- the full problem export,
+`/export-animeitor`, `/export-events`, `/users-per-site-report` and
+`/users/export.json`; `web:contest-report` (`NOCA_WEB_CONTEST_REPORT_RATE_LIMIT_*`,
+60 per 10 min) on `GET /c/{slug}/reports/`; `web:team-download`
+(`NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_*`, 5 per 10 min) on
+`GET /c/{slug}/submissions/download-all`; and `web:uberadmin-export`
+(`NOCA_WEB_UBERADMIN_EXPORT_RATE_LIMIT_*`, 10 per 10 min) on
+`GET /uberadmin/security-events.csv`. They are route-level, refuse with `429` +
+`Retry-After`, and are charged before the handler runs, so a request the
+route's own role check then refuses still spends one. Every Web per-actor
+budget -- these, the ceiling above and `web:problem-export` -- keys on
+`{audience}:{contest_id}:{login}` (an UberAdmin has no contest), never the bare
+login: a contest login is unique only per contest, and an UberAdmin `admin` is
+not the contest user `admin`.
 
 The two SSE streams are deliberately outside it; they are bounded by open
 connections instead (below).
@@ -531,11 +629,11 @@ Route ownership is split across `contest_admin.py`,
 | `POST` | `/c/{slug}/admin/end-now` | ua, a | Requires the authenticated admin/uberadmin password confirmation, then ends a running contest by shortening `duration_minutes` to the smallest whole-minute value that does not end in the past. Dependent timing fields (`stop_updating_scoreboard`, `stop_answers_after`, and timeout values) are clamped as needed to preserve contest timing invariants. No-op if the contest is not running. Redirects to `/c/{slug}` (303). Implemented in `contest_admin.py`. **Password confirmation is throttled** (shared `password-confirm` budget; wrong passwords are audited `auth_failure` events, past the cap the shared `429` page is returned before the password is checked). |
 | `POST` | `/c/{slug}/admin/release-scoreboard` | ua, a | Releases the final scoreboard for an ended contest. Sets `release_scoreboard_after_end=True`, computes and permanently caches the final standings (all frozen/pending results revealed, no TTL), then commits. Flashes danger if contest has not ended; flashes warning if already released. Redirects to admin dashboard (303). Implemented in `contest_admin.py`. |
 | `POST` | `/c/{slug}/admin/release-problem-set` | ua, a | Publishes or withdraws the public problem-set download (`release=yes|no`, a strict string so a resubmitted form is idempotent). Sets `release_problem_set_after_end`, records an admin-audit event (`contest_problem_set_release` at warning severity / `contest_problem_set_revoke`), and commits. Publishing requires the contest to have ended -- arming a future release is done on the metadata form; withdrawing is always allowed, serving as Revoke after the end and Cancel on an armed contest. A withdrawal also discards the cached archive. Redirects to the admin dashboard (303). Implemented in `contest_admin.py`. |
-| `GET` | `/c/{slug}/admin/users` | ua, a | Renders the user management page, listing all enrolled members grouped by role (Admin, Judge, Staff, Team, User). Supports remove actions (disabled while contest is running) and shows an `Export Users` action that downloads import-compatible JSON. Implemented in `contest_admin_reports.py`. |
+| `GET` | `/c/{slug}/admin/users` | ua, a | Renders the user management page, listing all enrolled members grouped by role (Admin, Judge, Staff, Team, User). Supports remove actions (disabled while contest is running) and shows an `Export Users` action that downloads import-compatible JSON. It also carries the contest-wide team session-policy control and, on each bound team's row, the address it is bound to and a **Clear IP lock** button (one shared password-confirmation modal, driven by `web/static/js/clear-ip-lock.js`, because during a contest every team can be bound at once). Implemented in `contest_admin_reports.py`. |
 | `GET` | `/c/{slug}/admin/import_export` | ua, a | Renders the Export/Import page with download actions for the Animeitor-compatible ZIP and the markdown contest timeline report. Implemented in `contest_admin_export.py`. |
-| `GET` | `/c/{slug}/admin/export-animeitor` | ua, a | Downloads a ZIP file compatible with the `maratona-animeitor` consumer. Contains `contest`, `runs`, `time`, `version`, and `icpc` files in the legacy BOCA webcast format. Returns 303 redirect with flash error if the contest has no teams or no problems. Implemented in `contest_admin_export.py`. |
-| `GET` | `/c/{slug}/admin/export-events` | ua, a | Downloads a markdown report containing a wrapped fixed-width text table of persisted contest events. Best-effort only: transient lock-only acquisitions are omitted because they are not historically stored. Implemented in `contest_admin_export.py`. |
-| `GET` | `/c/{slug}/admin/users-per-site-report` | ua, a | Downloads a markdown report of contest users grouped by site. Sites are ordered A-Z; users within each site and role are ordered by username. Includes users with no site assigned, chief judge annotation, and contest header with rules summary. Implemented in `contest_admin_export.py`. |
+| `GET` | `/c/{slug}/admin/export-animeitor` | ua, a | Downloads a temporary-file-streamed ZIP compatible with the `maratona-animeitor` consumer without holding the completed archive in memory. Contains `contest`, `runs`, `time`, `version`, and `icpc` files in the legacy BOCA webcast format. Returns 303 redirect with flash error if the contest has no teams or no problems. Implemented in `contest_admin_export.py`. **Per-actor budget** `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min): `429` + `Retry-After`. |
+| `GET` | `/c/{slug}/admin/export-events` | ua, a | Downloads a markdown report containing a wrapped fixed-width text table of persisted contest events, including task and clarification acquisitions read from the persisted `acquired_at` columns. Best-effort only: a task or clarification closed administratively by the end-of-contest reaper has its acquisition cleared and reports none, and a row acquired more than once reports only the last handler. Implemented in `contest_admin_export.py`. **Per-actor budget** `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min): `429` + `Retry-After`. |
+| `GET` | `/c/{slug}/admin/users-per-site-report` | ua, a | Downloads a markdown report of contest users grouped by site. Sites are ordered A-Z; users within each site and role are ordered by username. Includes users with no site assigned, chief judge annotation, and contest header with rules summary. Implemented in `contest_admin_export.py`. **Per-actor budget** `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min): `429` + `Retry-After`. |
 
 ---
 
@@ -576,7 +674,7 @@ helpers live in `contest_submissions_helpers.py`.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/submissions/download-all` | t | **Team only.** Downloads a ZIP archive containing all finalized submissions made by the current team during the contest. Only available after the contest has ended and the scoreboard has been released. Redirects to the contest dashboard with a danger alert if the contest is not past or the scoreboard is not released. Implemented in `contest_submissions.py`. |
+| `GET` | `/c/{slug}/submissions/download-all` | t | **Team only.** Streams a temporary-file ZIP containing all finalized submissions made by the current team without holding the completed archive in memory. Only available after the contest has ended and the scoreboard has been released. Redirects to the contest dashboard with a danger alert if the contest is not past or the scoreboard is not released. **Per-team budget** `web:team-download` (`NOCA_WEB_TEAM_DOWNLOAD_RATE_LIMIT_*`, default 5 per 10 min): `429` + `Retry-After`, charged even on the refusals. Implemented in `contest_submissions.py`. |
 | `GET` | `/c/{slug}/submissions/{submission_id}/review` | ua, a, j | Unified submission review page. Left column: source code, compile log, judging history, per-test-case results (ua/a/j only). Right column: verdict confirmation status panel; confirmation form for judges and admins (with a decisive-confirmation modal for the chief judge and admins) when the active judgment is `DONE` and the contest is not `autojudge_only`; override form for the chief judge and admins once a final verdict exists; rejudge card below the confirmation panel for the chief judge, admins, and uberadmins. See [Permission Model](#permission-model). Implemented in `contest_submissions.py`. |
 | `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j, a | **Judges and admins.** Acquires a Valkey-backed review lock for the submission, allowing the holder to submit a verdict confirmation. Validates that the autojudge has finished (`DONE`), the caller hasn't already confirmed, and nobody else holds the lock. If Valkey is unavailable, flashes a degraded-mode warning and leaves confirmation available from the review page without lock controls. Implemented in `contest_submissions_review.py`. |
 | `POST` | `/c/{slug}/submissions/{submission_id}/release-review` | j (own), a, ua | Releases a review lock without submitting a confirmation. Judges may release only their own lock; ADMIN and UBERADMIN may release any lock. Release is available only while the lock service is up. Implemented in `contest_submissions_review.py`. |
@@ -659,9 +757,10 @@ of them gate on `_is_edit_allowed` alone: a running contest may still change its
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/c/{slug}/admin/problems/import` | Render problem import form with ZIP format documentation. |
+| `GET` | `/c/{slug}/admin/problems/import/sample` | Download the reference "A + B" problem package (`noca-sample-problem-a-plus-b.zip`). Built **once per process** and served from memory (`shared.services.sample_problem_package`, #157) with `Cache-Control: private, no-cache` and a content-derived `ETag`; a matching `If-None-Match` answers a bodyless `304`. |
 | `POST` | `/c/{slug}/admin/problems/import` | Import a problem from a ZIP archive (problem.json + statement.pdf/statement.md + test cases). Raises human-readable error on validation failure. Any `language_limits` entries for languages not currently allowed in the contest are skipped with a warning; allowed languages import normally. |
 | `GET` | `/c/{slug}/admin/problems/{problem_id}/statement` | Serve problem statement PDF. `?download=1` for attachment. |
-| `GET` | `/c/{slug}/admin/problems/{problem_id}/export` | Export problem as ZIP (Layout A: `in/001.in`, `out/001.out`, `statement.pdf`, `problem.json`). |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/export` | Export problem as ZIP (Layout A: `in/001.in`, `out/001.out`, `statement.pdf`, `problem.json`). **Per-actor budget** `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min): `429` + `Retry-After`. |
 
 ### Test Cases (`web/routes/contest_admin_problem_tc.py`; the two per-case pages live in `contest_admin_problem_tc_pages.py`)
 
@@ -691,16 +790,18 @@ Route ownership is split across `contest_admin_user.py`,
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
 | `GET` | `/c/{slug}/admin/users/new` | ua, a | Renders the Add User form with empty fields. Includes a site selector populated from contest sites. Form is locked (read-only) when the contest is past. |
-| `POST` | `/c/{slug}/admin/users/new` | ua, a | Validates and creates a new contest user (fields: username, fullname, role, password, optional email, optional site). `TEAM` and `STAFF` users must have a site assigned; other roles may omit it. On success, re-renders with credentials including optional email and site. `UBERADMIN` is forbidden. |
+| `POST` | `/c/{slug}/admin/users/new` | ua, a | Validates and creates a new contest user (fields: username, fullname, role, password, optional email, optional site). `TEAM` and `STAFF` users must have a site assigned; other roles may omit it. On success, re-renders with credentials including optional email and site. `UBERADMIN` is forbidden. The optional `restrict_session` checkbox limits the new user to one session from one address once the contest starts; an unchecked box submits nothing, which is the permissive default every user had before the policy existed. |
 | `POST` | `/c/{slug}/admin/users/credentials.json` | ua, a | Returns the provided user credentials as a downloadable JSON file (`noca-credentials-{slug}-{username}.json`). Payload includes optional `email`, `site`, and `location`. |
 | `POST` | `/c/{slug}/admin/users/credentials/email` | ua, a | Sends a credentials email for the just-created user when an email is available. Uses the configured web email provider and a plain-text NOCA credentials template. The email goes through the shared `EmailService` (async, off the event loop): it is handed to the `noca-mailer` worker -- the only process that sends mail -- and the result reads *queued* rather than *sent*; it is charged to the acting admin's email budget (`NOCA_EMAIL_BUDGET_ADMIN_MAX`), and a spent budget is reported as a failed delivery naming the wait. |
 | `GET` | `/c/{slug}/admin/users/batch` | ua, a | Renders the batch user import form. Implemented in `contest_admin_user_batch.py`. |
-| `POST` | `/c/{slug}/admin/users/batch` | ua, a | Accepts a `.csv` or `.json` file (max 5 MB) and bulk-creates/updates contest users. Import accepts optional `email` and `site`; missing sites are auto-created case-insensitively within the contest. `TEAM` and `STAFF` rows require `site`, while other roles may omit it and keep `site_id=None`. Re-renders with per-row results including email, site, and generated passwords. Implemented in `contest_admin_user_batch.py`. |
+| `POST` | `/c/{slug}/admin/users/batch` | ua, a | Accepts a `.csv` or `.json` file (max 5 MB) and bulk-creates/updates contest users. Import accepts optional `email` and `site`; missing sites are auto-created case-insensitively within the contest. `TEAM` and `STAFF` rows require `site`, while other roles may omit it and keep `site_id=None`. Re-renders with per-row results including email, site, and generated passwords. A row may carry an optional `allow_concurrent_login` field (`true`/`yes`/`1` or `false`/`no`/`0`, case-insensitive; the CSV header allowlist admits the column explicitly and anything else fails **that row** rather than being guessed at). A stated value is a statement about that user, so it wins over the form default and applies on **update** as well; the optional `restrict_session` checkbox is only the default for rows that say nothing, and only for rows this import **creates**, so re-uploading a silent roster never reverses a per-team decision. The results table reports what each row did to the flag, `unchanged` included. Implemented in `contest_admin_user_batch.py`. |
 | `POST` | `/c/{slug}/admin/users/batch/results.json` | ua, a | Returns the provided batch results JSON as a downloadable file (`noca-batch-{slug}.json`). Implemented in `contest_admin_user_batch.py`. |
 | `POST` | `/c/{slug}/admin/users/batch/credentials/email` | ua, a | Sends credential emails in batch for created/updated rows that include both `password` and `email`, and re-renders the results view with a delivery summary. Implemented in `contest_admin_user_batch.py`. Each message is charged to the admin's email budget (`NOCA_EMAIL_BUDGET_ADMIN_MAX`); at the first refusal the loop **stops** and every remaining row is marked `budget_exceeded` (counted as skipped, one failure message naming the wait) so the retry button offers them again later. Accepted rows read `queued` (the `noca-mailer` worker delivers them), and the summary and the `credential_email_batch_completed` security event carry `sent`, `queued`, `failed`, `skipped` and `budget_exceeded`. |
-| `GET` | `/c/{slug}/admin/users/export.json` | ua, a | Downloads all contest users as import-compatible JSON (`noca-users-{slug}.json`). Passwords are omitted; each row includes `username`, `fullname`, `role`, and optional `email`, `site`, `location`. Implemented in `contest_admin_user_edit.py`. |
+| `GET` | `/c/{slug}/admin/users/export.json` | ua, a | Downloads all contest users as import-compatible JSON (`noca-users-{slug}.json`). Passwords are omitted; each row includes `username`, `fullname`, `role`, `allow_concurrent_login`, and optional `email`, `site`, `location`. The policy field is emitted **always**, not only when restricted: the importer reads a missing field as "use the import's default", so omitting the common value would let an exported roster arrive carrying the destination's checkbox instead of what it left with. Implemented in `contest_admin_user_edit.py`. **Per-actor budget** `web:admin-export` (`NOCA_WEB_ADMIN_EXPORT_RATE_LIMIT_*`, default 20 per 10 min): `429` + `Retry-After`. |
 | `GET` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Renders the Edit User form with identity fields plus photo and audio preview, upload, replacement, and removal controls. After the contest ends the profile fields (full name, site, location) and media mutations are disabled, but the email and password inputs stay editable. Returns 404 if the user is not found in this contest. Implemented in `contest_admin_user_edit.py`. |
-| `POST` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Validates and updates a user's fullname, optional email, site, location, and optionally password. Role is shown as read-only and cannot be changed after creation. `TEAM` and `STAFF` users must keep a site assigned. After the contest ends the request takes a credentials-only path that applies just the email and password (via `update_user_credentials`) and ignores any posted profile fields. Redirects back to the edit page on success. Implemented in `contest_admin_user_edit.py`. |
+| `POST` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Validates and updates a user's fullname, optional email, site, location, and optionally password. Role is shown as read-only and cannot be changed after creation. `TEAM` and `STAFF` users must keep a site assigned. For a `TEAM` the form also carries `restrict_session`, the per-user half of the session policy; the control is rendered only for a team, and for any other role the stored flag is left untouched rather than reset by a form that never asked. After the contest ends the request takes a credentials-only path that applies just the email and password (via `update_user_credentials`) and ignores any posted profile fields. Redirects back to the edit page on success. Implemented in `contest_admin_user_edit.py`. |
+| `POST` | `/c/{slug}/admin/users/session-policy` | ua, a | Applies the single-session, single-IP policy to every **team** of the contest, or lifts it. Takes `restrict` as the exact string `true` or `false` -- a strict value rather than a `bool`, so a half-submitted form cannot be coerced into a policy change nobody chose (`422` otherwise). Staff are exempt by role and are left untouched. Rows already holding the requested value are excluded, so a repeated click reports `0` changed. Lifting the policy **releases the IP bindings it made** and reports how many, so the round trip is a fresh start: re-applying binds each team wherever it is then. The release does not bump `session_epoch` -- the policy has stopped applying, so there is no session to supersede, unlike **Clear IP lock**, which releases one team while the rule still governs it. Audited through `shared.services.admin_audit` with the team count it changed. Implemented in `contest_admin_user_session.py`. |
+| `POST` | `/c/{slug}/admin/users/{user_id}/clear-ip-lock` | ua, a | Releases one team's IP binding and, with it, supersedes every session bound to that address -- clearing the address alone would let the first of those sessions simply re-bind it. Password-confirmed through the shared `web:password-confirm` budget (a lockout renders the shared `429` page) and audited at **warning** severity, naming the released address. Unlike **Remove**, it stays available *while the contest runs*, because a running contest is the only time a lock exists and a team that changed seats or lost a DHCP lease is otherwise locked out until the end. `404` for a user outside this contest; a user with no binding is reported as such rather than treated as an error. Implemented in `contest_admin_user_session.py`. |
 | `POST` | `/c/{slug}/admin/users/{user_id}/remove` | ua, a | Deletes a contest user. Redirects to the actor's dashboard with a danger alert if the contest is running or finished. Returns 404 if the user is not found. Redirects to `/c/{slug}/admin/users` on success. Implemented in `contest_admin_user_edit.py`. |
 
 ---

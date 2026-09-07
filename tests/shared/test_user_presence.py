@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,6 +18,7 @@ from shared.services.user_presence import (
     MAX_PRESENCE_BATCH,
     count_online_users,
     get_users_online_map,
+    get_users_presence_values,
     mark_user_offline,
     mark_user_online,
     online_set_key,
@@ -52,8 +53,8 @@ class _FakeValkey:
             return len(members)
         if "ZADD" in script:  # mark online
             live_key, set_key = keys
-            _ttl, score, member = argv
-            self.store[live_key] = "1"
+            _ttl, score, member, *rest = argv
+            self.store[live_key] = rest[0] if rest else "1"
             self.zsets.setdefault(set_key, {})[member] = float(score)
             return 1
         if "ZREM" in script:  # mark offline
@@ -199,13 +200,94 @@ async def test_empty_ids_returns_empty_without_round_trip() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mark_online_stores_one_by_default() -> None:
+    """A writer with nothing to say leaves the historical literal under the live key."""
+    client = _FakeValkey()
+    await mark_user_online(client, domain="arena", user_id="u1", ttl_seconds=60)
+
+    assert client.store[user_live_key("arena", "u1")] == "1"
+    assert await get_users_presence_values(client, domain="arena", user_ids=["u1"]) == {"u1": "1"}
+
+
+@pytest.mark.asyncio
+async def test_mark_online_stores_the_given_value_and_the_values_reader_returns_it() -> None:
+    """The value a writer supplies comes back verbatim; an unmarked user reads as None."""
+    client = _FakeValkey()
+    await mark_user_online(client, domain="contest", user_id="u1", ttl_seconds=60, value="10.0.0.7")
+
+    values = await get_users_presence_values(client, domain="contest", user_ids=["u1", "u2"])
+
+    assert values == {"u1": "10.0.0.7", "u2": None}
+
+
+@pytest.mark.asyncio
+async def test_blank_value_falls_back_to_one() -> None:
+    """An empty value never leaves an empty key: existence is the online signal."""
+    client = _FakeValkey()
+    await mark_user_online(client, domain="contest", user_id="u1", ttl_seconds=60, value="")
+
+    assert client.store[user_live_key("contest", "u1")] == "1"
+
+
+@pytest.mark.asyncio
+async def test_online_map_treats_any_value_as_online() -> None:
+    """Being online is the key existing, whatever the writer stored under it."""
+    client = _FakeValkey()
+    client.store[user_live_key("contest", "u1")] = "203.0.113.9"
+    client.store[user_live_key("contest", "u2")] = ""
+
+    online = await get_users_online_map(client, domain="contest", user_ids=["u1", "u2", "u3"])
+
+    assert online == {"u1": True, "u2": True, "u3": False}
+
+
+@pytest.mark.asyncio
+async def test_values_reader_degrades_to_none_when_client_fails() -> None:
+    """An outage reports every requested user as absent rather than raising."""
+    client = _FakeValkey(fail=True)
+
+    assert await get_users_presence_values(client, domain="contest", user_ids=["u1", "u2"]) == {
+        "u1": None,
+        "u2": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_values_reader_dedupes_and_caps_like_the_online_map() -> None:
+    """Both readers share one id-normalising path, so they agree on what was asked."""
+    client = _FakeValkey()
+    ids = [f"u{i}" for i in range(MAX_PRESENCE_BATCH + 50)] + ["u1", "", "  "]
+
+    values = await get_users_presence_values(client, domain="arena", user_ids=ids)
+    online = await get_users_online_map(client, domain="arena", user_ids=ids)
+
+    assert len(values) == MAX_PRESENCE_BATCH
+    assert values.keys() == online.keys()
+
+
+@pytest.mark.asyncio
+async def test_values_reader_decodes_bytes() -> None:
+    """A client without decode_responses still yields text values."""
+
+    class _BytesMget(_FakeValkey):
+        async def mget(self, keys: list[str]) -> list[Any] | None:
+            return [b"198.51.100.4", None]
+
+    values = await get_users_presence_values(_BytesMget(), domain="contest", user_ids=["u1", "u2"])
+
+    assert values == {"u1": "198.51.100.4", "u2": None}
+
+
+@pytest.mark.asyncio
 async def test_round_trip_against_real_valkey_db_15(valkey_client: Any) -> None:
     """Online state, TTL, count, and expiry behave against a real Valkey instance."""
     await mark_user_online(valkey_client, domain="arena", user_id="real-1", ttl_seconds=60)
-    await mark_user_online(valkey_client, domain="arena", user_id="real-2", ttl_seconds=60)
+    await mark_user_online(valkey_client, domain="arena", user_id="real-2", ttl_seconds=60, value="10.1.2.3")
 
     ttl = await valkey_client.ttl(user_live_key("arena", "real-1"))
     assert 0 < ttl <= 60
+    values = await get_users_presence_values(valkey_client, domain="arena", user_ids=["real-1", "real-2", "real-3"])
+    assert values == {"real-1": "1", "real-2": "10.1.2.3", "real-3": None}
 
     online = await get_users_online_map(valkey_client, domain="arena", user_ids=["real-1", "real-2", "real-3"])
     assert online == {"real-1": True, "real-2": True, "real-3": False}

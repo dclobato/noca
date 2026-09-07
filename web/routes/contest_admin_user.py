@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from shared.enumerations import RoleEnum
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.services.security_events import record_request_security_event
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
@@ -35,7 +36,15 @@ from web.services.user_credentials_email_service import (
 
 router = APIRouter(prefix="/c/{slug}/admin/users", tags=["contest_admin_users"])
 
-_EMPTY_FORM = {"username": "", "fullname": "", "role": "", "password": "", "email": "", "site_id": ""}
+_EMPTY_FORM = {
+    "username": "",
+    "fullname": "",
+    "role": "",
+    "password": "",
+    "email": "",
+    "site_id": "",
+    "restrict_session": "",
+}
 _ROLE_LABELS = {
     RoleEnum.ADMIN: "admin",
     RoleEnum.JUDGE: "judge",
@@ -105,6 +114,7 @@ async def add_user_submit(
     password: str = Form(""),
     email: str = Form(""),
     site_id: str = Form(""),
+    restrict_session: str = Form(""),
 ) -> HTMLResponse:
     templates = request.app.state.templates
     normalized_username, cleaned_fullname, normalized_email, role_enum, errors = validate_create_user_form(
@@ -120,6 +130,7 @@ async def add_user_submit(
         "password": password,
         "email": email,
         "site_id": site_id,
+        "restrict_session": restrict_session,
     }
     is_locked = ctx.contest.is_past
     sites = await list_contest_sites_for_form(ctx.session, ctx.contest)
@@ -168,6 +179,9 @@ async def add_user_submit(
             password=password.strip() or None,
             email=normalized_email,
             site_id=site_id.strip() or None,
+            # An unchecked box submits nothing, which is the permissive default
+            # every user had before the policy existed.
+            allow_concurrent_login=not restrict_session,
         )
     except HTTPException as exc:
         return _render([str(exc.detail)])
@@ -179,6 +193,8 @@ async def add_user_submit(
     except Exception:
         await ctx.session.rollback()
         return _render(["Could not create user. Please try again."])
+
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
 
     credentials = {
         "username": new_user.username,

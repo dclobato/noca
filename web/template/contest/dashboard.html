@@ -154,6 +154,9 @@
                     ) }}
                 {% endif %}
                 {# Reports - admin, uberadmin, judge #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.STAFF.value] %}
+                    {{ dashboard_card(request.url_for('contest_team_status', slug=contest.login_slug) , "sensors", "Team status", "Online, offline or never signed in", True, filled=True) }}
+                {% endif %}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
                     {{ dashboard_card(request.url_for('contest_reports', slug=contest.login_slug) , "bar_chart", "Reports", "Analytics & exports", True, filled=True) }}
                 {% endif %}

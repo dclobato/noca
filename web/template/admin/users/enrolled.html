@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import admin_breadcrumb with context %}
+{% from "_macros.html" import admin_breadcrumb, render_icon with context %}
 {% block title_suffix %}— Users{% endblock %}
 {% block breadcrumb %}
     {% call admin_breadcrumb() %}
@@ -34,6 +34,45 @@
                 <strong>Contest is running.</strong>&nbsp;Users cannot be removed while the contest is active.
             </div>
         {% endif %}
+        {# Contest-wide session policy. Teams only: staff are exempt by role, so
+           setting their flag would change nothing while implying otherwise. #}
+        <div class="card shadow-sm mb-4">
+            <div class="card-body d-flex flex-wrap align-items-center gap-3">
+                <div class="flex-grow-1 min-width-0">
+                    <div class="fw-semibold">Team sign-in policy</div>
+                    <p class="text-muted small mb-0">
+                        {% if restricted_teams == 0 %}
+                            All {{ team_count }} team(s) may sign in from anywhere, as many times as they like.
+                        {% elif restricted_teams == team_count %}
+                            All {{ team_count }} team(s) are limited to one session from one address once the contest starts.
+                        {% else %}
+                            {{ restricted_teams }} of {{ team_count }} team(s) are limited to one session from one address.
+                        {% endif %}
+                        {% if bound_teams %}{{ bound_teams }} currently bound to an address.{% endif %}
+                    </p>
+                </div>
+                <div class="d-flex gap-2 flex-shrink-0">
+                    {% if restricted_teams < team_count %}
+                        <form method="post"
+                              action="{{ request.url_for('set_team_session_policy', slug=contest.login_slug) }}"
+                              data-confirm="Limit every team to one session from one address?"
+                              class="d-inline">
+                            <input type="hidden" name="restrict" value="true">
+                            <button type="submit" class="btn btn-outline-primary btn-sm">Restrict all teams</button>
+                        </form>
+                    {% endif %}
+                    {% if restricted_teams > 0 %}
+                        <form method="post"
+                              action="{{ request.url_for('set_team_session_policy', slug=contest.login_slug) }}"
+                              data-confirm="Let every team sign in from anywhere again?"
+                              class="d-inline">
+                            <input type="hidden" name="restrict" value="false">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">Allow all teams</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
         {# Macro: render a single user row #}
         {% macro user_row(u, show_remove) %}
             {% set can_edit = current_admin_user_id != u.id %}
@@ -73,6 +112,17 @@
                         <a href="{{ request.url_for('edit_user_form', slug=contest.login_slug, user_id=u.id) }}"
                            class="btn btn-outline-secondary btn-sm flex-shrink-0">Edit</a>
                     {% endif %}
+                    {% if u.locked_ip %}
+                        {# Available *during* the contest, unlike Remove: a running
+                           contest is the only time a lock exists, and a team that
+                           changed seats is locked out until it is released. #}
+                        <button type="button"
+                                class="btn btn-outline-warning btn-sm flex-shrink-0"
+                                data-clear-ip-lock-button
+                                data-action="{{ request.url_for('clear_user_ip_lock', slug=contest.login_slug, user_id=u.id) }}"
+                                data-team="{{ u.fullname or u.username }}"
+                                data-address="{{ u.locked_ip }}">Clear IP lock</button>
+                    {% endif %}
                     {% if show_remove %}
                         <form method="post"
                               action="{{ request.url_for('remove_user_route', slug=contest.login_slug, user_id=u.id) }}"
@@ -82,6 +132,17 @@
                         </form>
                     {% endif %}
                 </div>
+                {% if u.locked_ip or not u.allow_concurrent_login %}
+                    <div class="text-muted small mt-1">
+                        {% if u.locked_ip %}
+                            {{ render_icon(icon="lock", classes="me-1") }}Bound to <code>{{ u.locked_ip }}</code>
+                            {%- if u.locked_at %} since {{ u.locked_at.strftime("%Y-%m-%d %H:%M") }} UTC
+                            {% endif %}
+                        {% else %}
+                            {{ render_icon(icon="lock_open", classes="me-1") }}One session, one address — not bound yet
+                        {% endif %}
+                    </div>
+                {% endif %}
             </div>
         {% endmacro %}
         {% macro admin_user_row(u) %}
@@ -311,8 +372,60 @@
             </div>
         </div>
     </div>
+    {# One modal for every Clear IP lock button: during a contest every team can
+       be bound at once, so a dialog per row would put hundreds in the document. #}
+    <div class="modal fade"
+         id="clear-ip-lock-modal"
+         tabindex="-1"
+         aria-labelledby="clear-ip-lock-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title" id="clear-ip-lock-modal-label">
+                        {{ render_icon(icon="lock_open", classes="me-1") }} Clear IP lock
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-1">
+                        <strong data-clear-ip-lock-team></strong> is bound to <code data-clear-ip-lock-address></code>.
+                        Releasing the lock signs their open sessions out; the next sign-in binds whatever
+                        address it comes from.
+                    </p>
+                    <p class="text-muted small mb-0">Use this when a team has changed seats, network, or machine.</p>
+                    <div class="mt-3">
+                        <label for="clear-ip-lock-password" class="form-label">Confirm with your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="clear-ip-lock-password"
+                               name="password"
+                               form="clear-ip-lock-form"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <form method="post"
+                          id="clear-ip-lock-form"
+                          data-clear-ip-lock-form
+                          class="d-inline">
+                        <button type="submit" class="btn btn-warning btn-sm">Clear IP lock</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='clear-ip-lock.js') }}"
             defer></script>
 {% endblock %}

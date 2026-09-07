@@ -15,6 +15,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from starlette.background import BackgroundTask
 
 from shared.enumerations import ProblemValidatorType
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.services.custom_validator import build_validation_job
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_package import PackageError, open_problem_package
@@ -23,7 +24,7 @@ from shared.services.problem_package.upload import (
     spool_upload,
     temporary_package_path,
 )
-from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
+from shared.services.sample_problem_package import sample_problem_package_response
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
@@ -32,6 +33,7 @@ from web.routes.contest_admin_problem_helpers import (
     _is_edit_allowed,
     _redirect,
 )
+from web.services.export_rate_limit import web_admin_export_rate_limit
 from web.services.problem_service import (
     build_problem_export,
     get_active_statement_path,
@@ -69,18 +71,12 @@ async def import_problem_form(
 
 @router.get("/import/sample", name="download_sample_problem_package")
 async def download_sample_problem_package(
+    request: Request,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> Response:
-    """Download the reference \"A + B\" problem package."""
+    """Download the reference "A + B" problem package (memoized per process, `304`-aware)."""
     del ctx
-    with temporary_package_path() as destination:
-        await anyio.to_thread.run_sync(build_sample_problem_package, destination)
-    return FileResponse(
-        destination,
-        media_type="application/zip",
-        filename=SAMPLE_PACKAGE_FILENAME,
-        background=BackgroundTask(destination.unlink, missing_ok=True),
-    )
+    return await sample_problem_package_response(request)
 
 
 @router.post("/import", response_class=HTMLResponse, response_model=None, name="import_problem_submit")
@@ -116,6 +112,7 @@ async def import_problem_submit(
         await ctx.session.rollback()
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(str(request.url_for("import_problem_form", slug=ctx.contest.login_slug)))
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
     if import_result.validator_candidate_token is not None:
         await enqueue_custom_validator_validation_job(
             request.app.state.valkey_runtime,
@@ -183,7 +180,7 @@ async def problem_statement(
     )
 
 
-@router.get("/{problem_id}/export", name="export_problem")
+@router.get("/{problem_id}/export", name="export_problem", dependencies=[Depends(web_admin_export_rate_limit)])
 async def export_problem(
     request: Request,
     problem_id: str,

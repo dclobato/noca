@@ -216,6 +216,8 @@ class Task(Base):
     type: Mapped[TaskType]
     problem_id: Mapped[str | None]
     created_timestamp_seconds: Mapped[int]
+    acquired_at: Mapped[datetime | None]
+    acquired_timestamp_seconds: Mapped[int | None]
     finished_at: Mapped[datetime | None]
     finished_timestamp_seconds: Mapped[int | None]
     source_code: Mapped[str]

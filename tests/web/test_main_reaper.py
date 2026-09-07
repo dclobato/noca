@@ -113,3 +113,51 @@ async def test_lifespan_starts_reaper_when_enabled(monkeypatch: pytest.MonkeyPat
     assert captured["session_factory"] is main_module.app.state.db_session
     assert isinstance(captured["stop_event"], asyncio.Event)
     assert main_module.app.state.valkey_runtime.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_the_session_lock_reaper_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The session-lock reaper is opt-in like the others, and wired the same way.
+
+    Its default is `false` deliberately: the stale binding it releases only
+    arises when a contest is re-run by moving its start time, and the invariant
+    above -- that nothing but the worker-presence heartbeat starts unasked --
+    holds for it too.
+    """
+    _configure_common_monkeypatches(monkeypatch)
+    monkeypatch.setattr(main_module.settings, "ENABLE_SESSION_LOCK_REAPER", True)
+    monkeypatch.setattr(main_module.settings, "SESSION_LOCK_REAPER_INTERVAL_SECONDS", 180)
+
+    captured: dict[str, object] = {}
+
+    async def _fake_run_session_lock_reaper(
+        session_factory: object,
+        poll_interval_seconds: int,
+        stop_event: asyncio.Event,
+        logger: object,
+    ) -> None:
+        captured["session_factory"] = session_factory
+        captured["poll_interval_seconds"] = poll_interval_seconds
+        captured["stop_event"] = stop_event
+        await stop_event.wait()
+
+    monkeypatch.setattr(main_module, "run_session_lock_reaper", _fake_run_session_lock_reaper)
+
+    async with main_module.lifespan(main_module.app):
+        task = main_module.app.state.session_lock_reaper_task
+        assert task is not None
+        await asyncio.sleep(0)
+
+    assert captured["poll_interval_seconds"] == 180
+    assert captured["session_factory"] is main_module.app.state.db_session
+    assert main_module.app.state.session_lock_reaper_task is not None
+
+
+def test_the_session_lock_reaper_is_off_by_default() -> None:
+    """Pins the default itself, not just the wiring.
+
+    The test above asserts that only the worker-presence heartbeat starts
+    unasked; that invariant holds only while every reaper's default is off, so
+    the default is pinned here rather than left to be caught indirectly.
+    """
+    assert main_module.settings.ENABLE_SESSION_LOCK_REAPER is False

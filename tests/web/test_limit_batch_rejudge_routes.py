@@ -124,7 +124,7 @@ async def _setup(  # type: ignore[no-untyped-def]
     enqueue = AsyncMock()
     invalidate = AsyncMock()
     monkeypatch.setattr("web.routes.contest_admin_problem_limits.enqueue_job", enqueue)
-    monkeypatch.setattr("web.routes.contest_admin_problem_limits.invalidate_scoreboard_cache", invalidate)
+    monkeypatch.setattr("web.routes.contest_admin_problem_limits.invalidate_contest_result_caches", invalidate)
     token = actor_token(auth_service, username=admin.username, contest_id=running_contest.id)
     base = f"/c/{running_contest.login_slug}/admin/problems/{contest_problem.id}/limit-change-batches/{batch_id}"
     return app, token, base, enqueue, invalidate

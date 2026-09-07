@@ -245,11 +245,18 @@ async def test_admin_may_acquire_and_finish_a_task_through_the_routes(
     async with _client(app) as client:
         assert (await client.post(f"/c/{slug}/tasks/{task.id}/acquire")).status_code == 303
         assert (await client.post(f"/c/{slug}/tasks/{task.id}/finish")).status_code == 303
+        page = await client.get(f"/c/{slug}/tasks/")
 
     refreshed = await session.get(Task, task.id)
     assert refreshed is not None
     assert refreshed.staff_id == admin_user.id
     assert refreshed.finished_at is not None
+    # Regression test for the "Service time" column always showing "--" on a
+    # finished task: the acquisition instant used to live only on the Valkey
+    # lock, which `finish_task` releases before the row can ever be read back.
+    assert refreshed.acquired_at is not None
+    row_html = page.text[page.text.index(f'id="{task.id}"') :]
+    assert re.search(r"\d+m \d+s", row_html)
 
 
 @pytest.mark.asyncio

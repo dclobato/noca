@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.routing import NoMatchFound
 
@@ -52,7 +53,7 @@ class _NoopGeo:
         return None
 
 
-def _build_app() -> tuple[FastAPI, AuthenticationService]:
+def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     """Build the smallest app that reproduces the production keepalive path.
 
     The route carries no authentication dependency of its own by design, so the
@@ -60,6 +61,7 @@ def _build_app() -> tuple[FastAPI, AuthenticationService]:
     are exactly what has to be present for the rotation to happen.
     """
     app = FastAPI(dependencies=[Depends(enforce_web_default_auth)])
+    app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
     app.add_middleware(AuthTokenRefreshMiddleware)
 
@@ -139,6 +141,7 @@ class TestSessionHeartbeatRoute:
     @pytest.mark.asyncio
     async def test_heartbeat_rotates_a_session_inside_the_refresh_window(
         self,
+        session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The regression test: a ping from an open page renews the cookie.
@@ -147,7 +150,7 @@ class TestSessionHeartbeatRoute:
         the Save that follows is answered with a redirect that discards the form.
         """
         monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 3600)
-        app, auth_service = _build_app()
+        app, auth_service = _build_app(session)
         token = _token(auth_service, expires_in=600)
 
         async with AsyncClient(
@@ -170,11 +173,12 @@ class TestSessionHeartbeatRoute:
     @pytest.mark.asyncio
     async def test_heartbeat_leaves_a_token_outside_the_window_alone(
         self,
+        session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A ping early in a token's life issues no cookie, so pings stay cheap."""
         monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 3600)
-        app, auth_service = _build_app()
+        app, auth_service = _build_app(session)
         token = _token(auth_service, expires_in=3500)
 
         async with AsyncClient(
@@ -188,14 +192,14 @@ class TestSessionHeartbeatRoute:
         assert _refreshed_cookie(response) is None
 
     @pytest.mark.asyncio
-    async def test_heartbeat_is_not_public(self) -> None:
+    async def test_heartbeat_is_not_public(self, session: AsyncSession) -> None:
         """An anonymous ping must not reach the endpoint or extend anything.
 
         The redirect is a `302`, which browsers turn into a `GET` for a `POST`
         just as a `303` does -- which is the whole reason an expired session
         costs the user their form.
         """
-        app, _ = _build_app()
+        app, _ = _build_app(session)
 
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -211,9 +215,9 @@ class TestSessionHeartbeatRoute:
 class TestSessionHeartbeatConfig:
     """What `_base.html` reads to decide whether, and how often, to ping."""
 
-    def test_a_live_session_is_configured(self) -> None:
+    def test_a_live_session_is_configured(self, session: AsyncSession) -> None:
         """An authenticated page carries the keepalive URL and its interval."""
-        app, _ = _build_app()
+        app, _ = _build_app(session)
 
         config = session_heartbeat_config(_request(app, validated_token=_Validation(valid=True)))
 
@@ -221,21 +225,21 @@ class TestSessionHeartbeatConfig:
         assert str(config["heartbeat_url"]).endswith("/session/heartbeat")
         assert config["interval_seconds"] == session_heartbeat_seconds()
 
-    def test_an_anonymous_page_is_not_configured(self) -> None:
+    def test_an_anonymous_page_is_not_configured(self, session: AsyncSession) -> None:
         """Login and the other public pages have no session to keep alive."""
-        app, _ = _build_app()
+        app, _ = _build_app(session)
 
         assert session_heartbeat_config(_request(app)) is None
         assert session_heartbeat_config(_request(app, validated_token=_Validation(valid=False))) is None
 
-    def test_a_capped_out_session_is_not_configured(self) -> None:
+    def test_a_capped_out_session_is_not_configured(self, session: AsyncSession) -> None:
         """Past the absolute cap the session is over; pinging would only mislead.
 
         The token still validates -- the cap is enforced beside it, not inside it --
         so this has to be checked separately or a finished session would keep
         rendering a keepalive that can never rotate anything.
         """
-        app, _ = _build_app()
+        app, _ = _build_app(session)
 
         config = session_heartbeat_config(
             _request(app, validated_token=_Validation(valid=True), token_cap_exceeded=True)
@@ -282,14 +286,14 @@ class TestSessionHeartbeatConfig:
             session_heartbeat_config(_request(bare, validated_token=_Validation(valid=True)))
 
 
-def _build_render_app() -> tuple[FastAPI, AuthenticationService]:
+def _build_render_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     """Extend the keepalive app with the templates needed to render a real page.
 
     ``_base.html`` resolves the four static mounts directly and reaches every
     other destination through ``nav_url``, which is already tolerant of routes a
     single-router application does not mount.
     """
-    app, auth_service = _build_app()
+    app, auth_service = _build_app(session)
     web_dir = Path(__file__).resolve().parents[2] / "web"
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
 
@@ -323,9 +327,9 @@ class TestKeepaliveRendersOnAnAuthenticatedPage:
     """
 
     @pytest.mark.asyncio
-    async def test_a_live_session_page_carries_the_heartbeat_element(self) -> None:
+    async def test_a_live_session_page_carries_the_heartbeat_element(self, session: AsyncSession) -> None:
         """An authenticated page ships the config element and the shared script."""
-        app, auth_service = _build_render_app()
+        app, auth_service = _build_render_app(session)
         token = _token(auth_service, expires_in=settings.JWT_EXPIRE_SECONDS)
 
         async with AsyncClient(
@@ -343,9 +347,9 @@ class TestKeepaliveRendersOnAnAuthenticatedPage:
         assert "noca-presence.js" in response.text
 
     @pytest.mark.asyncio
-    async def test_an_anonymous_page_carries_no_heartbeat_element(self) -> None:
+    async def test_an_anonymous_page_carries_no_heartbeat_element(self, session: AsyncSession) -> None:
         """With no session there is nothing to keep alive, and nothing is emitted."""
-        app, _ = _build_render_app()
+        app, _ = _build_render_app(session)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
             response = await client.get("/rendered", follow_redirects=False)

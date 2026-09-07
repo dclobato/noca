@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from shared.enumerations import RoleEnum, Verdict
 from shared.queue_schema import JudgeJob, VerdictEvent
-from shared.services.scoreboard_cache import invalidate_scoreboard_cache
+from shared.services.scoreboard_cache import invalidate_contest_result_caches
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models import Submission, SubmissionJudgment, User
 from web.routes.contest_submissions_helpers import load_submission_in_contest
@@ -260,7 +260,7 @@ async def post_confirm_submission_verdict(
                 update_kind="confirmation",
             ),
         )
-        await invalidate_scoreboard_cache(request.app.state.valkey_runtime, str(ctx.contest.id))
+        await invalidate_contest_result_caches(request.app.state.valkey_runtime, str(ctx.contest.id))
 
     flash("Confirmation submitted successfully.", FlashCategory.SUCCESS)
     return RedirectResponse(url=confirm_url, status_code=303)
@@ -321,7 +321,7 @@ async def post_rejudge_submission(
         ),
         priority=True,
     )
-    await invalidate_scoreboard_cache(request.app.state.valkey_runtime, str(ctx.contest.id))
+    await invalidate_contest_result_caches(request.app.state.valkey_runtime, str(ctx.contest.id))
 
     flash("Submission queued for rejudging.", FlashCategory.SUCCESS)
     return RedirectResponse(url=review_url, status_code=303)

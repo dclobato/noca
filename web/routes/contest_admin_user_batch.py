@@ -10,6 +10,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
+from shared.services.contest_report_cache import invalidate_contest_report_cache
 from shared.services.security_events import record_request_security_event
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
@@ -54,6 +55,7 @@ async def batch_import_submit(
     request: Request,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
     file: UploadFile = File(...),
+    restrict_session: str = Form(""),
 ) -> HTMLResponse:
     templates = request.app.state.templates
     content = await file.read()
@@ -79,11 +81,19 @@ async def batch_import_submit(
 
     try:
         users_data = parse_batch_upload(ctx.contest.login_slug, file.filename or "", content)
-        result = await batch_import_users(ctx.session, ctx.contest, ctx.actor, users_data)
+        result = await batch_import_users(
+            ctx.session,
+            ctx.contest,
+            ctx.actor,
+            users_data,
+            allow_concurrent_login=not restrict_session,
+        )
     except HTTPException as exc:
         return _render_error(str(exc.detail))
     except ValueError as exc:
         return _render_error(str(exc))
+
+    await invalidate_contest_report_cache(getattr(request.app.state, "valkey_runtime", None), str(ctx.contest.id))
 
     downloadable_users = [
         {

@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,8 +25,29 @@
 })(typeof window !== "undefined" ? window : null, function () {
   "use strict";
 
+  // The rail names a team the way every other Animator surface does: the full
+  // name an audience recognizes, with the login only as the fallback.
+  var format =
+    typeof module !== "undefined" && module.exports
+      ? require("./cell-format.js")
+      : (typeof window !== "undefined" ? window : {}).AnimatorCellFormat;
+
   var MAX_EVENTS = 30;
   var EMPTY_MESSAGE = "No activity yet";
+
+  function pad2(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  // Format elapsed contest minutes as HH:MM matching the scoreboard clock.
+  // Negative, NaN, or missing values degrade safely to "00:00".
+  function formatEventTime(minute) {
+    var numeric = Number(minute);
+    var totalMinutes = isNaN(numeric) || numeric < 0 ? 0 : Math.floor(numeric);
+    var hours = Math.floor(totalMinutes / 60);
+    var mins = totalMinutes % 60;
+    return pad2(hours) + ":" + pad2(mins);
+  }
 
   function getCell(snapshot, teamId, problemId) {
     var standings = snapshot && Array.isArray(snapshot.standings) ? snapshot.standings : [];
@@ -157,7 +178,7 @@
       item.setAttribute("data-event-key", key);
       var time = doc.createElement("span");
       time.setAttribute("class", "animator-events-time");
-      time.textContent = String(minute) + "\u2032";
+      time.textContent = formatEventTime(minute);
       var text = doc.createElement("span");
       text.setAttribute("class", "animator-events-text");
       text.textContent = message;
@@ -198,13 +219,17 @@
       seeded = true;
       var items = snapshot && Array.isArray(snapshot.recent_events) ? snapshot.recent_events : [];
       items.forEach(function (item) {
-        if (!item || !item.key || !item.team_name || !item.problem_label) {
+        if (!item || !item.key || !item.problem_label) {
+          return;
+        }
+        var name = format.teamLabel(item);
+        if (!name) {
           return;
         }
         var minute = Number(item.minute);
         append(
           isNaN(minute) ? 0 : minute,
-          composeMessage(item.kind, String(item.team_name), String(item.problem_label), item.verdict),
+          composeMessage(item.kind, name, String(item.problem_label), item.verdict),
           String(item.key),
         );
       });
@@ -216,7 +241,7 @@
         if (!row || row.team_id === undefined || row.team_id === null) {
           return;
         }
-        teamNames[String(row.team_id)] = String(row.team_name || "");
+        teamNames[String(row.team_id)] = format.teamLabel(row);
         Object.keys(row.problems || {}).forEach(function (label) {
           var cell = row.problems[label];
           if (cell && cell.problem_id !== undefined && cell.problem_id !== null) {
@@ -337,5 +362,10 @@
     };
   }
 
-  return { MAX_EVENTS: MAX_EVENTS, EMPTY_MESSAGE: EMPTY_MESSAGE, createEventRail: createEventRail };
+  return {
+    MAX_EVENTS: MAX_EVENTS,
+    EMPTY_MESSAGE: EMPTY_MESSAGE,
+    createEventRail: createEventRail,
+    formatEventTime: formatEventTime,
+  };
 });

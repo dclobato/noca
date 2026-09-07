@@ -480,6 +480,42 @@ class Settings(BaseSettings):
         description="Fixed-window length in seconds for per-user problem downloads.",
     )
 
+    ADMIN_EXPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_ENABLED",
+        description="Enable the per-user budget on Arena admin exports (full problem package, security-events CSV).",
+    )
+    ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=20,
+        ge=1,
+        validation_alias="NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_MAX_REQUESTS",
+        description="Arena admin export downloads accepted per user in each fixed window; the next gets 429.",
+    )
+    ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ARENA_ADMIN_EXPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-user Arena admin exports.",
+    )
+
+    TEACHER_REPORT_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_ENABLED",
+        description="Enable the per-user budget on the teacher problem-set report pages and CSV.",
+    )
+    TEACHER_REPORT_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_MAX_REQUESTS",
+        description="Teacher report page loads and CSV downloads accepted per user in each fixed window.",
+    )
+    TEACHER_REPORT_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=600,
+        ge=1,
+        validation_alias="NOCA_ARENA_TEACHER_REPORT_RATE_LIMIT_WINDOW_SECONDS",
+        description="Fixed-window length in seconds for per-user teacher reports.",
+    )
+
     SIGNUP_RATE_LIMIT_MAX_REQUESTS: int = Field(
         default=5,
         ge=1,

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -31,6 +31,7 @@ from web.services.task_service import (
     can_view_tasks,
     list_tasks,
 )
+from web.services.time_utils import elapsed_since, format_elapsed_minutes
 
 _ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF, RoleEnum.TEAM)
 _HANDLE_ALLOWED = (RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF)
@@ -66,28 +67,38 @@ def _elapsed_str(delta: datetime.timedelta) -> str:
     return f"{mins}m {secs}s"
 
 
-def _queue_minutes_str(delta: datetime.timedelta) -> str:
-    total_s = max(0, int(delta.total_seconds()))
-    return f"{total_s // 60}m"
-
-
 def _compute_queue_time_map(
     tasks: Sequence[TaskView],
     now_aware: datetime.datetime,
-    now_naive: datetime.datetime,
 ) -> dict[str, str]:
     result: dict[str, str] = {}
     for t in tasks:
-        start = t.created_at
-        if start.tzinfo is None:
-            end = (
-                t.finished_at.replace(tzinfo=None)
-                if (t.finished_at and t.finished_at.tzinfo is not None)
-                else (t.finished_at or now_naive)
-            )
+        result[t.id] = format_elapsed_minutes(t.created_at, now=t.finished_at or now_aware)
+    return result
+
+
+def _compute_service_time_map(
+    tasks: Sequence[TaskView],
+    now_aware: datetime.datetime,
+) -> dict[str, str | None]:
+    """Map each task to its service time, or ``None`` for a "--" cell.
+
+    A finished task's service time is read from ``service_started_at``, the
+    persisted acquisition instant, never from the live lock -- the lock is
+    already released by the time a task finishes. An in-progress task instead
+    reads the live lock (``acquired_at``) and ticks against "now", exactly as
+    before this persisted column existed: reading the persisted column there
+    too would keep counting up for a task whose lock expired and was dropped,
+    showing a growing service time for a task nobody is handling.
+    """
+    result: dict[str, str | None] = {}
+    for t in tasks:
+        if t.finished_at is not None and t.service_started_at is not None:
+            result[t.id] = _elapsed_str(elapsed_since(t.service_started_at, now=t.finished_at))
+        elif t.finished_at is None and t.acquired_at is not None:
+            result[t.id] = _elapsed_str(elapsed_since(t.acquired_at, now=now_aware))
         else:
-            end = t.finished_at if t.finished_at else now_aware
-        result[t.id] = _queue_minutes_str(end - start)
+            result[t.id] = None
     return result
 
 
@@ -107,7 +118,6 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
 
     role = ctx.actor.role if isinstance(ctx.actor, User) else None
     now_aware = datetime.datetime.now(datetime.UTC)
-    now_naive = now_aware.replace(tzinfo=None)
 
     if role == RoleEnum.TEAM:
         problem_map: dict[str, str] = {p.id: f"{_label(p.ordinal)}: {p.title}" for p in problems}
@@ -120,7 +130,7 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
             "problems": problems,
             "problem_map": problem_map,
             "problem_color_map": problem_color_map,
-            "queue_time_map": _compute_queue_time_map(tasks, now_aware, now_naive),
+            "queue_time_map": _compute_queue_time_map(tasks, now_aware),
         }
 
     users_result = await ctx.session.execute(
@@ -157,26 +167,9 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
         "team_location_map": team_location_map,
         "problem_map": rich_problem_map,
         "problem_color_map": rich_problem_color_map,
-        "queue_time_map": _compute_queue_time_map(tasks, now_aware, now_naive),
+        "queue_time_map": _compute_queue_time_map(tasks, now_aware),
     }
     if role in (RoleEnum.ADMIN,) or isinstance(ctx.actor, UberAdmin):
-        service_time_map: dict[str, str | None] = {}
-        for t in tasks:
-            if t.acquired_at is None:
-                service_time_map[t.id] = None
-                continue
-            acq = t.acquired_at
-            if acq.tzinfo is None:
-                end = (
-                    t.finished_at.replace(tzinfo=None)
-                    if (t.finished_at and t.finished_at.tzinfo is not None)
-                    else (t.finished_at or now_naive)
-                )
-                delta = end - acq
-            else:
-                end = t.finished_at if t.finished_at else now_aware
-                delta = end - acq
-            service_time_map[t.id] = _elapsed_str(delta)
-        ctx_data["service_time_map"] = service_time_map
+        ctx_data["service_time_map"] = _compute_service_time_map(tasks, now_aware)
 
     return ctx_data

@@ -30,6 +30,8 @@ class Clarification(Base):
     is_announcement: Mapped[bool]
     answer: Mapped[str | None]
     created_timestamp_seconds: Mapped[int]
+    acquired_at: Mapped[datetime | None]
+    acquired_timestamp_seconds: Mapped[int | None]
     answered_at: Mapped[datetime | None]
     answer_read_at: Mapped[datetime | None]
     answered_timestamp_seconds: Mapped[int | None]

@@ -422,6 +422,73 @@ async def test_staff_can_acquire_task(
     assert lock.holder_id == staff_user.id
 
 
+async def test_acquire_persists_acquisition_time_and_survives_finish(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    """The acquisition instant is durable, so a finished task reports a real service time.
+
+    Regression test for the "Service time" column always showing "--" on a
+    finished task: the acquisition instant used to live only on the Valkey
+    lock, which `finish_task` releases before the row can ever be read back.
+    """
+    staff_user = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="staff_service_time",
+        fullname="Staff Service Time",
+        role=RoleEnum.STAFF,
+    )
+    task = await create_sos_task(session, running_contest, team_user)
+    assert task.acquired_at is None
+
+    acquired = await acquire_task(session, running_contest, staff_user, task)
+    assert acquired.acquired_at is not None
+    assert acquired.acquired_timestamp_seconds is not None
+
+    finished = await finish_task(session, running_contest, staff_user, task)
+    assert finished.finished_at is not None
+    assert finished.acquired_at is not None
+    assert finished.acquired_at <= finished.finished_at
+
+
+async def test_reacquire_overwrites_the_previous_handlers_acquisition_time(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    """A task released and picked up by someone else reports the last handler's time."""
+    staff_one = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="staff_first_holder",
+        fullname="Staff First",
+        role=RoleEnum.STAFF,
+    )
+    staff_two = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="staff_second_holder",
+        fullname="Staff Second",
+        role=RoleEnum.STAFF,
+    )
+    task = await create_sos_task(session, running_contest, team_user)
+
+    await acquire_task(session, running_contest, staff_one, task)
+    first_acquired_at = task.acquired_at
+    await release_task(session, running_contest, staff_one, task)
+
+    await acquire_task(session, running_contest, staff_two, task)
+    assert task.acquired_at is not None
+    assert task.acquired_at != first_acquired_at
+
+
 async def test_second_staff_cannot_acquire_already_acquired_task(
     session: AsyncSession,
     running_contest: Contest,

@@ -71,6 +71,9 @@
     // an accessibility consumer attached pays for on every tick.
     setText(el, ContestClockUtils.countdownText(nowMs, startMs, endMs));
     setData(el, "urgency", ContestClockUtils.countdownUrgency(nowMs, startMs, endMs));
+    document.dispatchEvent(new CustomEvent("noca:contest-clock-tick", {
+      detail: { nowMs: nowMs, startMs: startMs, endMs: endMs }
+    }));
     if (!phaseEl) return;
     const phase = ContestClockUtils.contestPhase(nowMs, startMs, endMs, freezeMs, blindMs);
     const label = ContestClockUtils.phaseLabel(phase);

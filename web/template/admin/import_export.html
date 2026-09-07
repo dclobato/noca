@@ -50,9 +50,9 @@
                             events rendered as a wrapped fixed-width table.
                         </p>
                         <p class="text-muted small mb-3">
-                            This is a best-effort export from persisted contest history and may
-                            omit transient lock-only acquisitions that are not stored in the
-                            database.
+                            This is a best-effort export from persisted contest history. Tasks and
+                            clarifications closed administratively at the end of the contest report
+                            no acquisition, because they were never handled.
                         </p>
                         <a href="{{ request.url_for('export_contest_timeline', slug=contest.login_slug) }}"
                            class="btn btn-outline-primary">
