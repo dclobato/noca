@@ -31,7 +31,7 @@ is a template with defaults and inline documentation; keep the `.full` originals
 in the repository and edit your copies.
 
 ```sh
-for layer in common database http webarena email storage workers aireview \
+for layer in common database http webarena email storage profiling workers aireview \
              web arena autojudge rating aiassistant mailer healthmonitor animator; do
   cp ".env.$layer.full" ".env.$layer"
 done
@@ -57,6 +57,7 @@ a value for `NOCA_AI_OPENAI_API_KEY` or `NOCA_ARENA_GOOGLE_OAUTH_CLIENT_SECRET`.
 | `webarena` | Cookies, JWT, auth throttling, password policy, images, API keys | web, arena |
 | `email` | Sender identity, queue TTL, per-actor budget | web, arena, mailer |
 | `storage` | Shared problem test-case directory | web, arena, autojudge |
+| `profiling` | The Auto-Limit cap the judge enforces and the Web Limits tab states | web, autojudge |
 | `workers` | Worker pause/resume HMAC secret | arena, autojudge, aiassistant, mailer |
 | `aireview` | The two settings Arena and the AI worker must agree on | arena, aiassistant |
 | `web`, `arena`, `autojudge`, `rating`, `aiassistant`, `mailer`, `healthmonitor`, `animator`, `landingpage` | that module's own settings | that module |
@@ -80,9 +81,9 @@ sets it to `.` because `scripts/backup_noca.sh` archives `problem_statements`,
 
 | Service | Layers, broad to narrow |
 |---|---|
-| web | common, database, http, webarena, email, storage, web |
+| web | common, database, http, webarena, email, storage, profiling, web |
 | arena | common, database, http, webarena, email, storage, aireview, workers, arena |
-| autojudge | common, database, storage, workers, autojudge |
+| autojudge | common, database, storage, profiling, workers, autojudge |
 | rating | common, database, rating |
 | aiassistant | common, database, aireview, workers, aiassistant |
 | mailer | common, database, email, workers, mailer |

@@ -67,9 +67,25 @@ def test_lock_ttl_validation_accepts_strictly_greater_value(tmp_path: Path) -> N
         tmp_path,
         LOCK_TTL_SECONDS=61,
         REAPER_STALE_THRESHOLD_MINUTES=1,
+        PROFILING_REAPER_STALE_THRESHOLD_MINUTES=1,
     )
 
     assert isolated_settings.LOCK_TTL_SECONDS == 61
+
+
+def test_lock_ttl_validation_also_covers_the_profiling_threshold(tmp_path: Path) -> None:
+    """The profiling threshold is the larger of the two by default, so it is checked too.
+
+    The lock is what makes the reaper's stale decision atomic; a threshold that
+    outlives it lets the lock expire naturally first and the guarantee is gone.
+    """
+    with pytest.raises(ValidationError, match="PROFILING_REAPER_STALE_THRESHOLD_MINUTES"):
+        _build_settings(
+            tmp_path,
+            LOCK_TTL_SECONDS=61,
+            REAPER_STALE_THRESHOLD_MINUTES=1,
+            PROFILING_REAPER_STALE_THRESHOLD_MINUTES=2,
+        )
 
 
 @pytest.mark.parametrize("lock_ttl_seconds", [60, 59])

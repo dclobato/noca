@@ -12,6 +12,7 @@ from typing import TypedDict
 
 from fastapi import Request
 
+from web.config import settings
 from web.dependencies import ContestAdminContext
 from web.models.language import Language
 from web.models.problem import Problem, ProblemLimitChangeBatch, ProblemLimitChangeBatchSubmission
@@ -59,11 +60,22 @@ async def _build_profiling_limits_context(
         if languages
         else None
     )
+    # What an author is told before spending a profiling run. The cap bounds one
+    # execution; the product bounds all repetitions of one test case, so it moves
+    # with the selected language and is re-rendered here for the initial paint --
+    # the page is correct with JavaScript disabled, and the script only keeps it
+    # in step as the selector changes.
+    selected_repetitions = next(
+        (language.profiling_repetitions_default for language in languages if language.id == selected_language_id),
+        None,
+    )
     return {
         "request": request,
         "contest": ctx.contest,
         "problem": problem,
         "languages": languages,
+        "profiling_cap_seconds": settings.PROFILING_MAX_CPU_TIME_SEC,
+        "profiling_selected_repetitions": selected_repetitions,
         "limits_map": limits_map,
         "form_data": form_data,
         "is_edit_allowed": _is_edit_allowed(ctx.contest),

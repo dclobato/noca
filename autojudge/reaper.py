@@ -18,7 +18,10 @@ Solution
 --------
 The reaper runs as a coroutine alongside the worker slots. Every
 `reaper_interval_s` seconds it looks for jobs that have been in-flight
-longer than `reaper_stale_threshold_minutes` and requeues them.
+longer than `reaper_stale_threshold_minutes` and requeues them. Profiling jobs
+use `profiling_reaper_stale_threshold_minutes` instead: they run the reference
+implementation once per repetition per test case, so they stay legitimately in
+flight far longer than any submission.
 
 Data structures
 ---------------
@@ -92,6 +95,7 @@ async def reaper_loop(
             {
                 "interval_s": settings.REAPER_INTERVAL_S,
                 "stale_threshold_min": settings.REAPER_STALE_THRESHOLD_MINUTES,
+                "profiling_stale_threshold_min": settings.PROFILING_REAPER_STALE_THRESHOLD_MINUTES,
                 "max_requeue": settings.REAPER_MAX_REQUEUE_COUNT,
             },
             indent=2,
@@ -165,14 +169,18 @@ async def _reaper_cycle(valkey: Valkey_Client) -> tuple[int, int, int]:
         Jobs found in the sorted set but whose hash no longer exists
         (finished normally — stale timestamp entry cleaned up).
     """
-    threshold_s = settings.REAPER_STALE_THRESHOLD_MINUTES * 60.0
-    cutoff_epoch = time.time() - threshold_s
+    now = time.time()
+    cutoff_epoch = now - settings.REAPER_STALE_THRESHOLD_MINUTES * 60.0
+    profiling_cutoff_epoch = now - settings.PROFILING_REAPER_STALE_THRESHOLD_MINUTES * 60.0
 
-    # Find all judgment_ids dispatched before the cutoff
+    # Scan on the loosest of the two cutoffs so no kind is missed, whichever
+    # threshold an operator has made larger. The result is an advisory superset:
+    # reap_stale_job re-decides against the candidate's own kind, and a job that
+    # is not yet stale by its own rule comes back "not_stale" untouched.
     stale_ids = await valkey.zrangebyscore(
         settings.queue_inflight_times_key,
         min=0,
-        max=cutoff_epoch,
+        max=max(cutoff_epoch, profiling_cutoff_epoch),
     )
 
     if not stale_ids:
@@ -184,11 +192,12 @@ async def _reaper_cycle(valkey: Valkey_Client) -> tuple[int, int, int]:
 
     for raw_id in stale_ids:
         judgment_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
-        outcome, _job_kind, requeue_count = await reap_stale_job(
+        outcome, job_kind, requeue_count = await reap_stale_job(
             valkey,
             job_id=judgment_id,
             cutoff_epoch=cutoff_epoch,
             max_requeue_count=settings.REAPER_MAX_REQUEUE_COUNT,
+            profiling_cutoff_epoch=profiling_cutoff_epoch,
         )
         if outcome in {"not_stale", "not_inflight"}:
             continue

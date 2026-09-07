@@ -321,7 +321,7 @@ def test_absent_format_version_means_one(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("version", [0, 3, 99])
+@pytest.mark.parametrize("version", [0, 4, 99])
 def test_unsupported_format_version_fails_before_other_metadata(tmp_path: Path, version: int) -> None:
     # The title is absent too; the version error must win, proving the check runs
     # before any other field is interpreted.

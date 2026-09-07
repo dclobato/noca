@@ -54,7 +54,11 @@ def optional_json_env(name: str) -> Any | None:
 
 def read_limits() -> dict[str, Any]:
     return {
+        # PROBLEM_TIME_LIMIT is the budget for the whole test case; the per-run
+        # limit an admin types is reported separately.
         "problem_time_limit": optional_int_env("PROBLEM_TIME_LIMIT"),
+        "problem_time_limit_per_run": optional_int_env("PROBLEM_TIME_LIMIT_PER_RUN"),
+        "problem_repetitions": optional_int_env("PROBLEM_REPETITIONS"),
         "problem_output_limit": optional_int_env("PROBLEM_OUTPUT_LIMIT"),
         "problem_memory_limit": optional_int_env("PROBLEM_MEMORY_LIMIT"),
         "problem_pid_limit": optional_int_env("PROBLEM_PID_LIMIT"),

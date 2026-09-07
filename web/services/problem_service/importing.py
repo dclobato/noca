@@ -15,17 +15,21 @@ enqueues after commit.
 from __future__ import annotations
 
 import random
+from collections.abc import Mapping
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.profiling_limits import ceil_div
 from shared.services.custom_validator import stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import load_staged_image
 from shared.services.problem_package import PackageError, PackageWarning, ProblemPackage
+from shared.services.problem_package.constants import PER_RUN_TIME_LIMIT_VERSION
 from shared.services.problem_package.errors import WARN_DISALLOWED_LANGUAGE_LIMITS
 from shared.services.problem_package.journal import journal_root_for
+from shared.services.problem_package.model import PackageLanguageLimit
 from shared.services.problem_package.promotion import ArtifactPromoter, commit_with_promotion
 from shared.services.problem_package.reconcile import reconcile_import_journals
 from web.models.contest import Contest
@@ -185,6 +189,26 @@ async def import_problem_package(
     )
 
 
+def _resolve_package_repetitions(
+    database_defaults: Mapping[str, int],
+    declared: Mapping[str, PackageLanguageLimit],
+) -> dict[str, int]:
+    """Resolve the repetition count each declared language will actually store.
+
+    An omitted count resolves from the target database's language row, because
+    that is the contest's authoritative configuration. A legacy package's time
+    limit has to be divided by the very number stored beside it, not by a
+    built-in registry value that may differ from the deployed database.
+    """
+    resolved: dict[str, int] = {}
+    for language_id, limit in declared.items():
+        if limit.repetitions is not None:
+            resolved[language_id] = limit.repetitions
+            continue
+        resolved[language_id] = database_defaults.get(language_id, 1)
+    return resolved
+
+
 async def _apply_language_limits(
     session: AsyncSession,
     contest: Contest,
@@ -192,25 +216,44 @@ async def _apply_language_limits(
     package: ProblemPackage,
     warnings: list[PackageWarning],
 ) -> None:
-    """Apply the package's per-language limits the contest actually allows."""
+    """Apply the package's per-language limits the contest actually allows.
+
+    Below format version 3 a package's ``time_limit_ms`` is the budget shared by
+    all repetitions of a test case rather than the limit for one of them, so it
+    is divided here. This is the layer that can do it: an omitted ``repetitions``
+    means "whatever the importing side defaults to", a value the package itself
+    never knew, so the parser cannot convert and importing a 1000 ms limit into
+    a ten-repetition language without dividing would quietly grant a 10,000 ms
+    budget. The division rounds up, matching the schema migration, so an import
+    is never stricter than the package it came from.
+    """
     declared = package.metadata.language_limits
     if not declared:
         return
-    contest_language_ids = {language.id for language in await get_contest_languages(session, contest)}
+    legacy_totals = package.metadata.format_version < PER_RUN_TIME_LIMIT_VERSION
+    contest_languages = await get_contest_languages(session, contest)
+    database_defaults = {language.id: language.profiling_repetitions_default for language in contest_languages}
+    resolved_repetitions = _resolve_package_repetitions(database_defaults, declared)
+    contest_language_ids = set(database_defaults)
     allowed: dict[str, LanguageLimitInput] = {}
     skipped: list[str] = []
     for language_id, limit in declared.items():
         if language_id not in contest_language_ids:
             skipped.append(language_id)
             continue
+        if legacy_totals:
+            repetitions = resolved_repetitions[language_id]
+            time_limit_ms: int | None = ceil_div(limit.time_limit_ms, repetitions)
+            stored_repetitions: int | None = repetitions
+        else:
+            time_limit_ms = limit.time_limit_ms
+            stored_repetitions = resolved_repetitions[language_id]
         allowed[language_id] = {
-            "time_limit_ms": limit.time_limit_ms,
+            "time_limit_ms": time_limit_ms,
             "memory_limit_kb": limit.memory_limit_kb,
             "pids_limit": limit.pids_limit,
             "output_limit_in_bytes": limit.output_limit_in_bytes,
-            # None lets upsert_language_limits fall back to the language
-            # registry's profiling default, which only this side knows.
-            "repetitions": limit.repetitions,
+            "repetitions": stored_repetitions,
         }
     if skipped:
         warnings.append(

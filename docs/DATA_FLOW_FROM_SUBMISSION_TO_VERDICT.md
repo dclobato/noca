@@ -61,8 +61,9 @@ Judge worker
     │  7. Load test-case bytes from the shared filesystem and IDs from PostgreSQL
     │  8. Acquire a warm or on-demand run container for the language
     │  9. For each test case, including configured repetitions:
-    │     (the time limit is one budget shared by all repetitions of the case,
-    │      re-sliced so each repetition runs with what is left, TLE once spent)
+    │     (the stored limit is the time for one run; the case's budget is that
+    │      times the repetition count, re-sliced so each repetition runs with
+    │      what is left, TLE once spent -- so TLE means the average run went over)
     │     - inject input and artifact with put_archive()
     │     - reset isolate box state
     │     - run the program through isolate inside the container

@@ -4153,6 +4153,51 @@ Consumers:
 
 ---
 
+## `profiling_limits.py`
+
+Purpose:
+- the single formula that turns an Auto-Limit observation into a stored time limit
+
+Canonical location:
+- `shared/profiling_limits.py` (a pure function: no I/O, no session, no settings)
+
+Main entrypoints:
+- `profiled_time_limit_ms(*, safety_factor, total_wall_time_ms, repetitions) -> int`
+  — applies the safety factor to the observed **mean** of one run and never
+  returns below 1
+- `ceil_div(numerator, denominator) -> int` — integer division rounding up, the
+  rounding every conversion of a pre-per-run time limit shares: the schema
+  migration, a legacy problem-package import, and a version 7 backup restore. It
+  rounds **up** on purpose, so a converted limit can only be more generous than
+  the value it came from, never stricter than the contest that was running
+
+Why it is shared rather than inlined:
+- Profiling observes a test case's wall time *summed* across the run's
+  repetitions, while a stored `time_limit_ms` is the time for a single run. Two
+  places need that conversion — the worker that persists the limit and the Web
+  layer that recomputes the same suggestion for the Limits tab — and when each
+  owned a copy they disagreed, so a freshly auto-limited language rendered as a
+  manual edit.
+- It rounds **once**. `ceil(safety_factor * ceil(total / repetitions))` rounds
+  twice and inflates the limit, so the division happens inside the single
+  `ceil`.
+
+Consumers:
+- autojudge (`autojudge/db/_results.py` → `compute_profiled_limits`) — persists
+  the limit, dividing by the count frozen in `profiling_runs.repetitions`
+- web (`web/services/problem_service/profiling.py` →
+  `compute_profiling_limits_map`) — recomputes the identical number to decide
+  whether a stored row still matches its Auto-Limit suggestion
+
+A note on that frozen count: `profiling_runs.repetitions` is stamped when a run
+starts, so a later edit to the language registry's
+`profiling_repetitions_default` cannot change how an existing run's suggestion is
+read. Rows that predate the column were backfilled from the registry's current
+default, which is the best available estimate rather than a reconstruction — the
+value an old run really used was never recorded.
+
+---
+
 ## Arena module — shared service instances
 
 The arena module initializes its own instances of the shared services listed below. All

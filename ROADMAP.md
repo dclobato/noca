@@ -130,16 +130,11 @@ and is recorded as follow-on work.
 
 ## Web
 
-Two ideas, neither an accepted contract. Reference implementations
+One idea, not an accepted contract: reference implementations
 (`good`/`wrong`/`slow`/`pass`) carried in the problem package and stored with the
 problem, so limits can be *validated* — does the test data reject a wrong
 solution, does the time limit reject a slow one — rather than only derived from a
-single correct one; Arena is deliberately excluded. And an evaluation of whether
-the single-session policy flag belongs on the contest rather than on each user:
-the machinery that exists to manage a per-user flag is largely there to express
-one contest-wide decision, and the argument is to decide it before the session
-binding work is considered finished, since unwinding a released per-user column
-costs more later.
+single correct one; Arena is deliberately excluded.
 
 [Open `web` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open)
 

@@ -81,6 +81,13 @@ class ProblemLimits:
     """
     Resource limits for a single problem, adjusted for the language.
     Passed to run_test_case() so it does not need to know about Problem models.
+
+    ``time_limit_ms`` is the limit for *one* repetition of a test case. The
+    budget for the whole case is ``case_budget_ms()`` -- the product with
+    ``repetitions`` -- and the judge drains that single budget across the
+    repetitions rather than enforcing the limit on each one, so a slow
+    repetition borrows from a fast one and TLE means the *mean* run exceeded
+    the limit.
     """
 
     time_limit_ms: int
@@ -92,6 +99,23 @@ class ProblemLimits:
     # min(problem_limit, global_limit), never a fallback for a missing value.
     output_limit_in_bytes: int
     repetitions: int = 1
+
+
+def case_budget_ms(limits: ProblemLimits) -> int:
+    """Return the wall-time budget for one whole test case.
+
+    This is the only place the per-run limit is turned into a total. Every
+    judging path reaches it through ``_run_repeated_test_case``, and the
+    validator environment uses it so a validator still sees the budget it
+    always saw.
+
+    Args:
+        limits: Effective limits for the submission's language.
+
+    Returns:
+        Milliseconds available to all repetitions of one test case together.
+    """
+    return limits.time_limit_ms * max(1, limits.repetitions)
 
 
 @dataclass(frozen=True)

@@ -93,8 +93,10 @@ _TEST_CASES: Final[tuple[tuple[str, str, str | None, bool], ...]] = (
 )
 
 _LANGUAGE_LIMITS: Final[dict[str, PackageLanguageLimit]] = {
+    # time_limit_ms is the limit for one run of a test case, so python3 gets the
+    # same 1000 ms per run rust does and simply runs each case three times.
     "python3": PackageLanguageLimit(
-        time_limit_ms=3000,
+        time_limit_ms=1000,
         memory_limit_kb=262144,
         pids_limit=64,
         output_limit_in_bytes=1048576,

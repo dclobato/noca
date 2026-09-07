@@ -524,16 +524,29 @@ portability advice for running a validator outside NOCA.
 
 | Environment variable | Value |
 | --- | --- |
-| `PROBLEM_TIME_LIMIT` | Effective time limit for the submitted language, in milliseconds |
+| `PROBLEM_TIME_LIMIT` | Time budget for the **whole test case**, in milliseconds — `PROBLEM_TIME_LIMIT_PER_RUN × PROBLEM_REPETITIONS` |
+| `PROBLEM_TIME_LIMIT_PER_RUN` | Time limit for **one run** of a test case, in milliseconds — the number an admin types |
+| `PROBLEM_REPETITIONS` | How many times each test case is run for the submitted language; `1` unless the problem sets a per-language row |
 | `PROBLEM_OUTPUT_LIMIT` | Effective contestant-output limit, in bytes |
 | `PROBLEM_MEMORY_LIMIT` | Effective memory limit for the submitted language, in KiB |
 | `PROBLEM_PID_LIMIT` | Effective PID limit for the submitted language |
 | `USER_LANGUAGE` | Submitted language ID, such as `python3` |
 
-These five values contain everything the validator receives about problem
-limits. Web and Arena do not inject the limits of other languages. A validator's
-behavior must not depend on which unrelated languages are enabled or on their
-configured limits.
+These values contain everything the validator receives about problem limits. Web
+and Arena do not inject the limits of other languages. A validator's behavior
+must not depend on which unrelated languages are enabled or on their configured
+limits.
+
+**On `PROBLEM_TIME_LIMIT` and the per-run split.** The stored limit is now the
+time for a single run; the limit for a whole test case is that number times the
+repetition count. `PROBLEM_TIME_LIMIT` deliberately keeps reporting the **whole
+case's budget**, which is what it has always reported and what deployed
+validators enforce against. Changing its meaning underneath them would have made
+every already-installed validator silently stricter the moment the judge was
+upgraded, and no amount of documentation reaches a validator source that is
+already in the field. Use `PROBLEM_TIME_LIMIT_PER_RUN` when you want the per-run
+number. For a problem with no per-language row — the common case — the two are
+equal, because that path runs each case once.
 
 ### Applied to the validator
 
@@ -690,6 +703,6 @@ a historical judgment.
 | Attempt rows kept per judgment | 2 (the last executed case only) |
 | Interactive watchdog | `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS`, default **300 s**, **per test case** |
 | Contestant output limit | `min(` the problem's `output_limit_in_bytes`, `NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` (global ceiling, default 64 MB), counted per test case. The problem always states one — the column is NOT NULL — so the global value is a ceiling, not a fallback. |
-| Validator limit env vars | `PROBLEM_TIME_LIMIT`, `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`, `USER_LANGUAGE` |
+| Validator limit env vars | `PROBLEM_TIME_LIMIT` (whole case), `PROBLEM_TIME_LIMIT_PER_RUN`, `PROBLEM_REPETITIONS`, `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`, `USER_LANGUAGE` |
 | Transcript recording cap | 256 KiB per attempt, then flagged truncated |
 | stderr excerpt cap (per side) | 16 KiB |

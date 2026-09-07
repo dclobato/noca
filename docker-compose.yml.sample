@@ -82,6 +82,7 @@ services:
       - .env.webarena.full
       - .env.email.full
       - .env.storage.full
+      - .env.profiling.full
       - .env.web.full
     environment:
       # Only values that are true *because* this is a container: everything else
@@ -197,6 +198,7 @@ services:
       - .env.common.full
       - .env.database.full
       - .env.storage.full
+      - .env.profiling.full
       - .env.workers.full
       - .env.autojudge.full
     environment:

@@ -449,7 +449,9 @@ async def test_sample_package_imports_cleanly_into_a_contest(session: AsyncSessi
     assert [tc.ordinal for tc in test_cases] == [1, 2, 3]
     assert test_cases[0].explanation is not None
     assert set(limits) == {"python3", "rust"}
-    assert limits["python3"].time_limit_ms == 3000
+    # A per-run limit, imported verbatim: the sample package is written at the
+    # current format version, so nothing is divided on the way in.
+    assert limits["python3"].time_limit_ms == 1000
     assert limits["python3"].repetitions == 3
     assert limits["rust"].memory_limit_kb == 131072
     assert {category.name for category in problem.categories} == {"sample", "math"}

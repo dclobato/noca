@@ -168,8 +168,17 @@ tools/build-apk.sh                  # signed release APK (see the next section)
 
 The first invocation builds the image, which downloads roughly 1 GB of Android
 SDK; after that a clean build is a couple of minutes and an incremental one is
-seconds. Output lands in the normal place, `app/build/outputs/apk/<variant>/`,
-owned by you rather than by root — the container runs as your uid:gid.
+seconds. Output lands in the normal place, `app/build/outputs/`, owned by you
+rather than by root — the container runs as your uid:gid. Every APK or AAB a
+build produces is additionally **hard-linked into the project root** —
+`app-debug.apk`, `app-release.apk`, `app-release.aab` — so the artifact you hand
+out is one predictable path rather than a variant-specific directory you have to
+remember. A hard link costs no disk and, unlike moving the file, leaves Gradle's
+up-to-date check intact, so an unchanged rebuild still skips packaging. The link
+is remade on every build because Gradle recreates its output rather than writing
+through it; a root-level APK is therefore as old as your last successful build of
+that variant, never older. `.gitignore` covers `*.apk` and `*.aab`, which the
+`build/` rule used to do on its own.
 
 Other entry points:
 
@@ -298,8 +307,7 @@ container that produced it:
 
 ```bash
 docker run --rm -v "$PWD:$PWD" -w "$PWD" noca/animator-remote-build \
-    apksigner verify --verbose --print-certs \
-    app/build/outputs/apk/release/app-release.apk
+    apksigner verify --verbose --print-certs app-release.apk
 ```
 
 Expect `Verified using v2 scheme (APK Signature Scheme v2): true` and your own
@@ -441,7 +449,7 @@ If that contract test fails after a server-side change, regenerate the fixtures 
 
 ## Distributing the APK
 
-Build it as above, then hand `app/build/outputs/apk/release/app-release.apk` to
+Build it as above, then hand the `app-release.apk` left in the project root to
 each operator over USB (`adb install -r <file>`) or any file transfer; the phone
 asks them to allow installation from that source.
 

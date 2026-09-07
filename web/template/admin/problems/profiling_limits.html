@@ -20,6 +20,7 @@
                                 {% if not is_edit_allowed or active_profiling_run %}disabled{% endif %}>
                             {% for lang in languages %}
                                 <option value="{{ lang.id }}"
+                                        data-repetitions="{{ lang.profiling_repetitions_default }}"
                                         {% if profiling_selected_language_id == lang.id %}selected{% endif %}>
                                     {{ lang.name }}
                                 </option>
@@ -56,6 +57,28 @@
                         </button>
                     </div>
                 </div>
+                {% if profiling_selected_repetitions %}
+                    <div class="alert alert-secondary small py-2 mt-3 mb-0"
+                         id="profiling-timing-note"
+                         data-profiling-cap-seconds="{{ profiling_cap_seconds }}">
+                        <strong>What will fail this run.</strong> The reference implementation must return AC on every
+                        test case, and it must do so inside two ceilings:
+                        <ul class="mb-0 mt-1">
+                            <li>
+                                any <strong>single run</strong> of a single test case that takes more than
+                                <strong data-profiling-single-run>{{ "%g"|format(profiling_cap_seconds) }} s</strong>
+                                fails the run;
+                            </li>
+                            <li>
+                                the selected language repeats each test case
+                                <strong data-profiling-repetitions>{{ profiling_selected_repetitions }}</strong>
+                                times, so <strong>all of those runs together</strong> taking more than
+                                <strong data-profiling-total>{{ "%g"|format(profiling_cap_seconds * profiling_selected_repetitions) }} s</strong>
+                                also fails it.
+                            </li>
+                        </ul>
+                    </div>
+                {% endif %}
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
                     <small class="text-muted">
                         {% if active_profiling_run %}
@@ -68,7 +91,7 @@
                             class="btn btn-sm btn-outline-secondary"
                             form="fallback-limits-form"
                             {% if not is_limits_edit_allowed or active_profiling_run %}disabled{% endif %}>
-                        Auto-set Fallback Limits
+                        Auto-set Simple Limits
                     </button>
                 </div>
                 {% if latest_profiling_run %}
@@ -131,7 +154,7 @@
                             <tr>
                                 <th>Language</th>
                                 <th>Reps</th>
-                                <th>Total time (ms)</th>
+                                <th>Time per run (ms)</th>
                                 <th>Memory (KB)</th>
                                 <th>PIDs</th>
                                 <th>Output (bytes)</th>
@@ -178,7 +201,7 @@
                                                    min="1"
                                                    step="1"
                                                    value="{{ lang_limit.time_limit_ms if lang_limit else '' }}"
-                                                   placeholder="{{ form_data.time_limit_ms if form_data.time_limit_ms is defined else '(fallback)' }}"
+                                                   placeholder="{{ form_data.time_limit_ms if form_data.time_limit_ms is defined else '(simple)' }}"
                                                    form="edit-form"
                                                    {% if not is_limits_edit_allowed %}disabled{% endif %}>
                                             {% if lang_limit and lang_limit.time_limit_ms %}
@@ -193,7 +216,7 @@
                                                 {% endif %}
                                                 {% if lang_limit.repetitions and lang_limit.repetitions > 1 %}
                                                     <div class="small text-muted">
-                                                        ≈ {{ lang_limit.time_limit_ms // lang_limit.repetitions }} ms per run
+                                                        = {{ lang_limit.time_limit_ms * lang_limit.repetitions }} ms budget
                                                         across {{ lang_limit.repetitions }} reps
                                                     </div>
                                                 {% endif %}
@@ -206,7 +229,7 @@
                                                    min="1"
                                                    step="1"
                                                    value="{{ lang_limit.memory_limit_kb if lang_limit else '' }}"
-                                                   placeholder="{{ form_data.memory_limit_kb if form_data.memory_limit_kb is defined else '(fallback)' }}"
+                                                   placeholder="{{ form_data.memory_limit_kb if form_data.memory_limit_kb is defined else '(simple)' }}"
                                                    form="edit-form"
                                                    {% if not is_limits_edit_allowed %}disabled{% endif %}>
                                             {% if lang_limit and lang_limit.memory_limit_kb %}
@@ -228,7 +251,7 @@
                                                    min="1"
                                                    step="1"
                                                    value="{{ lang_limit.pids_limit if lang_limit else '' }}"
-                                                   placeholder="{{ form_data.pids_limit if form_data.pids_limit is defined else '(fallback)' }}"
+                                                   placeholder="{{ form_data.pids_limit if form_data.pids_limit is defined else '(simple)' }}"
                                                    form="edit-form"
                                                    {% if not is_limits_edit_allowed %}disabled{% endif %}>
                                             {% if lang_limit and lang_limit.pids_limit %}
@@ -273,25 +296,18 @@
                 </div>
                 <div class="px-3 pb-2 pt-1">
                     <small class="text-muted d-block">
-                        <strong>Repetitions apply only when a per-language limit row exists.</strong> If a language
-                        has no per-language row, all limits fall back to the problem-level values and the
-                        submission is judged with exactly <strong>1 repetition</strong>. Thus, a fallback time
-                        limit of 1000 ms gives that language one run with a 1000 ms budget, even if the language's
-                        profiling default is 10 repetitions.
+                        <strong>Time per run</strong> means the same thing here and in the simple limits above:
+                        the time for one run of a test case. Repetitions run each case that many times to smooth
+                        out measurement noise, so the case's budget is time &times; repetitions. A language with
+                        no per-language row uses the simple limits and runs each case once.
                     </small>
                     <small class="text-muted d-block">
-                        When a per-language row is created, it uses that row's repetition count. Its
-                        <strong>Total time</strong> is the budget shared across all repetitions. For example,
-                        1000 ms across 10 repetitions provides about 100 ms per run on average. To retain a
-                        nominal 1000 ms per run, enter a total limit of 10,000 ms.
+                        That budget is shared, not re-imposed on every run: each run gets whatever is left of it,
+                        so a slow run borrows from a fast one and TLE means the <strong>average</strong> run went
+                        over — not that one unlucky run did. Memory, PID and output limits are peaks and are
+                        unaffected by the repetition count.
                     </small>
-                    <small class="text-muted d-block">
-                        The per-run figure is an average, not a separate hard limit for every run: each run
-                        receives the remaining total budget, and judging stops with TLE once that shared budget
-                        is exhausted. Memory, PID and output limits are peak limits and are not multiplied or
-                        divided by the repetition count.
-                    </small>
-                    <small class="text-muted d-block">Leave all fields blank for a language to use the problem-level fallback limits above.</small>
+                    <small class="text-muted d-block">Leave all fields blank for a language to use the simple limits above.</small>
                 </div>
             </div>
         </div>

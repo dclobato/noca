@@ -38,6 +38,7 @@ from autojudge.types import (
     QueuedSubmission,
     RepetitionCaseResult,
     SubmissionSource,
+    case_budget_ms,
 )
 from autojudge.verdict import CaseResult, aggregate_verdict, worst_resource_usage
 from shared.enumerations import Verdict
@@ -144,9 +145,27 @@ async def _run_repeated_test_case(
     expected_output: bytes,
     docker_client: docker.DockerClient,
     executor: ThreadPoolExecutor,
+    per_run_ceiling_ms: int | None = None,
 ) -> RepetitionCaseResult:
     """
     Run one test case across the problem repetition count under a shared time budget.
+
+    ``limits.time_limit_ms`` is the limit for a single repetition, so the budget
+    for the case is the product with ``limits.repetitions``. That budget is
+    spent, not re-imposed per repetition: each run is launched with whatever is
+    left, so a slow repetition borrows from a fast one and the case is TLE only
+    once the whole budget is gone. TLE therefore means the *mean* run exceeded
+    the stated limit, which is what makes repetitions smooth measurement noise
+    instead of giving a submission N chances to get unlucky.
+
+    ``per_run_ceiling_ms`` bounds a single execution on top of that. Judging a
+    submission leaves it unset, because borrowing is the whole point of a
+    problem's time limit. Profiling sets it, because the number it runs under is
+    not a problem's limit at all but an infrastructure cap
+    (``NOCA_JUDGE_PROFILING_MAX_CPU_TIME_SEC``) whose job is to bound *one*
+    execution -- without it, a hung reference implementation would take the
+    entire aggregate budget in its first run and hold a judge container for the
+    whole of it.
 
     Args:
         container_id: Pool container to use.
@@ -157,12 +176,14 @@ async def _run_repeated_test_case(
         expected_output: Expected output bytes for comparison.
         docker_client: Synchronous Docker client.
         executor: ThreadPoolExecutor for Docker SDK calls.
+        per_run_ceiling_ms: Hard ceiling for any single execution, or None to let
+            one repetition draw on the whole remaining budget.
 
     Returns:
         RepetitionCaseResult with aggregated verdict and resource peaks.
     """
 
-    remaining_budget_ms = limits.time_limit_ms
+    remaining_budget_ms = case_budget_ms(limits)
     total_wall_time_ms = 0
     peak_memory_kb: int | None = None
     peak_output_bytes: int | None = None
@@ -186,8 +207,11 @@ async def _run_repeated_test_case(
                 stderr_excerpt=stderr_excerpt,
             )
 
+        run_limit_ms = remaining_budget_ms
+        if per_run_ceiling_ms is not None:
+            run_limit_ms = min(run_limit_ms, per_run_ceiling_ms)
         repetition_limits = ProblemLimits(
-            time_limit_ms=remaining_budget_ms,
+            time_limit_ms=run_limit_ms,
             memory_limit_kb=limits.memory_limit_kb,
             pids_limit=limits.pids_limit,
             output_limit_in_bytes=limits.output_limit_in_bytes,

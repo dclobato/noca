@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from shared.enumerations import ProfilingStatus
 from shared.language_registry import default_language_registry
+from shared.profiling_limits import profiled_time_limit_ms
 from shared.queue_schema import ProfilingJob
 from web.models.problem import Problem, ProfilingRun
 from web.services.valkey_service import ValkeyRuntime
@@ -98,7 +99,21 @@ def compute_profiling_limits_map(profiling_runs: list[ProfilingRun]) -> dict[str
         default_language = default_registry.get(run.language_id)
         pids_floor = default_language.profiled_pids_floor if default_language is not None else 32
         result[run.language_id] = {
-            "time_limit_ms": max(1, math.ceil(run.safety_factor * max_time)) if max_time is not None else None,
+            # Wall time is summed across the run's repetitions while the stored
+            # limit is the mean of one run, so this divides where the other
+            # observations do not. It must stay identical to what the worker
+            # persisted or every freshly auto-limited language renders as a
+            # manual edit -- hence the shared helper rather than a second copy
+            # of the formula.
+            "time_limit_ms": (
+                profiled_time_limit_ms(
+                    safety_factor=run.safety_factor,
+                    total_wall_time_ms=max_time,
+                    repetitions=run.repetitions,
+                )
+                if max_time is not None
+                else None
+            ),
             "memory_limit_kb": max(1, math.ceil(run.safety_factor * max_mem)) if max_mem is not None else None,
             "pids_limit": (
                 max(pids_floor, math.ceil(run.safety_factor * max_pids)) if max_pids is not None else pids_floor

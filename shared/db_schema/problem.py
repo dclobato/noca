@@ -251,7 +251,10 @@ problem_language_limits = Table(
         "repetitions",
         Integer,
         nullable=False,
-        comment="Number of executions sharing the total time budget for this problem/language pair.",
+        comment=(
+            "How many times each test case is run for this problem/language pair. The stored "
+            "time_limit_ms is the limit for one of those runs, so the case budget is their product."
+        ),
     ),
     _created_at_column(),
     _updated_at_column(),
@@ -279,6 +282,19 @@ profiling_runs = Table(
         server_default=ProfilingStatus.QUEUED.value,
     ),
     Column("safety_factor", Float, nullable=False, default=1.5, server_default="1.5"),
+    Column(
+        "repetitions",
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+        comment=(
+            "Repetitions this run measured each test case across, frozen when the run "
+            "started. The stored limit is a per-run mean, so anyone recomputing the "
+            "suggestion has to divide by this -- and reading the language registry's "
+            "current default instead would drift the moment that default is edited."
+        ),
+    ),
     Column("worker_id", String(200), nullable=True),
     Column(
         "attempt_token",

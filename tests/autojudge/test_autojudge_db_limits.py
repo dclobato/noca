@@ -183,6 +183,39 @@ async def test_set_profiling_done_persists_repetitions(
     assert refreshed_limit.repetitions == 10
 
 
+async def test_set_profiling_running_freezes_the_repetition_count(
+    engine,
+    session: AsyncSession,
+    contest_problem: Problem,
+):
+    """The count a run measures across is stamped when it starts, not read back later.
+
+    An Auto-Limit suggestion has to be divisible by the number the observation
+    was summed over. Deriving that later from the language registry would drift
+    the moment the registry's default is edited, so the run records its own.
+    """
+    lang = _make_language(session, "cpp")
+    profiling_run = ProfilingRun(
+        problem_id=contest_problem.id,
+        language_id=lang.id,
+        source_code="int main() { return 0; }",
+        source_hash=hashlib.sha256(b"int main() { return 0; }").hexdigest(),
+        status=ProfilingStatus.DISPATCHED,
+        safety_factor=1.5,
+        attempt_token=TEST_ATTEMPT_TOKEN,
+    )
+    session.add_all([lang, profiling_run])
+    await session.flush()
+    await session.commit()
+
+    async with open_db(engine) as db:
+        await db.set_profiling_running(profiling_run.id, TEST_ATTEMPT_TOKEN, 7)
+
+    await session.refresh(profiling_run)
+    assert profiling_run.status is ProfilingStatus.RUNNING
+    assert profiling_run.repetitions == 7
+
+
 async def test_set_profiling_dispatched_is_fenced_on_a_terminal_run(
     engine,
     session: AsyncSession,

@@ -23,18 +23,32 @@ from shared.services.sample_interactions import (
     MAX_INTERACTION_MEMBER_BYTES,
 )
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 """The package format version this build writes.
 
-Version 2 adds the explicit ``validator_type`` discriminator. Version 1 -- and a
-package with no ``format_version`` key at all, which predates the key -- is still
-read, with the strategy derived from ``custom_validator`` presence.
+Version 3 redefines ``language_limits[].time_limit_ms`` as the limit for *one*
+repetition of a test case; before it, the same field was the budget shared by
+all of them. Nothing in the file's shape changed, only what the number means, so
+an older package is read and its value divided by the repetition count that
+applies to it -- see ``web.services.problem_service.importing``, which is the
+layer that knows what an omitted ``repetitions`` resolves to.
+
+Version 2 added the explicit ``validator_type`` discriminator. Version 1 -- and
+a package with no ``format_version`` key at all, which predates the key -- is
+still read, with the strategy derived from ``custom_validator`` presence.
 """
 
 LEGACY_FORMAT_VERSION = 1
-"""The older package format version this build still reads."""
+"""The oldest package format version this build still reads."""
 
-SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, FORMAT_VERSION)
+PER_RUN_TIME_LIMIT_VERSION = 3
+"""First version whose ``language_limits[].time_limit_ms`` is a per-run limit.
+
+An import of anything older has to divide that field by the repetition count in
+effect for it; at or above this version the stored value is used as written.
+"""
+
+SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, 2, FORMAT_VERSION)
 """Every package format version this build accepts on import."""
 
 # --- Field-length caps (the larger of each historical pair, both domains) -----

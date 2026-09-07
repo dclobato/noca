@@ -106,7 +106,8 @@ offline-cracking/reuse warning.
 
 The importer applies these gates before it creates database rows or files.
 
-1. **Manifest gate:** a supported `format_version` (`6` only), presence of all
+1. **Manifest gate:** a supported `format_version` (`8`, or `7` — see
+   [Versioning](#versioning)), presence of all
    required JSON members, and every referenced per-problem folder.
 2. **Safe members:** reject path traversal, absolute names, drive letters,
    duplicate members, and excessive member counts.
@@ -138,10 +139,35 @@ show as new to the restored teams.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `7`, `FORMAT_VERSION` in
-`web/services/contest_backup_service/models.py`). This server restores **version 7
-only**; anything else is refused with a message naming the supported version. Bump it
-on any breaking layout change and update this document.
+The archive is versioned by `format_version` (currently `8`, `FORMAT_VERSION` in
+`web/services/contest_backup_service/models.py`). This server restores **versions 8
+and 7**; anything else is refused with a message naming the supported versions. Bump
+it on any breaking layout change and update this document.
+
+Accepting more than the current version is normally *not* what this format does, and
+version 8 is the stated exception -- see below for why it does not reopen the problem
+the single-version rule exists to prevent.
+
+### Version 8: per-run problem time limits
+
+Version 8 changes no columns, no members, and no shapes. It changes what one existing
+number **means**: `problem_language_limits.time_limit_ms` is now the limit for one run
+of a test case, where before it was the budget shared by all of that case's
+repetitions. The judge multiplies by the row's `repetitions` to recover the budget.
+
+That is why version 7 stays restorable. Every earlier retirement was driven by a
+*column* an older archive could not supply, which forced an inference rule per version
+per column -- and each such rule is a place for the integrity check and the restorer to
+disagree, admitting an archive that validates as one thing and restores as another.
+Version 7 needs none of that: it validates against the live table exactly as version 8
+does, because the columns are identical. All it needs is one arithmetic conversion,
+applied by `_restore_language_limits` on the way in -- `ceil(time_limit_ms /
+repetitions)`, the same rounding the `202609070001` schema migration used, so a restore
+is never stricter than the contest that was archived. Every row carries its own
+`repetitions` (the archive is a whole-table dump), so nothing has to be inferred.
+
+Refusing version 7 was considered and rejected: it would have made every backup taken
+before the upgrade unrestorable, which is a far larger loss than the one exception costs.
 
 ### Version 7: task and clarification service time
 
@@ -226,6 +252,7 @@ holding such an archive can tell what it is:
 | 4 | The stored `clarifications.is_announcement` flag, required as a row key. |
 | 5 | The `problems.public_export_generation` cache counter, required as a row key. |
 | 6 | The team session binding columns (`allow_concurrent_login`, `session_epoch`, `locked_ip`, `locked_at`) on every `users.json` row. |
+| 7 | The task and clarification service-time columns (`acquired_at`, `acquired_timestamp_seconds`). Still restorable: version 8 changed no columns. |
 
 ### Why an archive states every column
 

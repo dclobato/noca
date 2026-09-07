@@ -4,6 +4,33 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [21.0.0] - 2026-09-07
+
+### ⚠ Breaking Changes
+
+- **problem-limits:** Make the time limit mean one run everywhere
+
+  `problem_language_limits.time_limit_ms` now means the time for
+  one run rather than the budget shared by all of a test case's repetitions, and
+  migration 202609070001 converts every stored row. It cannot be rolled out by
+  restart, since an older judge would read the converted column under the old rule
+  and divide every multi-repetition budget by its repetition count; pause the
+  queue consumers from the Arena dashboard, migrate through web/arena, roll the
+  worker images, then resume. Existing deployments must also create
+  `.env.profiling` from `.env.profiling.full` and add it to the `web` and
+  `autojudge` env_file lists, since the setting it carries has a default and a
+  missing layer is otherwise silent. `NOCA_JUDGE_PROFILING_MAX_CPU_TIME_SEC` drops
+  from 30 s to 10 s. Contest backups move to format 8 and problem packages to
+  format 3; a version 7 backup and a version 1 or 2 package are still read and
+  converted on the way in, and anything older is refused as before.
+
+### Features
+
+- **[BREAKING]** **problem-limits:** Make the time limit mean one run everywhere
+- **animator-remote:** Hard-link build artifacts into the project root
+
+
+
 ## [20.0.2] - 2026-09-07
 
 ### Features

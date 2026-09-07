@@ -306,6 +306,21 @@ class Settings(BaseSettings):
         ),
     )
     # ------------------------------------------------------------------
+    # Auto-Limit profiling cap (enforced by the judge, stated by the Limits tab)
+    # ------------------------------------------------------------------
+    PROFILING_MAX_CPU_TIME_SEC: float = Field(
+        default=10.0,
+        ge=1.0,
+        validation_alias="NOCA_JUDGE_PROFILING_MAX_CPU_TIME_SEC",
+        description=(
+            "The judge's hard CPU-time ceiling for a single profiling execution. Web does not "
+            "enforce it -- it states it on the Limits tab, so an author knows what will fail a "
+            "profiling run before spending one. Same variable the judge reads, from the shared "
+            "`profiling` env layer, because two copies of this number would drift and the stale "
+            "copy would be the one shown to the person who needs it."
+        ),
+    )
+    # ------------------------------------------------------------------
     # SSE connection limits (concurrent streams per IP / per user)
     # ------------------------------------------------------------------
     SSE_LIMIT_ENABLED: bool = Field(

@@ -170,13 +170,18 @@ class _ProfilingMixin(_DatabaseBase):
         )
         await self._conn.commit()
 
-    async def set_profiling_running(self, profiling_run_id: str, attempt_token: str) -> None:
+    async def set_profiling_running(self, profiling_run_id: str, attempt_token: str, repetitions: int) -> None:
         """
         Mark a profiling run as actively executing test cases.
+
+        The repetition count is frozen here, at the moment the run starts, so
+        the stored per-run limit can always be reconciled with the observation
+        it came from even after the language registry's default changes.
 
         Args:
             profiling_run_id: UUID of the profiling run.
             attempt_token: Claim stamped by this attempt's dispatch.
+            repetitions: Repetitions this run will measure each test case across.
 
         Raises:
             JudgmentOwnershipLost: If another attempt has claimed the run.
@@ -184,7 +189,7 @@ class _ProfilingMixin(_DatabaseBase):
         result = await self._conn.execute(
             _profiling_run.update()
             .where(self._claim_predicate(AttemptClaim(_profiling_run, profiling_run_id, attempt_token)))
-            .values(status=ProfilingStatus.RUNNING, updated_at=_utcnow())
+            .values(status=ProfilingStatus.RUNNING, repetitions=repetitions, updated_at=_utcnow())
         )
         if result.rowcount == 0:
             await self._conn.rollback()

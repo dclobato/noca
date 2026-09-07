@@ -101,7 +101,11 @@ _REAP_STALE_JOB_SCRIPT = """
 local jid = ARGV[1]
 local cutoff = tonumber(ARGV[2])
 local max_requeues = tonumber(ARGV[3])
+local profiling_cutoff = tonumber(ARGV[4])
 local score = redis.call("ZSCORE", KEYS[1], jid)
+-- ARGV[2] is the loosest of the per-kind cutoffs, so this gate admits a
+-- superset. The job's own kind is only readable from its hash below, and the
+-- real per-kind decision is made there.
 if not score or tonumber(score) > cutoff then
     return {"not_stale", "", "0"}
 end
@@ -116,6 +120,13 @@ if redis.call("EXISTS", KEYS[3]) == 0 then
 end
 
 local job_kind = redis.call("HGET", KEYS[3], "job_kind") or "submission"
+-- Profiling runs the reference implementation over every test case `repetitions`
+-- times, so it stays legitimately in flight far longer than any submission and
+-- gets its own threshold. Nothing above this point mutates for a job that is
+-- still running and still has its hash, so re-deciding here is safe.
+if job_kind == "profiling" and tonumber(score) > profiling_cutoff then
+    return {"not_stale", job_kind, "0"}
+end
 local requeue_count = tonumber(redis.call("HGET", KEYS[3], "requeue_count") or "0") or 0
 if requeue_count >= max_requeues then
     if job_kind == "custom_validator_validation" or job_kind == "solution_test" then
@@ -283,18 +294,25 @@ async def reap_stale_job(
     job_id: str,
     cutoff_epoch: float,
     max_requeue_count: int,
+    profiling_cutoff_epoch: float | None = None,
 ) -> tuple[ReaperOutcome, str, int]:
     """Atomically revalidate and transition one candidate stale inflight job.
 
     Args:
         valkey: Async Valkey client.
         job_id: Candidate returned by the advisory stale-score scan.
-        cutoff_epoch: Maximum score still considered stale.
+        cutoff_epoch: Maximum score still considered stale, for every job kind
+            except profiling.
         max_requeue_count: Retry ceiling before the job is dropped.
+        profiling_cutoff_epoch: The same for profiling jobs, which run the
+            reference implementation once per repetition per test case and so
+            stay legitimately in flight much longer. Defaults to ``cutoff_epoch``.
 
     Returns:
         Outcome, job kind, and resulting requeue count.
     """
+    if profiling_cutoff_epoch is None:
+        profiling_cutoff_epoch = cutoff_epoch
     raw_result = await _eval(
         valkey,
         _REAP_STALE_JOB_SCRIPT,
@@ -308,6 +326,7 @@ async def reap_stale_job(
         job_id,
         cutoff_epoch,
         max_requeue_count,
+        profiling_cutoff_epoch,
     )
     outcome, job_kind, requeue_count = (_decode_scalar(item) for item in raw_result)
     return cast(ReaperOutcome, outcome), job_kind, int(requeue_count)

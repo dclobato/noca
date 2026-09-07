@@ -705,18 +705,26 @@ different strategy rather than convert that problem.
 #### Checker environment
 
 At runtime, the Autojudge translates `checker_semantics` into a fixed checker
-process environment. It also injects the same five core values guaranteed to an
+process environment. It also injects the same core values guaranteed to an
 interactive validator:
 
-- `PROBLEM_TIME_LIMIT`, the submitted language's effective time limit in
-  milliseconds;
+- `PROBLEM_TIME_LIMIT`, the budget for the **whole test case** in milliseconds,
+  which is `PROBLEM_TIME_LIMIT_PER_RUN` times `PROBLEM_REPETITIONS`;
+- `PROBLEM_TIME_LIMIT_PER_RUN`, the time limit for **one run** of a test case;
+- `PROBLEM_REPETITIONS`, how many times each case is run for the submitted
+  language (`1` unless the problem sets a per-language row);
 - `PROBLEM_OUTPUT_LIMIT`, the effective contestant-output limit in bytes;
 - `PROBLEM_MEMORY_LIMIT`, the submitted language's effective memory limit in
   KiB;
 - `PROBLEM_PID_LIMIT`, the submitted language's effective PID limit;
 - `USER_LANGUAGE`, the submitted language ID.
 
-These five values contain everything the checker receives about problem limits.
+`PROBLEM_TIME_LIMIT` reports the whole case's budget rather than the per-run
+number deliberately: that is what it has always reported, and redefining it would
+have made every already-deployed checker silently stricter. See
+[the interactive validator guide](INTERACTIVE_VALIDATOR.md#limit-metadata-available-to-the-validator).
+
+These values contain everything the checker receives about problem limits.
 Web and Arena do not inject the limits of other languages. A checker's behavior
 must not depend on which unrelated languages are enabled or on their configured
 limits. The five values are metadata for the checker; they do not apply the

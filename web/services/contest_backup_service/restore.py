@@ -108,6 +108,7 @@ async def restore_contest(
             testcase_dir,
             statement_dir,
             state,
+            int(manifest["format_version"]),
         )
         await restore_submissions(session, submissions, state)
         await restore_judgments(session, judgments, state)

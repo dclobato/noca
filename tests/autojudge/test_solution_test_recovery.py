@@ -45,6 +45,7 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Settings:
         REAPER_INTERVAL_S = 0.2
         REAPER_STALE_THRESHOLD_MINUTES = 0.0
+        PROFILING_REAPER_STALE_THRESHOLD_MINUTES = 0.0
         REAPER_MAX_REQUEUE_COUNT = 3
         queue_inflight_times_key = INFLIGHT_TIMES_KEY
         queue_inflight_key = INFLIGHT_KEY

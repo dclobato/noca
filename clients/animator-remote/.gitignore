@@ -8,6 +8,11 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Build artifacts: tools/build-apk.sh moves them to the project root, out of the
+# build/ directory that would otherwise ignore them.
+*.apk
+*.aab
+
 # Release signing material: never committed.
 keystore.properties
 *.jks

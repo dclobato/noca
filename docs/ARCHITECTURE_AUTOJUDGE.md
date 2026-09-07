@@ -10,7 +10,7 @@ isolated from the HTTP processes.
 
 Related references:
 - [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview and the infrastructure boundary
-- [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details, including the time budget shared across a test case's repetitions and the run-phase watchdog that outlives it
+- [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details, including how a per-run time limit becomes a test case's shared budget and the run-phase watchdog that outlives it
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
 - [CONTAINER_STARTUP_OPTIONS.md](CONTAINER_STARTUP_OPTIONS.md) for the judge container Dockerfile and startup behavior
 - [ARCHITECTURE_RUNTIME.md](ARCHITECTURE_RUNTIME.md) for the judging architecture and the communication model with `web`

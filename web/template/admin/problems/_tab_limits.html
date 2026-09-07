@@ -5,14 +5,14 @@
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-  Contest Limits pane: the failover limits plus the Web-only Auto-Limit profiling
+  Contest Limits pane: the simple limits plus the Web-only Auto-Limit profiling
   card. The two flags are not interchangeable and the existing split is preserved
-  verbatim: the failover fields follow `is_edit_allowed`, while the per-language
+  verbatim: the simple fields follow `is_edit_allowed`, while the per-language
   limit rows inside profiling_limits.html follow `is_limits_edit_allowed`, which
   is what stays true while a contest is running.
 #}
 <div class="card shadow-sm mb-4">
-    <div class="card-header fw-semibold">Failover limits</div>
+    <div class="card-header fw-semibold">Simple limits</div>
     <div class="card-body">
         <div class="row g-3">
             <div class="col-6 col-md-3">
@@ -107,8 +107,8 @@
             </div>
             <div class="col-12 mt-2">
                 <small class="text-muted">
-                    Fallback limits always use exactly 1 repetition per test case, so the time limit
-                    above is the budget for a single execution.
+                    The time limit is the time for one run of a test case. These limits apply to any
+                    language without a per-language row below, and run each test case once.
                 </small>
             </div>
         </div>

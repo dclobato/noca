@@ -13,19 +13,30 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 
 #: Every archive version this server restores.
 #:
-#: Version 7 is the only one. Strict row validation compares an archived row
-#: against the *live* table, so each earlier version needed its own set of
-#: columns-it-predates plus an inference rule for what those columns would have
-#: held -- one rule per version per column, each a place for the integrity check
-#: and the restorer to disagree and admit an archive that validates as one thing
-#: and restores as another. Dropping them removes that whole class of bug along
-#: with the archives that needed it. An older archive is refused with a clear
-#: message rather than restored approximately.
-SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (FORMAT_VERSION,)
+#: Normally this is the current version alone. Strict row validation compares an
+#: archived row against the *live* table, so an earlier version needs its own set
+#: of columns-it-predates plus an inference rule for what those columns would
+#: have held -- one rule per version per column, each a place for the integrity
+#: check and the restorer to disagree and admit an archive that validates as one
+#: thing and restores as another. Dropping those rules removed that whole class
+#: of bug along with the archives that needed them.
+#:
+#: Version 7 is admitted as a deliberate exception, because it does not reopen
+#: that class. Version 8 changed no columns at all: it changed what one existing
+#: value *means*, from a time budget shared by a test case's repetitions to the
+#: limit for one of them. Row validation is therefore identical for 7 and 8, and
+#: the only difference is a single arithmetic conversion applied on restore. The
+#: alternative was making every backup taken before the upgrade unrestorable,
+#: which is far more destructive than the rule this exception costs.
+SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (7, FORMAT_VERSION)
+
+#: First archive version whose ``problem_language_limits.time_limit_ms`` is the
+#: limit for one repetition rather than the budget shared by all of them.
+PER_RUN_TIME_LIMIT_VERSION = 8
 
 #: Names of the JSON members that must be present in a valid backup archive.
 MANIFEST_MEMBER = "manifest.json"

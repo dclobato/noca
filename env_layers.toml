@@ -29,6 +29,7 @@ http = "Reverse-proxy trust, security headers, /health limit, status-page link"
 webarena = "Cookies, JWT, auth throttling, password policy, images, API keys"
 email = "Sender identity, queue TTL, per-actor budget"
 storage = "Shared problem test-case directory"
+profiling = "The Auto-Limit cap the judge enforces and the Web Limits tab states"
 workers = "Worker pause/resume HMAC secret"
 aireview = "The two settings Arena and the AI review worker must agree on"
 web = "Web module only"
@@ -51,9 +52,9 @@ build = "Consumed by containers/build.sh; never loaded at runtime"
 devtools = "Backlog index generator and Playwright UI checks"
 
 [stacks]
-web = ["common", "database", "http", "webarena", "email", "storage", "web"]
+web = ["common", "database", "http", "webarena", "email", "storage", "profiling", "web"]
 arena = ["common", "database", "http", "webarena", "email", "storage", "aireview", "workers", "arena"]
-autojudge = ["common", "database", "storage", "workers", "autojudge"]
+autojudge = ["common", "database", "storage", "profiling", "workers", "autojudge"]
 rating = ["common", "database", "rating"]
 aiassistant = ["common", "database", "aireview", "workers", "aiassistant"]
 mailer = ["common", "database", "email", "workers", "mailer"]

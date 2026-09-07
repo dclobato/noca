@@ -11,7 +11,7 @@ temporary path and the route streams it with a ``FileResponse``, the same
 no-RAM rule imports follow.
 
 Two profiles exist. ``full`` is an importable package carrying **every**
-version-2 key, including keys the exporting domain cannot store — written as
+current-version key, including keys the exporting domain cannot store — written as
 ``null`` / ``false`` / ``{}`` rather than omitted, so a round trip through the
 other domain is describable. ``public`` is a contestant-facing statement bundle
 and deliberately **not** importable: no ``problem.json``, no secret cases, no
@@ -28,16 +28,18 @@ from pathlib import Path
 from typing import Any, Literal
 
 from shared.enumerations import ProblemValidatorType
+from shared.profiling_limits import ceil_div
 from shared.services.custom_validator import packaged_validator_member
 from shared.services.problem_package.constants import (
     EDITORIAL_MD_MEMBER,
     FORMAT_VERSION,
+    PER_RUN_TIME_LIMIT_VERSION,
     PROBLEM_JSON_MEMBER,
     STATEMENT_MD_MEMBER,
     STATEMENT_PDF_MEMBER,
 )
 from shared.services.problem_package.errors import PackageError
-from shared.services.problem_package.model import ProblemPackage
+from shared.services.problem_package.model import PackageLanguageLimit, ProblemPackage
 from shared.services.sample_interactions import build_interaction_files
 
 PackageProfile = Literal["full", "public"]
@@ -59,14 +61,14 @@ def build_package(
         destination: Path to write the archive to.
         profile: ``"full"`` for an importable package, ``"public"`` for the
             contestant-facing statement bundle.
-        require_importable: Whether a ``full`` package must satisfy the version-2
+        require_importable: Whether a ``full`` package must satisfy the current
             rules that make it re-importable. Only the contest backup exporter
             and the public problem-set exporter pass ``False``; see
             :func:`_check_importable`.
 
     Raises:
         PackageError: If a required stored file is missing, or if an importable
-            ``full`` package cannot be expressed in version 2. Both previous
+            ``full`` package cannot be expressed in the current format. Both previous
             exporters wrote ``b""`` for a missing file, producing a package that
             re-imports with silently different semantics; the routes turn this
             into an actionable 409 instead.
@@ -91,15 +93,15 @@ def build_package(
 
 
 def _check_importable(package: ProblemPackage) -> None:
-    """Refuse a full export that version 2 cannot express as an importable package.
+    """Refuse a full export the current format cannot express as importable.
 
-    Version 2 requires an ``interactive`` problem to declare a validator source,
+    The current format requires an ``interactive`` problem to declare a validator source,
     so an incomplete interactive draft has no valid representation: writing one
     anyway would produce an archive this build's own reader rejects. ``checker``
     has no representation at all in this build.
 
     Raises:
-        PackageError: If the package cannot be written as importable version 2.
+        PackageError: If the package cannot be written as an importable current package.
     """
     strategy = package.metadata.validator_type
     if strategy is ProblemValidatorType.OUTPUT_CHECKER:
@@ -208,7 +210,7 @@ def _problem_json(
     *,
     editorial_digest: str | None,
 ) -> dict[str, Any]:
-    """Build the complete version-2 metadata object.
+    """Build the complete current-version metadata object.
 
     Every key is present. A domain that cannot store a field writes its empty
     value rather than omitting the key, so a consumer never has to guess whether
@@ -254,7 +256,11 @@ def _problem_json(
         "image_caption": metadata.image_caption,
         "language_limits": {
             language_id: {
-                "time_limit_ms": limit.time_limit_ms,
+                "time_limit_ms": _current_time_limit_ms(
+                    source_version=metadata.format_version,
+                    language_id=language_id,
+                    limit=limit,
+                ),
                 "memory_limit_kb": limit.memory_limit_kb,
                 "pids_limit": limit.pids_limit,
                 "output_limit_in_bytes": limit.output_limit_in_bytes,
@@ -274,6 +280,41 @@ def _problem_json(
         # problem.json. Editorial integrity lives in its additive nested object.
         "sha256": dict(sorted(digests.items())),
     }
+
+
+def _current_time_limit_ms(
+    *,
+    source_version: int,
+    language_id: str,
+    limit: PackageLanguageLimit,
+) -> int:
+    """Return a package limit expressed with the current per-run semantics.
+
+    The reader intentionally preserves legacy totals because an omitted
+    repetition count can only be resolved by the importing domain. The writer
+    can still upgrade a legacy value when its divisor is explicit; otherwise it
+    refuses to label an unresolved total as a current-version per-run limit.
+
+    Args:
+        source_version: Version whose semantics ``limit`` currently follows.
+        language_id: Language key used in an actionable error message.
+        limit: Parsed language limit to normalize.
+
+    Returns:
+        The time limit for one repetition.
+
+    Raises:
+        PackageError: If a legacy total has no declared repetition count.
+    """
+    if source_version >= PER_RUN_TIME_LIMIT_VERSION:
+        return limit.time_limit_ms
+    if limit.repetitions is None:
+        raise PackageError(
+            "Cannot rewrite this legacy package at the current format version: "
+            f"language_limits[{language_id!r}] has no repetition count, so its total time budget "
+            "cannot be converted safely. Import it into a contest first, then export it again."
+        )
+    return ceil_div(limit.time_limit_ms, limit.repetitions)
 
 
 def _write_file(

@@ -34,11 +34,12 @@ from shared.db_schema import (
 from shared.db_schema import (
     test_cases as test_cases_t,
 )
+from shared.profiling_limits import ceil_div
 from shared.services.testcase_files import save_testcase_files
 from web.services.category_service import get_or_create_categories
 from web.services.problem_service.files import save_md_statement, save_problem_statement
 
-from .models import RestoreState
+from .models import PER_RUN_TIME_LIMIT_VERSION, RestoreState
 from .serialization import build_insert_values
 from .validation import ArchiveIndex, read_member_bytes
 
@@ -52,8 +53,15 @@ async def restore_problems(
     testcase_dir: Path,
     statement_dir: Path,
     state: RestoreState,
+    format_version: int,
 ) -> None:
-    """Restore all problems and their related rows and payload files."""
+    """Restore all problems and their related rows and payload files.
+
+    Args:
+        format_version: The archive's declared version. Below 8 its per-language
+            time limits are budgets shared across repetitions rather than
+            per-repetition limits, and are converted on the way in.
+    """
     for entry in entries:
         problem = entry["problem"]
         new_id = str(uuid.uuid4())
@@ -69,7 +77,7 @@ async def restore_problems(
 
         await _restore_test_cases(session, entry, new_id, zip_path, archive_index, testcase_dir, state)
         await _restore_validator(session, entry["custom_validator"], new_id)
-        await _restore_language_limits(session, entry["language_limits"], new_id)
+        await _restore_language_limits(session, entry["language_limits"], new_id, format_version)
         await _restore_categories(session, entry["categories"], new_id)
         await _restore_sample_interactions(session, entry["sample_interactions"], new_id)
         await anyio.to_thread.run_sync(
@@ -126,11 +134,29 @@ async def _restore_validator(session: AsyncSession, validator: dict[str, Any] | 
     await session.execute(insert(validators_t), [build_insert_values(validators_t, validator, overrides=overrides)])
 
 
-async def _restore_language_limits(session: AsyncSession, limits: list[dict[str, Any]], problem_id: str) -> None:
+async def _restore_language_limits(
+    session: AsyncSession,
+    limits: list[dict[str, Any]],
+    problem_id: str,
+    format_version: int,
+) -> None:
+    """Insert a problem's per-language limits, converting pre-v8 time limits.
+
+    An archive below version 8 stored ``time_limit_ms`` as the budget shared by
+    all of a test case's repetitions. Every row carries its own ``repetitions``
+    -- this is a whole-table dump, so nothing is implicit here -- and the
+    division rounds up, matching the schema migration, so a restore is never
+    stricter than the contest that was archived.
+    """
+    convert = format_version < PER_RUN_TIME_LIMIT_VERSION
     for limit in limits:
+        overrides: dict[str, object] = {"problem_id": problem_id}
+        if convert:
+            repetitions = max(1, int(limit["repetitions"]))
+            overrides["time_limit_ms"] = ceil_div(int(limit["time_limit_ms"]), repetitions)
         await session.execute(
             insert(language_limits_t),
-            [build_insert_values(language_limits_t, limit, overrides={"problem_id": problem_id})],
+            [build_insert_values(language_limits_t, limit, overrides=overrides)],
         )
 
 

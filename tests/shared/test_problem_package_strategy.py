@@ -25,6 +25,7 @@ import pytest
 
 from shared.enumerations import ProblemValidatorType
 from shared.services.problem_package import PackageError, ProblemPackage, build_package, read_problem_package
+from shared.services.problem_package.constants import FORMAT_VERSION
 from tests.shared.test_problem_package import (  # reuse the package builders
     MINIMAL_STATEMENT,
     minimal_members,
@@ -209,19 +210,19 @@ def _written_metadata(destination: Path) -> dict[str, Any]:
         (_interactive_members(), minimal_metadata(custom_validator=_VALIDATOR_SPEC), "interactive"),
     ],
 )
-def test_a_v1_package_is_rewritten_as_v2(
+def test_a_v1_package_is_rewritten_at_the_current_version(
     tmp_path: Path,
     members: dict[str, bytes | str],
     metadata: dict[str, Any],
     expected: str,
 ) -> None:
-    """Reading v1 and writing it back produces a v2 package with the derived strategy."""
+    """Reading v1 and writing it back produces a current-version package with the derived strategy."""
     source = write_zip(tmp_path / "in.zip", members, metadata=metadata)
     with read_problem_package(source) as staged:
         destination = build_package(staged.package, tmp_path / "out.zip", profile="full")
 
     written = _written_metadata(destination)
-    assert written["format_version"] == 2
+    assert written["format_version"] == FORMAT_VERSION
     assert written["validator_type"] == expected
     # Reserved for the output-checker strategy, which has not landed.
     assert "checker_semantics" not in written
@@ -237,6 +238,48 @@ def test_a_v2_package_survives_a_read_write_read_cycle(tmp_path: Path) -> None:
 
     assert reread.metadata.validator_type is ProblemValidatorType.INTERACTIVE
     assert reread.validator is not None
+
+
+def test_a_v2_total_budget_is_converted_when_rewritten_as_v3(tmp_path: Path) -> None:
+    """A rewrite changes the version only after normalizing limit semantics."""
+    metadata = _v2(
+        language_limits={
+            "python3": {
+                "time_limit_ms": 3000,
+                "memory_limit_kb": 262144,
+                "pids_limit": 64,
+                "repetitions": 3,
+            }
+        }
+    )
+    source = write_zip(tmp_path / "in.zip", minimal_members(), metadata=metadata)
+
+    with read_problem_package(source) as staged:
+        destination = build_package(staged.package, tmp_path / "out.zip", profile="full")
+
+    written = _written_metadata(destination)
+    assert written["format_version"] == 3
+    assert written["language_limits"]["python3"]["time_limit_ms"] == 1000
+
+
+def test_a_legacy_total_without_repetitions_cannot_be_relabelled_as_v3(tmp_path: Path) -> None:
+    """Only an importing domain can resolve an omitted repetition count."""
+    metadata = _v2(
+        language_limits={
+            "python3": {
+                "time_limit_ms": 3000,
+                "memory_limit_kb": 262144,
+                "pids_limit": 64,
+            }
+        }
+    )
+    source = write_zip(tmp_path / "in.zip", minimal_members(), metadata=metadata)
+
+    with (
+        read_problem_package(source) as staged,
+        pytest.raises(PackageError, match="has no repetition count"),
+    ):
+        build_package(staged.package, tmp_path / "out.zip", profile="full")
 
 
 def test_a_public_bundle_carries_no_strategy(tmp_path: Path) -> None:

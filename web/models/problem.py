@@ -270,6 +270,7 @@ class ProfilingRun(Base):
     source_hash: Mapped[str]
     status: Mapped[ProfilingStatus]
     safety_factor: Mapped[float]
+    repetitions: Mapped[int]
     worker_id: Mapped[str | None]
     attempt_token: Mapped[str | None]
     started_at: Mapped[datetime | None]

@@ -226,7 +226,7 @@ Limits routes (`contest_admin_problem_limits.py`):
 |---|---|---|---|
 | `POST /c/{slug}/admin/problems/{problem_id}/profiling` | `enqueue_problem_profiling` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/profiling-status` | `problem_profiling_status_partial` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/fallback-limits` | `apply_problem_fallback_limits` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/fallback-limits` | `apply_problem_fallback_limits` | `slug=`, `problem_id=` | `contest_admin_problem_limits.py` (the UI calls these the *simple limits*; the path and route name keep the older word) |
 | `GET /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}` | `problem_limit_change_batch_review` | `slug=`, `problem_id=`, `batch_id=` | `contest_admin_problem_limits.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/rejudge-all` | `problem_limit_change_batch_rejudge_all` | `slug=`, `problem_id=`, `batch_id=`; Form: `password` | `contest_admin_problem_limits.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/limit-change-batches/{batch_id}/languages/{language_id}/rejudge` | `problem_limit_change_batch_rejudge_language` | `slug=`, `problem_id=`, `batch_id=`, `language_id=`; Form: `password` | `contest_admin_problem_limits.py` |

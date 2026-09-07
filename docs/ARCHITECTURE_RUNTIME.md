@@ -247,6 +247,7 @@ The autojudge module is a separate async worker process that owns:
 
 **Shared types (`types.py`):**
 - Dataclasses shared across judge modules: `CompileResult`, `RunResult`, `IsolateMeta`, `IsolateError`, `ProblemLimits`, `SubmissionSource`, `RepetitionCaseResult`
+- `case_budget_ms(limits)` — the one place a stored per-run time limit becomes a whole test case's budget
 - DB-layer types: `QueuedSubmission`, `QueuedProfilingRun`, `RecoverableSubmissionJob`, `RecoverableProfilingJob`, `ProfilingObservedLimits`
 
 **Verdict aggregation (`verdict.py`):**
@@ -269,7 +270,7 @@ The judge queue carries five first-class job kinds in the same Valkey hash names
 
 Profiling jobs are consumed from a dedicated priority queue before normal contest submissions. The worker persists profiling history in PostgreSQL and only applies computed `ProblemLanguageLimit` rows when the reference implementation returns `AC` for every test case.
 
-Per-language profiling behavior is stored in the database-backed language registry. Each language carries a default profiling repetition count plus a minimum profiled PID floor so Auto-Limit runs can use different timing and process-safety defaults for native binaries versus interpreter or managed runtimes. When Auto-Limit persists a `ProblemLanguageLimit`, it also stores the repetition count used for that profiling run so later language-default changes do not alter existing judging semantics. If a problem/language pair has no explicit row, judging falls back to the problem-level resource limits with exactly 1 repetition.
+Per-language profiling behavior is stored in the database-backed language registry. Each language carries a default profiling repetition count plus a minimum profiled PID floor so Auto-Limit runs can use different timing and process-safety defaults for native binaries versus interpreter or managed runtimes. When Auto-Limit persists a `ProblemLanguageLimit`, it also stores the repetition count used for that profiling run -- on the run itself as well as on the limit row -- so later language-default changes alter neither existing judging semantics nor the suggestion recomputed against an old run. The observed wall time is a sum across those repetitions while a stored `time_limit_ms` is the limit for one run, so `shared/profiling_limits.py` divides and applies the safety factor in a single rounding for both the worker and the Web layer. If a problem/language pair has no explicit row, judging uses the problem's own limits (the *simple limits*) with exactly 1 repetition.
 
 Running-contest problem limit edits are tracked as persisted limit-change batches. Each batch stores the languages whose effective limits changed plus the captured set of currently active submissions affected at save time: `AC`, `RE`, `TLE`, `MLE`, `OLE`, and `PE` only when the contest treats `PE` as accepted. `WA`, `CE`, and non-accepted `PE` are excluded.
 

@@ -26,6 +26,7 @@ from shared.db_schema import contests as contests_t
 from shared.db_schema import human_submission_confirmations as confirmations_t
 from shared.db_schema import languages as languages_t
 from shared.db_schema import problem_custom_validators as validators_t
+from shared.db_schema import problem_language_limits as language_limits_t
 from shared.db_schema import submission_interactive_attempts as interactive_attempts_t
 from shared.db_schema import submission_judgment_audit as judgment_audit_t
 from shared.db_schema import submission_judgments as judgments_t
@@ -345,6 +346,18 @@ async def _seed_run(
             updated_at=now,
         )
     )
+
+
+def _rewrite_archive_as_version_7(zip_path: Path) -> None:
+    """Relabel an archive as version 7, which is byte-identical apart from the label."""
+    with zipfile.ZipFile(zip_path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    manifest = json.loads(members["manifest.json"])
+    manifest["format_version"] = 7
+    members["manifest.json"] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for name, payload in members.items():
+            archive.writestr(name, payload)
 
 
 async def _export(
@@ -1238,3 +1251,85 @@ async def test_a_current_backup_missing_an_acquisition_column_is_refused(
 
     with pytest.raises(ContestBackupError, match="missing columns: acquired_at"):
         await _restore(session, broken_path, uberadmin, slug="missing3", name="Missing3")
+
+
+@pytest.mark.asyncio
+async def test_a_version_7_archive_restores_with_converted_time_limits(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A backup taken before per-run limits is still restorable, and is converted.
+
+    Version 8 changed no columns -- only what ``time_limit_ms`` means, from the
+    budget shared by a test case's repetitions to the limit for one of them. So
+    a version 7 archive validates identically and needs one arithmetic
+    conversion rather than the per-column inference rules that retired every
+    earlier version. Refusing it would have made every backup taken before the
+    upgrade unrestorable.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    problem_id = (await session.execute(select(Problem.id).where(Problem.contest_id == contest.id))).scalar_one()
+    await session.execute(
+        insert(language_limits_t).values(
+            problem_id=problem_id,
+            language_id=LANGUAGE_ID,
+            time_limit_ms=1000,
+            memory_limit_kb=262144,
+            pids_limit=64,
+            output_limit_in_bytes=65536,
+            repetitions=3,
+        )
+    )
+    await session.commit()
+
+    zip_path = await _export(session, contest, tmp_path)
+    _rewrite_archive_as_version_7(zip_path)
+
+    restored = await _restore(session, zip_path, uberadmin)
+
+    restored_problem_id = (
+        await session.execute(select(Problem.id).where(Problem.contest_id == restored.id))
+    ).scalar_one()
+    limit = (
+        (await session.execute(select(language_limits_t).where(language_limits_t.c.problem_id == restored_problem_id)))
+        .mappings()
+        .one()
+    )
+
+    # 1000 ms across three repetitions, rounded up so the restore is never
+    # stricter than the contest that was archived.
+    assert limit["time_limit_ms"] == 334
+    assert limit["repetitions"] == 3
+
+
+@pytest.mark.asyncio
+async def test_a_current_version_archive_restores_its_time_limits_verbatim(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    contest = await _seed_contest(session, uberadmin)
+    problem_id = (await session.execute(select(Problem.id).where(Problem.contest_id == contest.id))).scalar_one()
+    await session.execute(
+        insert(language_limits_t).values(
+            problem_id=problem_id,
+            language_id=LANGUAGE_ID,
+            time_limit_ms=1000,
+            memory_limit_kb=262144,
+            pids_limit=64,
+            output_limit_in_bytes=65536,
+            repetitions=3,
+        )
+    )
+    await session.commit()
+
+    zip_path = await _export(session, contest, tmp_path)
+    restored = await _restore(session, zip_path, uberadmin)
+
+    restored_problem_id = (
+        await session.execute(select(Problem.id).where(Problem.contest_id == restored.id))
+    ).scalar_one()
+    limit = (
+        (await session.execute(select(language_limits_t).where(language_limits_t.c.problem_id == restored_problem_id)))
+        .mappings()
+        .one()
+    )
+
+    assert limit["time_limit_ms"] == 1000

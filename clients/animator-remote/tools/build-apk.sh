@@ -16,6 +16,9 @@
 #   tools/build-apk.sh --rebuild-image # force a fresh image build first
 #   tools/build-apk.sh -- :app:test    # any Gradle task, verbatim
 #
+# Every APK or AAB the build produces is hard-linked from app/build/outputs/ into
+# the project root, replacing the previous link for that variant.
+#
 # Release signing (see README.md, "Building a signed release APK"):
 #   NOCA_ANDROID_KEYSTORE            path on the HOST to the keystore
 #   NOCA_ANDROID_KEYSTORE_PASSWORD   store password
@@ -51,7 +54,7 @@ while [ $# -gt 0 ]; do
         --shell) MODE="shell"; shift ;;
         --rebuild-image) REBUILD_IMAGE=1; shift ;;
         --) shift; MODE="custom"; GRADLE_ARGS=("$@"); break ;;
-        -h|--help) sed -n '8,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help) sed -n '8,33p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown option '$1' (use -- to pass Gradle arguments)" >&2; exit 2 ;;
     esac
 done
@@ -154,16 +157,47 @@ esac
 
 docker run "${DOCKER_ARGS[@]}" "$IMAGE" "${COMMAND[@]}"
 
-if [ "$MODE" = "release" ] || [ "$MODE" = "debug" ]; then
-    OUTPUT_DIR="$PROJECT_DIR/app/build/outputs/apk/$MODE"
-    echo
-    echo "APK:"
-    find "$OUTPUT_DIR" -maxdepth 1 -name '*.apk' -printf '  %p (%s bytes)\n' 2>/dev/null || true
+# Only reached when the build succeeded: set -e aborts on a non-zero docker run.
+if [ "$MODE" != "shell" ]; then
+    OUTPUTS_DIR="$PROJECT_DIR/app/build/outputs"
+    PRODUCED=()
+    if [ -d "$OUTPUTS_DIR" ]; then
+        while IFS= read -r -d '' artifact; do
+            PRODUCED+=("$artifact")
+        done < <(find "$OUTPUTS_DIR" \( -name '*.apk' -o -name '*.aab' \) -print0 \
+            2>/dev/null | sort -z)
+    fi
+
+    # Everything under app/build/outputs/ is linked, not just what this run
+    # rewrote. An up-to-date build legitimately produces no new file -- the
+    # artifact Gradle left in place is still the current one -- and filtering by
+    # mtime would report that as "nothing was built". Relinking a file that is
+    # already linked is a no-op, so there is nothing to gain by being cleverer.
+
+    if [ "${#PRODUCED[@]}" -gt 0 ]; then
+        echo
+        echo "Linked into $PROJECT_DIR:"
+        for artifact in "${PRODUCED[@]}"; do
+            link="$PROJECT_DIR/$(basename "$artifact")"
+            # A hard link rather than a move: the file stays where Gradle put it,
+            # so its up-to-date check survives and an unchanged rebuild does not
+            # repackage. Rather than a copy, because 13 MB of APK duplicated on
+            # every build is pure waste when both names are on one filesystem.
+            # Relinked every build: Gradle recreates its output rather than
+            # rewriting it, which breaks the previous link instead of updating
+            # both names.
+            ln -f "$artifact" "$link" 2>/dev/null || cp -f "$artifact" "$link"
+            printf '  %s (%s bytes)\n' "$(basename "$artifact")" "$(stat -c '%s' "$link")"
+        done
+    elif [ "$MODE" = "release" ] || [ "$MODE" = "debug" ]; then
+        echo
+        echo "no APK or AAB was produced; check the Gradle output above" >&2
+    fi
+
     if [ "$MODE" = "release" ]; then
         echo
         echo "Verify the signature before distributing it:"
-        echo "  tools/build-apk.sh -- --version >/dev/null  # container is already built"
         echo "  docker run --rm -v '$PROJECT_DIR:$PROJECT_DIR' -w '$PROJECT_DIR' $IMAGE \\"
-        echo "      apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk"
+        echo "      apksigner verify --verbose --print-certs app-release.apk"
     fi
 fi

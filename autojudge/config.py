@@ -412,9 +412,13 @@ class Settings(NocaSettings):
     )
 
     PROFILING_MAX_CPU_TIME_SEC: float = Field(
-        default=30.0,
+        default=10.0,
         ge=1.0,
-        description="Hard CPU-time ceiling per profiling repetition run.",
+        description=(
+            "Hard CPU-time ceiling for a single profiling execution, enforced as such: "
+            "no one run may exceed it. A test case of N repetitions therefore has N times "
+            "this in aggregate, and no single run can spend more than its own share."
+        ),
     )
 
     PROFILING_MAX_WALL_TIME_SEC: float = Field(
@@ -507,6 +511,22 @@ class Settings(NocaSettings):
             "and will be requeued by the reaper. Must be longer than the "
             "longest possible legitimate judge run "
             "(compile_timeout + n_test_cases x time_limit)."
+        ),
+    )
+
+    PROFILING_REAPER_STALE_THRESHOLD_MINUTES: float = Field(
+        default=10.0,
+        ge=1.0,
+        description=(
+            "Staleness threshold for profiling jobs only, in minutes. Profiling needs its "
+            "own because its runtime has a shape no submission has: it runs the reference "
+            "implementation over every test case *repetitions* times, so where a submission "
+            "is bounded by n_test_cases x time_limit, a profiling run is bounded by "
+            "n_test_cases x repetitions x runtime -- a factor of 10 for the languages "
+            "whose profiling_repetitions_default is 10. Sharing the submission threshold "
+            "meant a legitimately slow reference implementation on a many-case problem "
+            "could be reaped mid-run and retried until it hit the requeue ceiling. "
+            "Must stay below NOCA_JUDGE_LOCK_TTL_SECONDS, like the submission threshold."
         ),
     )
 
@@ -634,16 +654,26 @@ class Settings(NocaSettings):
 
     @model_validator(mode="after")
     def validate_lock_ttl_exceeds_reaper_threshold(self) -> Self:
-        """Require the idempotency lock to outlive the reaper threshold."""
-        stale_threshold_seconds = self.REAPER_STALE_THRESHOLD_MINUTES * 60
-        if stale_threshold_seconds >= self.LOCK_TTL_SECONDS:
-            raise ValueError(
-                "NOCA_JUDGE_LOCK_TTL_SECONDS must be greater than "
-                "NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES * 60 "
-                f"({self.LOCK_TTL_SECONDS}s <= {stale_threshold_seconds:.0f}s). "
-                "Increase NOCA_JUDGE_LOCK_TTL_SECONDS or decrease "
-                "NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES."
-            )
+        """Require the idempotency lock to outlive every reaper threshold.
+
+        Both thresholds are checked, not just the submission one: the lock is
+        what makes the reaper's stale decision atomic, so a threshold that
+        outlives it lets the lock expire naturally first and the guarantee is
+        gone -- and that is easiest to trip on the profiling threshold, which is
+        the larger of the two by default.
+        """
+        for setting_name, minutes in (
+            ("NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES", self.REAPER_STALE_THRESHOLD_MINUTES),
+            ("NOCA_JUDGE_PROFILING_REAPER_STALE_THRESHOLD_MINUTES", self.PROFILING_REAPER_STALE_THRESHOLD_MINUTES),
+        ):
+            stale_threshold_seconds = minutes * 60
+            if stale_threshold_seconds >= self.LOCK_TTL_SECONDS:
+                raise ValueError(
+                    "NOCA_JUDGE_LOCK_TTL_SECONDS must be greater than "
+                    f"{setting_name} * 60 "
+                    f"({self.LOCK_TTL_SECONDS}s <= {stale_threshold_seconds:.0f}s). "
+                    f"Increase NOCA_JUDGE_LOCK_TTL_SECONDS or decrease {setting_name}."
+                )
         return self
 
     @field_validator("LOG_LEVEL")

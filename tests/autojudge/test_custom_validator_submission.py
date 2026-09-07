@@ -94,11 +94,30 @@ def test_build_validator_environment_exposes_effective_limits() -> None:
 
     assert environment == {
         "PROBLEM_TIME_LIMIT": "1000",
+        "PROBLEM_TIME_LIMIT_PER_RUN": "1000",
+        "PROBLEM_REPETITIONS": "1",
         "PROBLEM_OUTPUT_LIMIT": "4096",
         "PROBLEM_MEMORY_LIMIT": "65536",
         "PROBLEM_PID_LIMIT": "16",
         "USER_LANGUAGE": "python3",
     }
+
+
+def test_validator_time_limit_stays_the_whole_case_budget() -> None:
+    """PROBLEM_TIME_LIMIT keeps its old meaning so deployed validators do not tighten.
+
+    The stored limit became the time for one run. A validator already installed
+    reads PROBLEM_TIME_LIMIT as the budget for the whole test case, so that is
+    what it keeps reporting -- the per-run number is a separate variable.
+    """
+    environment = service.build_validator_environment(
+        limits=ProblemLimits(200, 65536, 16, 4096, repetitions=5),
+        user_language_id="python3",
+    )
+
+    assert environment["PROBLEM_TIME_LIMIT"] == "1000"
+    assert environment["PROBLEM_TIME_LIMIT_PER_RUN"] == "200"
+    assert environment["PROBLEM_REPETITIONS"] == "5"
 
 
 def test_the_global_output_limit_is_a_ceiling_not_a_fallback() -> None:
@@ -143,7 +162,10 @@ def test_build_validator_environment_includes_web_per_language_limits() -> None:
     assert environment["USER_LANGUAGE"] == "cpp"
     assert json.loads(environment["PER_LANGUAGE_LIMITS"]) == {
         "cpp": {
-            "time_limit_ms": 2000,
+            # The whole case's budget, as this key has always reported: the
+            # stored 2000 ms per-run limit across three repetitions.
+            "time_limit_ms": 6000,
+            "time_limit_per_run_ms": 2000,
             "memory_limit_kb": 131072,
             "pids_limit": 32,
             "output_limit_in_bytes": 4096,
@@ -151,6 +173,7 @@ def test_build_validator_environment_includes_web_per_language_limits() -> None:
         },
         "python3": {
             "time_limit_ms": 3000,
+            "time_limit_per_run_ms": 3000,
             "memory_limit_kb": 262144,
             "pids_limit": 64,
             "output_limit_in_bytes": service.settings.OUTPUT_LIMIT_BYTES,
@@ -309,6 +332,7 @@ async def test_validator_environment_is_passed_to_each_interactive_attempt(monke
     assert environment["PROBLEM_TIME_LIMIT"] == "1000"
     assert json.loads(environment["PER_LANGUAGE_LIMITS"])["cpp"] == {
         "time_limit_ms": 2500,
+        "time_limit_per_run_ms": 2500,
         "memory_limit_kb": 131072,
         "pids_limit": 32,
         "output_limit_in_bytes": 2048,

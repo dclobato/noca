@@ -98,6 +98,14 @@ async def process_profiling_job(
         await db.set_profiling_failed(profiling_run_id, str(exc), attempt_token=attempt_token)
         return
 
+    # Resolved once, here, and used for every decision below: the limits this run
+    # measures under, the mean it divides by, and the count it persists. Reading
+    # profiling_run.repetitions instead would read the row as it was loaded --
+    # before this run stamped it -- and dividing by a registry default read a
+    # second time would silently disagree with the stored row if that default is
+    # edited between the two reads.
+    repetition_count = language.profiling_repetitions_default
+
     compile_result = await compile_submission(
         SubmissionSource(
             judgment_id=profiling_run_id,
@@ -117,16 +125,28 @@ async def process_profiling_job(
         )
         return
 
-    await db.set_profiling_running(profiling_run_id, attempt_token)
+    await db.set_profiling_running(profiling_run_id, attempt_token, repetition_count)
 
     try:
         profile_limits = profiling_hard_limits()
+        # Profiling needs the cap enforced twice over, and the two are different
+        # numbers. Pairing it with the repetition count sets the *aggregate*
+        # budget at cap x repetitions, so every repetition gets a full cap's
+        # worth instead of a tenth of one -- before the time limit became a
+        # per-run value, ten repetitions squeezed into a single cap and a
+        # legitimately slow reference implementation failed on the infrastructure
+        # ceiling rather than on its own merits. But this cap is not a problem's
+        # time limit, where one slow run borrowing from a fast one is the whole
+        # design; it exists to bound a *single* execution. So the same value is
+        # passed to _run_repeated_test_case as per_run_ceiling_ms, or a hung
+        # reference implementation would spend the entire aggregate in its first
+        # run and hold a judge container for all of it.
         effective_limits = ProblemLimits(
             time_limit_ms=profile_limits.time_limit_ms,
             memory_limit_kb=profile_limits.memory_limit_kb,
             pids_limit=profile_limits.pids_limit,
             output_limit_in_bytes=profile_limits.output_limit_in_bytes,
-            repetitions=language.profiling_repetitions_default,
+            repetitions=repetition_count,
         )
         test_cases = _load_test_cases(profiling_run.problem_id)
     except (LookupError, FileNotFoundError, ValueError) as exc:
@@ -178,6 +198,7 @@ async def process_profiling_job(
                     expected_output=expected_output,
                     docker_client=docker_client,
                     executor=executor,
+                    per_run_ceiling_ms=profile_limits.time_limit_ms,
                 )
             except IsolateError as exc:
                 if not is_recoverable_isolate_runtime_error(exc):
@@ -214,6 +235,7 @@ async def process_profiling_job(
                     expected_output=expected_output,
                     docker_client=docker_client,
                     executor=executor,
+                    per_run_ceiling_ms=profile_limits.time_limit_ms,
                 )
 
             observed_case_pids = (
@@ -254,6 +276,7 @@ async def process_profiling_job(
         profiled_limits = db.compute_profiled_limits(
             safety_factor=profiling_run.safety_factor,
             time_limit_ms=observed_time_ms,
+            repetitions=repetition_count,
             memory_limit_kb=observed_memory_kb,
             pids_limit=observed_pids,
             output_limit_in_bytes=observed_output_bytes,
@@ -262,7 +285,7 @@ async def process_profiling_job(
         await db.set_profiling_done(
             profiling_run_id,
             profiled_limits,
-            language.profiling_repetitions_default,
+            repetition_count,
             attempt_token=attempt_token,
             compile_log=compile_result.compile_log,
         )

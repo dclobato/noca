@@ -215,6 +215,20 @@ worker). This keeps a mismatched worker image from driving the schema during a
 rolling deploy. The optional `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` (seconds, default
 300) bounds that wait.
 
+That guard is one-directional, and the asymmetry decides how a release is
+deployed. It stops a *new* worker from running against a database that has not
+caught up, but nothing stops an *old* worker from running against one that has
+gone past it -- a revision the image does not recognize counts as "ahead", so the
+worker proceeds. That is harmless for a migration that only adds structure, and
+unsafe for one that changes what an existing value *means*: the old image keeps
+reading the column under the old rule. Revision `202609070001`, which redefined
+`problem_language_limits.time_limit_ms` as a per-run limit, is the worked
+example -- an old judge would have divided every multi-repetition budget by its
+repetition count. A migration of that kind is deployed by pausing the queue
+consumers from the Arena dashboard, migrating through `web`/`arena`, rolling the
+worker images, and resuming; the migration's own docstring is where that
+requirement is recorded for the next reader.
+
 The web module adds application-specific ORM behavior on top of the shared tables:
 relationships, computed properties, hybrid properties, model hooks, and invariants.
 The autojudge intentionally does not depend on those ORM hooks. It reads and writes

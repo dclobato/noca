@@ -183,6 +183,13 @@ If limits say `time=4` and `repetitions=10`, the program runs up to 10 times sha
 
 This is primarily used for benchmarking short-running programs to ensure stability in timing.
 
+**How NOCA differs.** NOCA enforces the same total, but asks for a different number:
+its stored `time_limit_ms` is the limit for **one run**, and the judge multiplies by the
+repetition count to get the case's budget. A BOCA `time=4, repetitions=10` problem is
+therefore a NOCA problem with a 400 ms per-run limit and 10 repetitions -- identical
+enforcement, stated per run so the number means the same thing whatever the repetition
+count is.
+
 **References:**
 - `src/private/autojudging.php:379-380`
 - `doc/problemexamples/problemtemplate/run/c:82-95`

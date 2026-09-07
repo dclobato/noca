@@ -30,6 +30,7 @@ def _patch_reaper_settings(monkeypatch):
     class _ReaperSettings:
         REAPER_INTERVAL_S = 0.2
         REAPER_STALE_THRESHOLD_MINUTES = 0.0  # everything is stale immediately
+        PROFILING_REAPER_STALE_THRESHOLD_MINUTES = 0.0
         REAPER_MAX_REQUEUE_COUNT = 3
         queue_inflight_times_key = INFLIGHT_TIMES_KEY
         queue_inflight_key = INFLIGHT_KEY
@@ -245,3 +246,61 @@ async def test_reaper_respects_shutdown_event(valkey_client):
         timeout=5.0,
     )
     # If we reach here without TimeoutError, the reaper respected the shutdown
+
+
+async def test_profiling_uses_its_own_longer_threshold(valkey_client, monkeypatch):
+    """A profiling job in flight past the submission threshold is left alone.
+
+    Profiling runs the reference implementation once per repetition per test
+    case, so it stays legitimately in flight far longer than any submission.
+    Sharing one threshold meant a slow reference implementation on a many-case
+    problem was reaped mid-run and retried until it hit the requeue ceiling.
+    """
+    from autojudge import reaper as _mod
+
+    monkeypatch.setattr(_mod.settings, "REAPER_STALE_THRESHOLD_MINUTES", 5.0, raising=False)
+    monkeypatch.setattr(_mod.settings, "PROFILING_REAPER_STALE_THRESHOLD_MINUTES", 10.0, raising=False)
+
+    # Seven minutes in flight: past the submission threshold, inside profiling's.
+    seven_minutes_ago = time.time() - 420
+    profiling_jid = "profiling-run-1"
+    submission_jid = "judgment-slow-1"
+    for jid, kind in ((profiling_jid, "profiling"), (submission_jid, "submission")):
+        await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: seven_minutes_ago})
+        await valkey_client.rpush(INFLIGHT_KEY, jid)
+        await valkey_client.hset(
+            f"{JOB_HASH_PREFIX}:{jid}",
+            mapping={"requeue_count": "0", "judgment_id": jid, "job_kind": kind},
+        )
+
+    requeued, _dropped, _already_done = await _reaper_cycle(valkey_client)
+
+    # Only the submission was reaped.
+    assert requeued == 1
+    assert profiling_jid in await valkey_client.lrange(INFLIGHT_KEY, 0, -1)
+    assert submission_jid not in await valkey_client.lrange(INFLIGHT_KEY, 0, -1)
+    # And the profiling job's own bookkeeping is untouched, not merely skipped.
+    assert profiling_jid in await valkey_client.zrange(INFLIGHT_TIMES_KEY, 0, -1)
+    assert await valkey_client.hget(f"{JOB_HASH_PREFIX}:{profiling_jid}", "requeue_count") in (b"0", "0")
+
+
+async def test_profiling_is_still_reaped_once_its_own_threshold_passes(valkey_client, monkeypatch):
+    """The longer threshold delays the reaper; it does not disable it."""
+    from autojudge import reaper as _mod
+
+    monkeypatch.setattr(_mod.settings, "REAPER_STALE_THRESHOLD_MINUTES", 5.0, raising=False)
+    monkeypatch.setattr(_mod.settings, "PROFILING_REAPER_STALE_THRESHOLD_MINUTES", 10.0, raising=False)
+
+    jid = "profiling-run-2"
+    await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: time.time() - 700})
+    await valkey_client.rpush(INFLIGHT_KEY, jid)
+    await valkey_client.hset(
+        f"{JOB_HASH_PREFIX}:{jid}",
+        mapping={"requeue_count": "0", "judgment_id": jid, "job_kind": "profiling"},
+    )
+
+    requeued, _dropped, _already_done = await _reaper_cycle(valkey_client)
+
+    assert requeued == 1
+    # Requeued onto the profiling queue, not the submission one.
+    assert jid in await valkey_client.lrange(PROFILING_KEY, 0, -1)

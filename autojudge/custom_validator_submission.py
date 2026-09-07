@@ -33,7 +33,13 @@ from autojudge.interactive_runner import (
 )
 from autojudge.interactive_verdict import InteractiveVerdict
 from autojudge.pool import PoolManager
-from autojudge.types import CompileResult, CustomValidatorDispatchState, ProblemLimits, SubmissionSource
+from autojudge.types import (
+    CompileResult,
+    CustomValidatorDispatchState,
+    ProblemLimits,
+    SubmissionSource,
+    case_budget_ms,
+)
 from shared.enumerations import CustomValidatorCrashReason, Verdict
 from shared.language_registry import LanguageConfig, get_language
 
@@ -56,9 +62,16 @@ class CustomValidatorUnavailableError(RuntimeError):
 
 
 def _limits_payload(limits: ProblemLimits) -> dict[str, int]:
-    """Return the JSON-serializable effective limit fields for one language."""
+    """Return the JSON-serializable effective limit fields for one language.
+
+    ``time_limit_ms`` is the budget for the whole test case, which is what it
+    has always been here and what installed validators enforce against. The
+    per-run limit an admin now types is reported beside it as
+    ``time_limit_per_run_ms``; the two differ only when ``repetitions`` > 1.
+    """
     return {
-        "time_limit_ms": limits.time_limit_ms,
+        "time_limit_ms": case_budget_ms(limits),
+        "time_limit_per_run_ms": limits.time_limit_ms,
         "memory_limit_kb": limits.memory_limit_kb,
         "pids_limit": limits.pids_limit,
         "output_limit_in_bytes": min(limits.output_limit_in_bytes, settings.OUTPUT_LIMIT_BYTES),
@@ -72,9 +85,20 @@ def build_validator_environment(
     user_language_id: str,
     per_language_limits: dict[str, ProblemLimits] | None = None,
 ) -> dict[str, str]:
-    """Build environment variables exposed to the trusted validator process."""
+    """Build environment variables exposed to the trusted validator process.
+
+    ``PROBLEM_TIME_LIMIT`` keeps meaning the budget for one whole test case.
+    The stored limit became a per-repetition value, but validators already
+    deployed read this variable as the total, and no amount of documentation
+    reaches a validator source that is already installed -- so the total is
+    computed here rather than the meaning being changed underneath them. The
+    per-run limit and the repetition count are exposed as their own variables
+    for validators that want them.
+    """
     environment = {
-        "PROBLEM_TIME_LIMIT": str(limits.time_limit_ms),
+        "PROBLEM_TIME_LIMIT": str(case_budget_ms(limits)),
+        "PROBLEM_TIME_LIMIT_PER_RUN": str(limits.time_limit_ms),
+        "PROBLEM_REPETITIONS": str(max(1, limits.repetitions)),
         "PROBLEM_OUTPUT_LIMIT": str(min(limits.output_limit_in_bytes, settings.OUTPUT_LIMIT_BYTES)),
         "PROBLEM_MEMORY_LIMIT": str(limits.memory_limit_kb),
         "PROBLEM_PID_LIMIT": str(limits.pids_limit),

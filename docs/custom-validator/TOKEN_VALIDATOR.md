@@ -258,12 +258,17 @@ independently.
 
 For one test case, Autojudge:
 
-1. Starts with the effective time budget for that case.
+1. Starts with the effective time budget for that case: the stored per-run time
+   limit multiplied by the repetition count.
 2. Runs the contestant up to the configured repetition count.
 3. Subtracts each observed run time from the remaining shared budget.
 4. Stops immediately when a repetition is not `AC` or no time remains.
 5. Reports total wall time and peak memory, output, and process usage across the
    repetitions that ran.
+
+Because the budget is shared rather than re-imposed per run, a slow repetition
+borrows from a fast one: `TLE` means the *average* run exceeded the stored limit,
+not that a single one did.
 
 Every repetition must therefore produce accepted output. Nondeterministic code
 that prints a wrong or differently formatted answer on any repetition fails the

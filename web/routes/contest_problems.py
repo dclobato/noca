@@ -180,7 +180,7 @@ async def _load_problem_view_data(ctx: ContestContext, problem: Problem) -> dict
     if has_md and active_stmt is not None:
         md_content = await anyio.to_thread.run_sync(lambda: active_stmt.read_text(encoding="utf-8"))
 
-    # Build per-language limits table (override or fallback to problem defaults).
+    # Build per-language limits table (override, or the problem's own simple limits).
     all_languages = await get_contest_languages(ctx.session, ctx.contest)
     limit_by_lang = {lim.language_id: lim for lim in problem.language_limits}
     language_limits_rows: list[dict[str, object]] = []

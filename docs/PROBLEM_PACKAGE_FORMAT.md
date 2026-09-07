@@ -46,18 +46,38 @@ from the admin export routes.
 ## Format version
 
 ```json
-{ "format_version": 2 }
+{ "format_version": 3 }
 ```
 
-Every package written by this build carries `format_version: 2`. On import:
+Every package written by this build carries `format_version: 3`. On import:
 
 - an **absent** key means version 1, the format that predates the key;
-- explicit `1` and explicit `2` are both accepted;
+- explicit `1`, `2`, and `3` are all accepted;
 - **any other value** fails *before* any other metadata is interpreted, with a message naming the
   supported versions.
 
 Checking the version first is deliberate: interpreting half of a package's metadata under
 assumptions the package never agreed to is worse than refusing it.
+
+### What version 3 changes
+
+Version 3 changes no keys at all. It changes what one existing number **means**:
+`language_limits[].time_limit_ms` is now the limit for **one run** of a test case, where before it
+was the budget shared by all of that case's repetitions. The problem's own top-level
+`time_limit_ms` is unaffected — it is judged at exactly one repetition, so the two readings always
+coincided there.
+
+Because nothing in the file's shape moved, a version 1 or 2 package is still read in full; its
+per-language time limits are **converted on import**, dividing by the repetition count that
+applies to the entry and rounding up, so an import is never stricter than the package it came
+from.
+
+That conversion happens in the importing layer, not the parser, and the reason is
+`repetitions` itself. An **omitted** `repetitions` means "use the target's registry default" — a
+value the exporting side never knew. A version 2 package declaring `time_limit_ms: 1000` with no
+`repetitions`, imported where the default is 10, has to be stored as `ceil(1000 / 10) = 100`;
+storing 1000 would silently hand that language a 10,000 ms budget. Only the importing domain can
+resolve that number, so only the importing domain can divide by it.
 
 ### What version 2 adds
 
@@ -249,7 +269,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
@@ -296,7 +316,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 | Field | Type | Required | Default when absent | Description |
 | --- | --- | --- | --- | --- |
-| `format_version` | integer | no | `1` | Must be `1` or `2` when present. New exports write `2`. |
+| `format_version` | integer | no | `1` | Must be `1`, `2`, or `3` when present. New exports write `3`. |
 | `validator_type` | `"standard"`\|`"interactive"` | **yes on v2** | derived on v1 | The validation strategy. Required in version 2; derived from `custom_validator` presence in version 1, where the key is ignored if present. `"checker"` parses but is rejected as unsupported. |
 | `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
 | `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
@@ -451,11 +471,11 @@ no per-language overrides and writes `{}`.
 
 | Sub-field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `time_limit_ms` | integer ≥ 1 | **yes** | Time limit override. |
+| `time_limit_ms` | integer ≥ 1 | **yes** | Time limit override, for **one run** of a test case. The case's budget is this times `repetitions`. (Before version 3 it was that whole budget; see [What version 3 changes](#what-version-3-changes).) |
 | `memory_limit_kb` | integer ≥ 1 | **yes** | Memory limit override. |
 | `pids_limit` | integer ≥ 1 | **yes** | PIDs limit override. |
 | `output_limit_in_bytes` | integer ≥ 1 \| null | no | **May be omitted or null, meaning inherit the problem's limit.** |
-| `repetitions` | integer ≥ 1 | no | Profiling repetitions. Absent takes the target language registry's default, which only the importing side knows. |
+| `repetitions` | integer ≥ 1 | no | How many times each test case is run. Absent takes the target language registry's default, which only the importing side knows — which is also why a pre-v3 package's `time_limit_ms` can only be converted after import resolves this. |
 
 `output_limit_in_bytes` stays nullable here — and only here. `problem_language_limits` keeps a
 nullable column whose NULL means "inherit", which is exactly what the judge's
@@ -790,7 +810,7 @@ noca-sample-problem-a-plus-b.zip
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
@@ -809,7 +829,7 @@ noca-sample-problem-a-plus-b.zip
   "image": null,
   "image_caption": null,
   "language_limits": {
-    "python3": {"time_limit_ms": 3000, "memory_limit_kb": 262144, "pids_limit": 64,
+    "python3": {"time_limit_ms": 1000, "memory_limit_kb": 262144, "pids_limit": 64,
                 "output_limit_in_bytes": 1048576, "repetitions": 3},
     "rust":    {"time_limit_ms": 1000, "memory_limit_kb": 131072, "pids_limit": 32,
                 "output_limit_in_bytes": 1048576, "repetitions": 1}
@@ -851,7 +871,7 @@ my-contest-problem.zip
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "validator_type": "standard",
   "title": "Geometry Maze",
   "author": "Jane Doe",
@@ -889,7 +909,7 @@ number-guessing.zip
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "validator_type": "interactive",
   "title": "Number Guessing",
   "author": "Jane Doe",

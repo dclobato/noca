@@ -24,6 +24,7 @@ from shared.db_schema import profiling_runs as _profiling_run
 from shared.db_schema import submission_judgments as _submission_judgment
 from shared.db_schema import submission_test_results as _submission_test_result
 from shared.enumerations import Verdict
+from shared.profiling_limits import profiled_time_limit_ms
 
 
 class _ResultsMixin(_DatabaseBase):
@@ -152,6 +153,7 @@ class _ResultsMixin(_DatabaseBase):
         *,
         safety_factor: float,
         time_limit_ms: int,
+        repetitions: int,
         memory_limit_kb: int,
         pids_limit: int,
         output_limit_in_bytes: int,
@@ -160,9 +162,15 @@ class _ResultsMixin(_DatabaseBase):
         """
         Apply the safety factor with ceil rounding to all observed peaks.
 
+        Time is the one observation that is a *sum* rather than a peak: it is
+        accumulated across the run's repetitions, while the stored limit is the
+        mean for a single run. ``profiled_time_limit_ms`` does that division
+        inside the same rounding, so the two roundings never compound.
+
         Args:
             safety_factor: Multiplier applied to all resource peaks.
-            time_limit_ms: Observed peak wall time in milliseconds.
+            time_limit_ms: Observed wall time summed over the run's repetitions.
+            repetitions: Repetitions the wall time was summed across.
             memory_limit_kb: Observed peak memory in kilobytes.
             pids_limit: Observed peak PID count.
             output_limit_in_bytes: Observed peak output size in bytes.
@@ -172,7 +180,11 @@ class _ResultsMixin(_DatabaseBase):
             ProfilingObservedLimits with safety-factor-adjusted values.
         """
         return ProfilingObservedLimits(
-            time_limit_ms=max(1, math.ceil(safety_factor * time_limit_ms)),
+            time_limit_ms=profiled_time_limit_ms(
+                safety_factor=safety_factor,
+                total_wall_time_ms=time_limit_ms,
+                repetitions=repetitions,
+            ),
             memory_limit_kb=max(1, math.ceil(safety_factor * memory_limit_kb)),
             pids_limit=max(pids_floor, math.ceil(safety_factor * pids_limit)),
             output_limit_in_bytes=max(1, math.ceil(safety_factor * output_limit_in_bytes)),

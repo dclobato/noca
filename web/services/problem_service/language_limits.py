@@ -6,23 +6,19 @@
 
 """Language-limit helpers for problems.
 
-One asymmetry to know before reading `time_limit_ms` here: it is the budget
-shared by *all* repetitions of a test case, and the two ways a problem gets
-limits do not agree on how many repetitions that is. The fallback path judges
-at exactly 1 repetition (`problem_fallback_limits`, and `else_=literal(1)` in
-`autojudge/db/_problem.py`), so its `time_limit_ms` is also the per-run budget.
-A `problem_language_limits` row carries its own count, and a row created where
-none existed inherits the language registry's `profiling_repetitions_default`
-(3 or 10 depending on the language) -- a number that exists to make Auto-Limit's
-*measurement* stable, not because anyone chose it for judging.
+`time_limit_ms` means one thing everywhere: the time for a single run of a test
+case. That holds for a `problem_language_limits` row and for the problem's own
+columns alike -- the UI calls the latter the *simple limits*, and they are just
+the one-repetition case of the same rule (`problem_fallback_limits` below, and
+`else_=literal(1)` in `autojudge/db/_problem.py`).
 
-The consequence bites when limits are typed by hand, which is the only way to
-change limits during a running contest: the same number that means 1000 ms in
-the failover field means 100 ms per run in a 10-repetition language row. Enter
-per-run time x repetitions there. Auto-Limit rows are self-consistent -- they
-measure across their own repetition count and store a total that matches it --
-and an edit to an existing row keeps that count. Memory, PID and output limits
-are peaks rather than sums, so repetitions do not affect them.
+The judge multiplies by the row's `repetitions` to get the budget for the whole
+test case (`autojudge.types.case_budget_ms`) and then spends that budget across
+the runs rather than re-imposing the limit on each one, so a slow run borrows
+from a fast one. TLE therefore means the *average* run went over, which is what
+makes repetitions smooth measurement noise instead of handing a submission N
+chances to get unlucky. Memory, PID and output limits are peaks rather than
+sums, so repetitions do not affect them at all.
 """
 
 from __future__ import annotations
@@ -47,7 +43,12 @@ async def get_language_limits_map(session: AsyncSession, problem: Problem) -> di
 
 
 def problem_fallback_limits(problem: Problem) -> EffectiveProblemLimits:
-    """Return the default problem limits used when no language override exists."""
+    """Return the default problem limits used when no language override exists.
+
+    The UI calls these the *simple limits*; the name here describes how a
+    language without an override resolves its limits, which is what the callers
+    care about.
+    """
     return EffectiveProblemLimits(
         time_limit_ms=problem.time_limit_ms,
         memory_limit_kb=problem.memory_limit_kb,
@@ -125,8 +126,9 @@ def submitted_language_limits(
     """Extract the posted per-language limits, preserving repetitions from existing rows.
 
     A language with no existing row is given the registry's
-    ``profiling_repetitions_default``, so the submitted ``time_limit_ms`` is
-    read as a budget shared by that many runs. See the module docstring.
+    ``profiling_repetitions_default``. That count only decides how many times
+    each test case is run; the submitted ``time_limit_ms`` is the limit for one
+    of those runs either way.
     """
     default_registry = default_language_registry()
     limits: dict[str, LanguageLimitInput] = {}
@@ -165,9 +167,10 @@ async def upsert_language_limits(
 
     Rows are rewritten wholesale: a language absent from ``limits``, or one
     whose time, memory and PID fields are all blank, ends with no row at all and
-    judges from the problem's own limits at 1 repetition. A new row defaults its
-    repetition count from the language registry rather than to 1; see the module
-    docstring for what that does to the meaning of ``time_limit_ms``.
+    judges from the problem's own simple limits at 1 repetition. A new row
+    defaults its repetition count from the language registry rather than to 1,
+    which changes how many times a case runs but not what ``time_limit_ms``
+    means.
     """
     existing_limits = await get_language_limits_map(session, problem)
     default_registry = default_language_registry()

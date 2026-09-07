@@ -101,21 +101,38 @@ judgment tables and unaffected by this fencing.
   - interpreted languages still go through the same abstraction, but may only syntax-check and return the source as the artifact
 - Language registry:
   - each language row persists profiling defaults used by Auto-Limit runs
-  - `profiling_repetitions_default` controls how many times each test case is repeated while profiling that language
+  - `profiling_repetitions_default` controls how many times each test case is repeated while profiling that language; the count a run actually used is frozen in `profiling_runs.repetitions` when the run starts, so the suggestion can be recomputed later without depending on a default that may since have been edited
   - `profiled_pids_floor` defines the minimum PID limit that can be persisted from profiling for that language
   - profiled repetition counts are copied into `problem_language_limits.repetitions` so judging keeps the exact per-language profiling semantics that produced the stored limits
+  - the observed wall time is a sum across repetitions while the stored limit is the mean of one run, so the safety factor and that division happen in a single rounding, in `shared/profiling_limits.py` — the one formula the worker and the Web layer's Limits tab both call, because they disagreed when each owned a copy
+  - the profiling hard cap is enforced as two bounds at once, because it is an infrastructure ceiling rather than a problem's time limit. Paired with the repetition count it sets the *aggregate* at cap x repetitions, so each repetition gets a full cap's worth instead of a tenth of one (previously ten repetitions shared a single cap, failing a legitimately slow reference implementation on the ceiling rather than on its merits). It is *also* passed as `per_run_ceiling_ms`, bounding any single execution: unlike a problem's limit, where one slow run borrowing from a fast one is the design, this cap exists to stop one hung reference implementation from spending the whole aggregate in its first run and holding a container for all of it
+- Reaper:
+  - profiling jobs use `NOCA_JUDGE_PROFILING_REAPER_STALE_THRESHOLD_MINUTES` (default 10) rather than the
+    submission threshold. A submission is bounded by `n_test_cases x time_limit`; a profiling run is bounded by
+    `n_test_cases x repetitions x runtime`, a factor of 10 for the languages defaulting to 10 repetitions, so one
+    threshold could not fit both -- a legitimately slow reference implementation on a many-case problem was reaped
+    mid-run and retried until it hit the requeue ceiling
+  - the advisory scan uses the looser of the two cutoffs and `reap_stale_job` re-decides against the candidate's own
+    kind, so a job that is not yet stale by its own rule is returned untouched
+  - both thresholds are validated at startup against `NOCA_JUDGE_LOCK_TTL_SECONDS`: the lock is what makes the stale
+    decision atomic, so a threshold outliving it would let the lock expire first
 - Run phase:
   - uses a warm container pool per active language; when `NOCA_JUDGE_PRE_WARM_CONTAINERS=True` each
     language's pool is filled lazily on the first submission for that language (not at startup),
     with concurrent Docker creates across languages capped by `NOCA_JUDGE_WORKER_CONCURRENCY`
   - acquires one idle container, immediately schedules a replacement, and destroys the used container after the run
   - runs contestant programs through `isolate --init/--run/--cleanup` for each executed test case
-  - if a problem has no per-language limit row for the submission language, the worker uses the problem fallback resource limits with exactly 1 repetition
-  - the stored time limit is the budget shared by *all* repetitions of one test case (BOCA
-    `safeexec -r$nruns -t$time` semantics), not the budget for one execution. isolate cannot
-    enforce a budget across separate invocations, so the worker emulates it by re-slicing:
-    each repetition is launched with whatever is left, and the case is TLE once the budget
-    is spent
+  - if a problem has no per-language limit row for the submission language, the worker uses the
+    problem's own simple resource limits with exactly 1 repetition
+  - the stored time limit is the time for **one** run of a test case, on both paths. The budget
+    for the whole case is that limit times the repetition count (`autojudge.types.case_budget_ms`),
+    which is the same total BOCA's `safeexec -r$nruns -t$time` enforces — BOCA's operator types
+    the total, NOCA's types the per-run time and NOCA multiplies. isolate cannot enforce a budget
+    across separate invocations, so the worker emulates it by re-slicing: each repetition is
+    launched with whatever is left, and the case is TLE once the budget is spent. A slow
+    repetition therefore borrows from a fast one, and TLE means the *average* run exceeded the
+    limit — which is what makes repetitions smooth measurement noise rather than give a
+    submission N independent chances to get unlucky
   - because that per-repetition slice decays toward zero by design, the outer
     `asyncio.wait_for()` watchdog is floored at `inner_wall_limit + NOCA_JUDGE_OUTER_TIMEOUT_FIXED_OVERHEAD_S`.
     That watchdog bounds a whole Docker exec round trip, whose overhead is fixed and unrelated
