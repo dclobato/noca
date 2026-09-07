@@ -17,7 +17,7 @@
             defer></script>
     <script src="{{ request.url_for('static_vendor', path=highlight_line_numbers_path) }}"
             defer></script>
-    <script src="{{ request.url_for('static_js', path='submission-confirm.js') }}"
+    <script src="{{ request.url_for('static_js', path='submission-confirm.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}
 {% macro verdict_badge(v) %}

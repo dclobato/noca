@@ -7,9 +7,9 @@
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"
                 defer></script>
-        <script src="{{ request.url_for('static_js', path='reports-charts.js') }}"
+        <script src="{{ request.url_for('static_js', path='reports-charts.js') }}?v={{ app_version }}"
                 defer></script>
-        <script src="{{ request.url_for('static_js', path='reports-team-sort.js') }}"
+        <script src="{{ request.url_for('static_js', path='reports-team-sort.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
 {% endblock %}

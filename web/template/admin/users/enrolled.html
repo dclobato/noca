@@ -424,8 +424,8 @@
     </div>
 {% endblock %}
 {% block extra_script %}
-    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}"
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
             defer></script>
-    <script src="{{ request.url_for('static_js', path='clear-ip-lock.js') }}"
+    <script src="{{ request.url_for('static_js', path='clear-ip-lock.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

@@ -4,6 +4,18 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [20.0.1] - 2026-09-07
+
+### Bug Fixes
+
+- **web,arena:** Version every module script include
+
+### Documentation
+
+- **problem-limits:** Explain what repetitions do to the time limit
+
+
+
 ## [20.0.0] - 2026-09-07
 
 ### ⚠ Breaking Changes

@@ -11,8 +11,10 @@
 {% block extra_head %}
     <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
             defer></script>
-    <script src="{{ request.url_for('static_js', path='scoreboard.js') }}" defer></script>
-    <script src="{{ request.url_for('static_js', path='back-to-top.js') }}" defer></script>
+    <script src="{{ request.url_for('static_js', path='scoreboard.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='back-to-top.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}
 {% block content %}
     <div class="container-fluid px-4 py-4"

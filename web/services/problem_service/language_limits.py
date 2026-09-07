@@ -4,7 +4,26 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Language-limit helpers for problems."""
+"""Language-limit helpers for problems.
+
+One asymmetry to know before reading `time_limit_ms` here: it is the budget
+shared by *all* repetitions of a test case, and the two ways a problem gets
+limits do not agree on how many repetitions that is. The fallback path judges
+at exactly 1 repetition (`problem_fallback_limits`, and `else_=literal(1)` in
+`autojudge/db/_problem.py`), so its `time_limit_ms` is also the per-run budget.
+A `problem_language_limits` row carries its own count, and a row created where
+none existed inherits the language registry's `profiling_repetitions_default`
+(3 or 10 depending on the language) -- a number that exists to make Auto-Limit's
+*measurement* stable, not because anyone chose it for judging.
+
+The consequence bites when limits are typed by hand, which is the only way to
+change limits during a running contest: the same number that means 1000 ms in
+the failover field means 100 ms per run in a 10-repetition language row. Enter
+per-run time x repetitions there. Auto-Limit rows are self-consistent -- they
+measure across their own repetition count and store a total that matches it --
+and an edit to an existing row keeps that count. Memory, PID and output limits
+are peaks rather than sums, so repetitions do not affect them.
+"""
 
 from __future__ import annotations
 
@@ -103,7 +122,12 @@ def submitted_language_limits(
     submitted_form: Mapping[str, object],
     existing_limits: dict[str, ProblemLanguageLimit],
 ) -> dict[str, LanguageLimitInput]:
-    """Extract the posted per-language limits, preserving repetitions from existing rows."""
+    """Extract the posted per-language limits, preserving repetitions from existing rows.
+
+    A language with no existing row is given the registry's
+    ``profiling_repetitions_default``, so the submitted ``time_limit_ms`` is
+    read as a budget shared by that many runs. See the module docstring.
+    """
     default_registry = default_language_registry()
     limits: dict[str, LanguageLimitInput] = {}
     for language in languages:
@@ -137,7 +161,14 @@ async def upsert_language_limits(
     problem: Problem,
     limits: dict[str, LanguageLimitInput],
 ) -> None:
-    """Delete and re-insert all per-language limits for a problem."""
+    """Delete and re-insert all per-language limits for a problem.
+
+    Rows are rewritten wholesale: a language absent from ``limits``, or one
+    whose time, memory and PID fields are all blank, ends with no row at all and
+    judges from the problem's own limits at 1 repetition. A new row defaults its
+    repetition count from the language registry rather than to 1; see the module
+    docstring for what that does to the meaning of ``time_limit_ms``.
+    """
     existing_limits = await get_language_limits_map(session, problem)
     default_registry = default_language_registry()
     await session.execute(delete(ProblemLanguageLimit).where(ProblemLanguageLimit.problem_id == problem.id))

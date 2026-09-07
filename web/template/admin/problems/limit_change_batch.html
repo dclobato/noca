@@ -174,5 +174,5 @@
     </div>
 {% endblock %}
 {% block extra_script %}
-    <script src="{{ request.url_for('static_js', path='limit-batch-rejudge.js') }}"></script>
+    <script src="{{ request.url_for('static_js', path='limit-batch-rejudge.js') }}?v={{ app_version }}"></script>
 {% endblock %}

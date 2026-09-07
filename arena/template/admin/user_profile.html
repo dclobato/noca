@@ -1212,9 +1212,9 @@
     <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='profile-tab-nav.js') }}"
+    <script src="{{ request.url_for('arena_static_js', path='profile-tab-nav.js') }}?v={{ app_version }}"
             defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='admin-topup-credits.js') }}"
+    <script src="{{ request.url_for('arena_static_js', path='admin-topup-credits.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-user-profile.js') }}?v={{ app_version }}"
             defer></script>

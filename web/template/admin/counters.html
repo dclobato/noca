@@ -3,7 +3,7 @@
 {% block extra_head %}
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"
             defer></script>
-    <script src="{{ request.url_for('static_js', path='contest-admin-counters-charts.js') }}"
+    <script src="{{ request.url_for('static_js', path='contest-admin-counters-charts.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock extra_head %}
 {% block title_suffix %}

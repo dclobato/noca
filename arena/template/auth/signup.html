@@ -259,8 +259,8 @@
     <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"
             defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='signup.js') }}"
+    <script src="{{ request.url_for('arena_static_js', path='signup.js') }}?v={{ app_version }}"
             defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='arena-image-cropper.js') }}"
+    <script src="{{ request.url_for('arena_static_js', path='arena-image-cropper.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

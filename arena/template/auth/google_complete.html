@@ -110,6 +110,6 @@
     {# Reused rather than duplicated: signup.js wires the date-of-birth to
      guardian-email toggle before its photo-dropzone early return, so the parts
      this page has no elements for simply do not run. #}
-    <script src="{{ request.url_for('arena_static_js', path='signup.js') }}"
+    <script src="{{ request.url_for('arena_static_js', path='signup.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}
