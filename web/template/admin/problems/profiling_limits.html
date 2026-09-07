@@ -273,18 +273,23 @@
                 </div>
                 <div class="px-3 pb-2 pt-1">
                     <small class="text-muted d-block">
-                        <strong>Total time</strong> is the budget shared by <em>all</em> repetitions of one test
-                        case, not the budget for a single execution. A submission is TLE as soon as its runs add
-                        up past it, so with 10 reps a 150 ms limit allows the program about 15 ms per run.
+                        <strong>Repetitions apply only when a per-language limit row exists.</strong> If a language
+                        has no per-language row, all limits fall back to the problem-level values and the
+                        submission is judged with exactly <strong>1 repetition</strong>. Thus, a fallback time
+                        limit of 1000 ms gives that language one run with a 1000 ms budget, even if the language's
+                        profiling default is 10 repetitions.
                     </small>
                     <small class="text-muted d-block">
-                        The failover limits above are always judged at <strong>1 repetition</strong>, so there the
-                        total time <em>is</em> the per-run time. A language row does not inherit that: the Reps
-                        column shows the count a new row will be created with, and the total time you type is
-                        shared across them. Typing the failover value verbatim into a 10-rep language therefore
-                        makes the problem ten times stricter for it — enter per-run time × reps instead. After
-                        saving, each row prints the per-run time it works out to; check that line reads what you
-                        meant. Memory, PIDs and output are peaks, not sums, and are unaffected.
+                        When a per-language row is created, it uses that row's repetition count. Its
+                        <strong>Total time</strong> is the budget shared across all repetitions. For example,
+                        1000 ms across 10 repetitions provides about 100 ms per run on average. To retain a
+                        nominal 1000 ms per run, enter a total limit of 10,000 ms.
+                    </small>
+                    <small class="text-muted d-block">
+                        The per-run figure is an average, not a separate hard limit for every run: each run
+                        receives the remaining total budget, and judging stops with TLE once that shared budget
+                        is exhausted. Memory, PID and output limits are peak limits and are not multiplied or
+                        divided by the repetition count.
                     </small>
                     <small class="text-muted d-block">Leave all fields blank for a language to use the problem-level fallback limits above.</small>
                 </div>

@@ -711,6 +711,28 @@ In the publish workflows the cache repository is **the registry that pass is alr
 to** (`docker.io/dclobato/noca-buildcache` or `ghcr.io/dclobato/noca/buildcache`), so publishing
 to one registry never requires credentials for the other.
 
+**A failed cache export is silent, so it is verified separately.** BuildKit treats a `cache-to`
+failure as a warning rather than an error: the push still succeeds, `build.sh` still exits `0`,
+and the publish workflows' retry loop -- which only reacts to a non-zero exit -- never fires.
+`verify_published_images.py` does not catch it either, because the *images* are all present. That
+gap is not hypothetical: after `v19.0.0` the Docker Hub cache held 31 of the 42 language targets,
+so 11 of them (all of `c-sharp`, plus one slot each of `go`, `haskell`, `java`, `kotlin`, `lua`,
+`php`, `ruby`, `scala`, and `swift`) rebuilt from scratch on every later run.
+
+`scripts/verify_build_cache.py` closes it by asking each registry whether every expected cache tag
+resolves -- the requested targets plus the four internal bases:
+
+```bash
+uv run python scripts/verify_build_cache.py
+uv run python scripts/verify_build_cache.py --registries ghcr --scope languages
+```
+
+Existence is the whole check. Cache tags are floating and carry no version, and an entry left over
+from an earlier release is still a useful partial hit, so only a *missing* entry is reported. Both
+cache repositories are private, so the check needs credentials. The publish workflows run it with
+`continue-on-error: true`: a missing entry costs build time, never correctness, so it must not fail
+a release that did publish everything.
+
 Note for [Registry retention cleanup](#registry-retention-cleanup): these cache tags accumulate in
 the cache repository the same way image tags do, and are not covered by the retention rules
 written for the image repositories.

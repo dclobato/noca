@@ -48,7 +48,7 @@ from typing import Final
 
 import httpx
 
-_APP_TARGETS = (
+APP_TARGETS = (
     "webapp",
     "arena",
     "autojudge",
@@ -59,7 +59,7 @@ _APP_TARGETS = (
     "landingpage",
     "mailer",
 )
-_LANGUAGES_DIR = Path(__file__).resolve().parents[1] / "containers" / "languages"
+LANGUAGES_DIR = Path(__file__).resolve().parents[1] / "containers" / "languages"
 _TIMEOUT = httpx.Timeout(30.0)
 _AUTH_FAILURE_CODES: Final = frozenset((httpx.codes.UNAUTHORIZED, httpx.codes.FORBIDDEN))
 _MANIFEST_ACCEPT = ", ".join(
@@ -287,9 +287,9 @@ def expected_images(
     """
     images: list[tuple[str, str, str]] = []
     if include_apps:
-        images += [(app, "latest", version) for app in _APP_TARGETS]
+        images += [(app, "latest", version) for app in APP_TARGETS]
     if include_languages:
-        languages = sorted(path.name for path in _LANGUAGES_DIR.iterdir() if path.is_dir())
+        languages = sorted(path.name for path in LANGUAGES_DIR.iterdir() if path.is_dir())
         for language in languages:
             images += [(f"judge-{language}", slot, f"{slot}-{version}") for slot in ("compile", "run")]
     if components:
