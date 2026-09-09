@@ -698,8 +698,59 @@ valid address of a known account, that account's whole recipe is added.
 profile page's status row; `None` when the store cannot answer, which the
 template renders as *Status unknown* rather than *Not locked*.
 
+**`list_lockout_overview(store, session) -> LockoutOverview | None`** -- lists
+all active Arena lock keys and groups IP buckets by address. Account subjects
+are non-reversible HMACs, so the service resolves only the active hashes through
+the indexed `arena_user_throttle_hashes` mapping in batches of 1,000. It never
+scans or hashes the user table on a request. The mapping is many-to-many: when
+email canonicalization makes one hash valid for two users, both emails receive
+the lock in stable user-id order. The overview reports how many account
+identifiers could not be matched instead of guessing or exposing an unknown
+login.
+
 The wording and the audited flow live in the shared
 `auth_lockout_flow.py`, so Web and Arena record an unlock identically.
+
+---
+
+### `user_throttle_hash_service.py`
+
+Maintains the forward mapping from the HMAC identifiers stored in Arena
+authentication throttle keys to registered users. The
+`arena_user_throttle_hashes` table has a composite primary key over the secret
+generation, identifier hash, and user id, so lookups are indexed while
+legitimate canonical-email collisions remain many-to-many. The generation is a
+4-byte foreign key into `arena_throttle_secret_versions`, one row per distinct
+`JWT_SECRET_KEY`, rather than a 64-character fingerprint repeated on every
+mapping row; deleting a generation cascades to its mappings.
+
+**`current_secret_version_id(secret=None)`** -- a scalar subquery selecting the
+active generation's id. Readers embed it instead of resolving the id first, so
+one indexed lookup on the unique fingerprint keeps the equality on the leading
+primary-key column. It matches no rows when the secret has never been indexed.
+
+**`refresh_user_throttle_hashes(session, user)`** -- replaces one user's rows
+inside the caller's transaction. Registration calls it after the user insert,
+so a committed account and its lookup rows become visible together.
+
+**`rebuild_user_throttle_hash_index(session_factory)`** -- runs before Arena
+starts serving, and is gated so that a boot which changes nothing costs one
+indexed anti-join. The gate asks directly whether any user is missing from the
+current generation, so it assumes nothing about how many hashes a user yields
+and stops at the first uncovered row; each probe is an index lookup on
+`ix_arena_user_throttle_hashes_user_version`. A crashed rebuild leaves no
+partial state to mistake for coverage because a rebuild commits exactly once. When the counts disagree -- a backfill after the migration, a
+`JWT_SECRET_KEY` rotation, or a genuine gap -- it streams user identities in
+batches of 1,000, computes each batch's HMACs in a worker thread, writes the
+replacement transactionally, and then removes obsolete generations, whose
+mapping rows follow by cascade.
+
+Gating matters because the alternative is not free: rewriting every row on every
+boot makes readiness scale with the user count and leaves a full table's worth
+of dead tuples behind each restart. With the gate the table is genuinely
+low-churn -- it changes on user creation or deletion, on a login-identity
+change, and in one bounded rebuild after a backfill or rotation -- so
+server-wide autovacuum defaults are sufficient.
 
 ---
 
@@ -828,6 +879,58 @@ Normalizes and validates submitted category data. Name and slug are required and
 | `update_category(session, category, *, name, slug, color)` | Validate, update, and flush a category |
 | `delete_category(session, category)` | Delete the category; map rows are removed by FK cascade |
 
+Field-level rules (slug normalization and stop words, `#RRGGBB` color, 128-character
+limits) live in `taxonomy_validation.py` and are shared with collections;
+`normalize_slug` is re-exported here for callers that already import it from this path.
+
+---
+
+### `taxonomy_validation.py`
+
+Field rules shared by Arena's flat taxonomies — categories and collections. Both share the slug and length rules; the color helpers serve categories, the only taxonomy with a badge color.
+A problem has many categories and at most one collection, but their `name`, `slug`,
+and `color` fields obey exactly the same rules, so those rules live here and the two
+cannot drift apart.
+
+| Symbol | Description |
+|---|---|
+| `MAX_FIELD_LENGTH`, `COLOR_PATTERN`, `SLUG_PATTERN` | The shared field caps and shapes |
+| `SLUG_STOP_WORDS` | Portuguese + English function words dropped from slugs; mirrored in `arena/static/js/taxonomy-slug.js`, which must stay in sync |
+| `normalize_slug(value)` | Strip diacritics and stop words, join the rest with hyphens |
+| `validate_required_text(value, field_name)` | Strip and length-check a required field |
+| `validate_slug(raw_slug)` | Normalize a slug and enforce its shape |
+| `validate_color(raw_color)` | Normalize and enforce the 6-digit hex format |
+| `random_badge_color()` | A vivid, readable random badge color for a new row |
+
+---
+
+### `admin_collection_service.py`
+
+Admin-only service for Arena collection CRUD. A collection is an event (ICPC,
+Maratona SBC, InterIF) or a class (Iniciantes, Expressões regulares), and a problem
+belongs to **at most one** — the link is the nullable `arena_problems.collection_id`
+column, not a junction table, so the cardinality is enforced by the database.
+
+**`list_collections_paginated(session, *, page, per_page, sort_by, search) → Pagination[CollectionListItem]`**
+
+Two-query paginated list (count + data), with `problem_count` from an outer join on
+`arena_problems.collection_id`. Sorts by `name_asc` (default), `name_desc`,
+`problems_asc`, or `problems_desc`; `search` is a case-insensitive name substring.
+
+**`validate_collection_data(session, *, name, slug, exclude_id=None) → CollectionFormData`**
+
+Same name and slug rules as categories, via `taxonomy_validation.py`. There is no color field.
+
+| Function | Effect |
+|---|---|
+| `list_collections(session)` | Every collection ordered by name, for pickers and filter dropdowns |
+| `get_collection(session, collection_id)` | Fetch a collection by ID |
+| `get_collection_by_slug(session, slug)` | Fetch by normalized slug; `None` for a blank slug or a miss |
+| `get_problem_count(session, collection_id)` | Count the problems filed under it |
+| `create_collection(session, *, name, slug)` | Validate, create, and flush |
+| `update_collection(session, collection, *, name, slug)` | Validate, update, and flush |
+| `delete_collection(session, collection)` | Delete it; its problems are **unfiled** by the `SET NULL` FK, never deleted |
+
 ---
 
 ### `admin_affiliation_service.py`
@@ -878,12 +981,13 @@ exception: it can reuse values from any enabled problem and from the caller's ow
 | Symbol / Function | Description |
 |---|---|
 | `ProblemListItem` | Immutable list projection containing only the problem ID, public number, title, enabled state, public/private test-case counts, an evidence-gated `difficulty: DifficultyDisplay`, rendered categories, custom-validator marker, and editorial presence/release-policy markers. |
-| `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, owner_id, language, enabled, editorial, sort_by, caller_id, is_admin)` | Paginated problem list with shared weighted PostgreSQL full-text search over title/source/statement/free-text author, trigram substring fallback over every text field, fuzzy trigram matching over title/source/resolved author, and compatible number matching. Owner-backed author names use the separately indexed `arena_users.nome` trigram path because they cannot participate in the problem-row FTS expression index. Search defaults to deterministic relevance order; callers can select another sort. Optional filters cover admin-only owner, OR category IDs or slugs, `StatementLanguage`, enabled/disabled state, and editorial state (`none` for no editorial text, or a release policy for problems that have editorial text). The count remains filter-only; categories, test-case counts, and validator markers are loaded with bounded page-ID queries. |
+| `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, collection_id, owner_id, language, enabled, editorial, sort_by, caller_id, is_admin)` | Paginated problem list with shared weighted PostgreSQL full-text search over title/source/statement/free-text author, trigram substring fallback over every text field, fuzzy trigram matching over title/source/resolved author, and compatible number matching. Owner-backed author names use the separately indexed `arena_users.nome` trigram path because they cannot participate in the problem-row FTS expression index. Search defaults to deterministic relevance order; callers can select another sort. Optional filters cover admin-only owner, OR category IDs or slugs, `StatementLanguage`, enabled/disabled state, and editorial state (`none` for no editorial text, or a release policy for problems that have editorial text). The count remains filter-only; categories, test-case counts, and validator markers are loaded with bounded page-ID queries. |
 | `get_problem(session, problem_id, *, caller_id, is_admin)` | Fetch one problem with categories and test cases, applying owner scoping for non-admin editors. |
 | `get_problem_definition(session, problem_id, *, caller_id, is_admin)` | Fetch the definition-editor profile with categories only, applying the same owner scope while deliberately excluding test cases, validator, and sample interactions. |
-| `create_problem(session, *, caller_id, author, author_is_owner, license, statement_language, editorial=None, editorial_release_policy=ArenaEditorialReleasePolicy.NEVER, expected_difficulty=None, validator_type, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores owner-backed or free-text authorship, optional license and editorial metadata, an optional `StatementLanguage`, the editorial release policy (defaulting to `never`), the optional author `expected_difficulty` (internal 1–100, validated in range; the rating worker uses it as the solve-rate prior), and category links. Blank editorial content becomes `None`; nonblank content uses the statement Markdown restrictions. `validator_type` is required and immutable. |
-| `update_problem(session, problem, *, author, author_is_owner, license, statement_language, editorial=None, editorial_release_policy=ArenaEditorialReleasePolicy.NEVER, expected_difficulty=None, validator_type=None, ...)` | Validate and update mutable fields without transferring ownership. `expected_difficulty` is stored as given (`None` clears the estimate). Owner-backed authorship clears the free-text author; blank license and editorial values become `None`; `statement_language` is already resolved by `statement_language_service`; the editorial release policy (defaulting to `never`) is stored as given. A differing `validator_type` is rejected. |
+| `create_problem(session, *, caller_id, author, author_is_owner, license, statement_language, editorial=None, editorial_release_policy=ArenaEditorialReleasePolicy.NEVER, expected_difficulty=None, validator_type, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores owner-backed or free-text authorship, optional license and editorial metadata, an optional `StatementLanguage`, the editorial release policy (defaulting to `never`), the optional author `expected_difficulty` (internal 1–100, validated in range; the rating worker uses it as the solve-rate prior), category links, and an optional `collection_id`. Blank editorial content becomes `None`; nonblank content uses the statement Markdown restrictions. `validator_type` is required and immutable. |
+| `update_problem(session, problem, *, author, author_is_owner, license, statement_language, editorial=None, editorial_release_policy=ArenaEditorialReleasePolicy.NEVER, expected_difficulty=None, validator_type=None, ...)` | Validate and update mutable fields without transferring ownership. `expected_difficulty` is stored as given (`None` clears the estimate). Owner-backed authorship clears the free-text author; blank license and editorial values become `None`; `statement_language` is already resolved by `statement_language_service`; the editorial release policy (defaulting to `never`) is stored as given. A differing `validator_type` is rejected. An optional `collection_id` files the problem under a collection (blank or `None` unfiles it). |
 | `toggle_enabled(session, problem)` | Flip the problem `enabled` flag and refresh `updated_at`. |
+| `_resolve_collection_id(session, collection_id)` | Validate a submitted `collection_id` before assignment. Blank normalizes to `None`; an ID matching no collection raises `ValueError` so a stale form becomes an ordinary field error rather than a database integrity error. Used by both `create_problem` and `update_problem`. |
 | `delete_problem(session, problem)` | Delete a problem and all its dependent data. Deletes submissions first (cascading to judgments, test results, AI reviews, batch jobs) then the problem itself (cascading to test cases, category map, ratings, solvers, tried, favourites, rating history). Returns the `arena_number` for flash messages. Caller commits. |
 | `list_owners(session)` | Return administrators and users with `can_edit=True`, ordered by display name, for the owner filter. |
 | `search_categories(session, *, query, limit=15)` | Case-insensitive category search; consumed by both the JSON autocomplete API (`GET /admin/problems/categories/search`) and server-side `selected_cats_data` pre-population. |
@@ -1595,6 +1699,19 @@ shape. All helpers leave transaction ownership to the caller and never commit.
 | `delete_teacher_feedback(session, *, submission_id)` | Deletes the feedback row for a submission, if any. Returns `True` when a row existed and was deleted, `False` otherwise (idempotent). |
 | `get_teacher_feedback_text(session, submission_id)` | Returns the feedback text for a submission, or `None` when absent. |
 
+### `arena_problem_set_feedback_service.py`
+
+Owns the single current overall-feedback message for one student in one problem
+set. Feedback is statement-grade Markdown with external links allowed; raw HTML
+and images are refused. All helpers leave transaction ownership to the caller.
+
+| Function | Description |
+|----------|-------------|
+| `get_problem_set_student_feedback(session, problem_set_id, student_id)` | Returns the current feedback record, or `None`. |
+| `student_has_problem_set_submission(session, problem_set_id, student_id)` | Returns whether the student has at least one submission tied to the set. The teacher drill-down and both feedback mutations share this eligibility predicate. |
+| `upsert_problem_set_student_feedback(session, problem_set_id, student_id, teacher_id, feedback_text, feedback_at=None)` | Validates Markdown and inserts or replaces the current feedback through dialect-aware upsert. Returns the written timestamp. |
+| `delete_problem_set_student_feedback(session, problem_set_id, student_id)` | Deletes the current feedback idempotently and returns whether a row existed. |
+
 Authorization is enforced at the route layer (`arena/routes/submissions.py`,
 `_can_manage_feedback`): the set's assigned teacher or an `ARENA_ADMIN`, derived
 from the submission's persisted `problem_set_id`. The POST route also creates a
@@ -2077,9 +2194,11 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 
 | Symbol | Description |
 |--------|-------------|
-| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, language=None, sort_by, user_id=None)` | Paginated enabled-problem list returned as narrow immutable projections. An optional `StatementLanguage` narrows the list to problems written in that language. Search delegates to `problem_search_service`, including resolved free-text or owner-backed authors, and defaults to relevance when active. Category filtering uses OR semantics. Solver aggregates exclude only problem owners. A missing rating row yields no rating or AC rate; a zero-attempt rating row yields a `0.0` AC rate. |
-| `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate the affiliation name, country code, and subdivision code. Eagerly loads `rating`, `categories`, `test_cases`, and `custom_validator`. |
+| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, collection_id=None, language=None, sort_by, user_id=None)` | Paginated enabled-problem list returned as narrow immutable projections. An optional `StatementLanguage` narrows the list to problems written in that language. Search delegates to `problem_search_service`, including resolved free-text or owner-backed authors, and defaults to relevance when active. Category filtering uses OR semantics; `collection_id` is a separate axis that ANDs with it, narrowing the OR-set to one collection. The caller resolves the slug itself so an unknown one can 404 rather than render an empty, unnamed scope. Solver aggregates exclude only problem owners. A missing rating row yields no rating or AC rate; a zero-attempt rating row yields a `0.0` AC rate. |
+| `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate the affiliation name, country code, and subdivision code. Eagerly loads `rating`, `categories`, `collection`, `test_cases`, and `custom_validator`. |
 | `get_all_categories(session)` | Return all categories alphabetically by name, for the filter dropdown. |
+| `get_all_collections(session)` | Return all collections alphabetically by name, for the filter dropdown. |
+| `list_collections_with_counts(session)` | Return one `CollectionCard` per collection (`name`, `slug`, `color`, `foreground_color`, `problem_count`) for the `/collections` index. Counts **only enabled** problems, so a card never advertises problems the catalogue will not show. |
 | `get_user_problem_status(session, *, user_id, problem_id)` | Return `(solved_at, tried_at, is_favorite)` from the solver, tried, and favorites tables. Datetime values may be `None`; `is_favorite` is `True` only when a favorites row exists. |
 | `get_problem_rating_history(session, problem_id)` | Return rating history for the last 730 days as `[{"ts": ISO8601, "rating": int}, ...]`, chronological. Used by the public ECharts sparkline endpoint. |
 | `get_latest_problems(session, *, limit=10)` | Return the `limit` most recently created or edited enabled problems as `LatestProblemItem` (`arena_number`, `title`, `updated_at`), ordered by `updated_at` descending. Backs the dashboard "Latest Problems" card. |
@@ -2462,7 +2581,7 @@ Teacher-facing reporting over set-tied submissions (`problem_set_id`).
 | `list_users_best_verdicts(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Each submitting user's best verdict per set problem. |
 | `list_problems_without_submissions_for_user(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin or the user. Set problems with no set-tied submission by the user. |
 | `list_problems_without_ac_for_user(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin or the user. Set problems with no set-tied AC submission by the user. |
-| `get_student_problem_submissions_for_set(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin only. All submissions by one student for the problems in a set, grouped by problem (tuple of `StudentProblemGroup`), submissions ordered newest-first. Each `StudentSubmissionEntry` carries `has_feedback` (teacher feedback present); each `StudentProblemGroup` carries `needs_feedback` (`True` when the student has no Accepted submission for that problem yet, via the shared `_needs_feedback` predicate — existing teacher feedback on a non-AC attempt does not clear it). |
+| `get_student_problem_submissions_for_set(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin only. All submissions by one student for the problems in a set, grouped by problem (tuple of `StudentProblemGroup`), submissions ordered newest-first. Each `StudentSubmissionEntry` carries `has_feedback` (teacher feedback present); each `StudentProblemGroup` carries `needs_feedback` (`True` when the student has no Accepted submission for that problem yet **and** their most recent non-AC attempt has no teacher feedback, via the shared `_needs_feedback` predicate — feedback on an older attempt does not clear it, because the student submitted again and is still not passing). |
 | `can_teacher_view_submission(session, *, teacher_id, set_id)` | Returns True if the teacher manages the class that owns the given problem set. Used by the submission detail route to authorize ARENA_JUDGE access. |
 
 ### `arena_batch_feedback_service.py`
@@ -2478,7 +2597,7 @@ agree.
 
 | Function | Description |
 |----------|-------------|
-| `get_non_ac_counts_for_set(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Returns `{problem_id: count}` of active class members with no Accepted set-tied submission on that problem yet (via the shared `_needs_feedback` predicate over that student's full verdict history, not just the most-recent submission). Problems with zero qualifying students are omitted. |
+| `get_non_ac_counts_for_set(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Returns `{problem_id: count}` of active class members with no Accepted set-tied submission on that problem yet whose most recent non-AC attempt carries no teacher feedback (via the shared `_needs_feedback` predicate over that student's full attempt history). Problems with zero qualifying students are omitted. |
 | `get_batch_feedback_data(session, *, actor_id, actor_role, set_id, problem_id)` | Teacher/admin only. Returns `BatchFeedbackData`: problem statement/title/number, the 8-bucket verdict summary (fixed order AC, WA, PE, TLE, MLE, OLE, CE, RE), one `BatchFeedbackStudentEntry` per non-AC most-recent submission (with source code, compile log, first failing testcase context when available -- a `BatchFeedbackTestResult` whose `output_diff` is the bounded `output_diff.py` comparison for WA/PE and `None` otherwise -- optional AI review context, highlight language, and any existing feedback text), and the deduped set of highlight languages needed by the page's script tags. Raises `ArenaProblemSetNotFoundError` when the problem is not in the set. |
 | `validate_batch_submission_ids(session, *, set_id, problem_id, submission_ids)` | Re-derives, for a candidate list of submission ids, which are still the active member's most-recent non-AC submission for the problem; returns `{submission_id: (user_id, existing_feedback_text)}` for the still-valid subset, silently dropping stale/tampered ids. Used by the POST route to close the rejudge/supersede TOCTOU window. |
 

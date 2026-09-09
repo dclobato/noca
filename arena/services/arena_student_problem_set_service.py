@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_classes import ArenaClass
 from arena.models.arena_problem_sets import ArenaProblemSet
+from arena.services.arena_problem_set_feedback_service import (
+    ProblemSetStudentFeedback,
+    get_problem_set_student_feedback,
+)
 from arena.services.arena_problem_set_report_service import best_verdict
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetNotFoundError,
@@ -88,6 +92,7 @@ class StudentProblemSetDetail:
     problems: tuple[StudentProblemRow, ...]
     snapshot_available: bool
     user_snapshot_rating: int | None
+    feedback: ProblemSetStudentFeedback | None
 
 
 def _best_verdict_at(entries: list[tuple[str | None, datetime]]) -> datetime | None:
@@ -343,6 +348,12 @@ async def get_student_problem_set_detail(
             # No row means the user had no submissions → rating is 0
             user_snapshot_rating = int(user_rating) if user_rating is not None else 0
 
+    feedback = await get_problem_set_student_feedback(
+        session,
+        problem_set_id=problem_set.id,
+        student_id=actor_id,
+    )
+
     return StudentProblemSetDetail(
         set_id=problem_set.id,
         class_id=problem_set.class_id,
@@ -355,4 +366,5 @@ async def get_student_problem_set_detail(
         problems=problems,
         snapshot_available=snapshot_available,
         user_snapshot_rating=user_snapshot_rating,
+        feedback=feedback,
     )

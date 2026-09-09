@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,7 +23,24 @@ from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 
 async def award_first_to_hand_in(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award FIRST_TO_HAND_IN for affected opted-in problem-set submissions."""
+    """Award FIRST_TO_HAND_IN for affected opted-in problem-set submissions.
+
+    Both this rule and :func:`award_almost_late` already rank concrete
+    submissions, so each badge is anchored to the very submission that won its
+    ``(problem_set, problem)`` pair -- no convention is involved.
+
+    The winner is the earliest Accepted submission for each
+    ``(problem_set, problem)`` pair, taken from the *live* AC set: ``ac_join``
+    reads each submission's latest judgment. A rejudge that flips the winning
+    submission off Accepted therefore drops it from the ranking, and the next
+    cycle awards the badge to the next-earliest solver while the original holder
+    keeps theirs, leaving the pair with more than one holder.
+
+    That is accepted, not overlooked: a rejudge is nearly always caused by a
+    problem-side defect, and the badge is an honor for what the student did at
+    the time, so it is never taken back. Do not add a revoke here. See
+    ``docs/ARENA_BADGES.md``.
+    """
     pairs = _event_set_pairs(events)
     if not pairs:
         return 0
@@ -40,7 +57,7 @@ async def award_first_to_hand_in(session: AsyncSession, events: list[AcEvent]) -
         if pair not in pairs or pair in seen:
             continue
         seen.add(pair)
-        if await award_badge(session, row.user_id, ArenaBadge.FIRST_TO_HAND_IN):
+        if await award_badge(session, row.user_id, ArenaBadge.FIRST_TO_HAND_IN, row.submission_id):
             awarded += 1
     return awarded
 
@@ -52,7 +69,13 @@ async def award_almost_late(
     now: datetime,
     full_reconcile: bool,
 ) -> int:
-    """Award ALMOST_LATE to the latest on-time solver after set deadlines pass."""
+    """Award ALMOST_LATE to the latest on-time solver after set deadlines pass.
+
+    Mirrors :func:`award_first_to_hand_in` and shares its append-only property:
+    the winner comes from the live AC set, so a rejudge can leave a pair with an
+    extra holder rather than moving the badge. That is deliberate — see that
+    function's docstring and ``docs/ARENA_BADGES.md``.
+    """
     pairs = await _deadline_pairs(session, events, now=now, full_reconcile=full_reconcile)
     if not pairs:
         return 0
@@ -70,8 +93,8 @@ async def award_almost_late(
             latest[pair] = (key[0], key[1], row.user_id)
 
     awarded = 0
-    for _, _, user_id in latest.values():
-        if await award_badge(session, user_id, ArenaBadge.ALMOST_LATE):
+    for _, submission_id, user_id in latest.values():
+        if await award_badge(session, user_id, ArenaBadge.ALMOST_LATE, submission_id):
             awarded += 1
     return awarded
 

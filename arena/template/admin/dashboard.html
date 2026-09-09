@@ -135,6 +135,17 @@
                     </a>
                 </div>
                 <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_collection_list") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="collections_bookmark") }}</span>
+                        <div>
+                            <div class="fw-semibold">Manage collections</div>
+                            <div class="text-muted small">Events and classes a problem can be filed under</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
                     <a href="{{ request.url_for("arena_admin_announcement_list") }}"
                        class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
                         <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="campaign") }}</span>

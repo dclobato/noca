@@ -13,7 +13,8 @@ from typing import Any, Literal
 
 from sqlalchemy import delete, select, update
 
-from autojudge.db._base import AttemptClaim, _DatabaseBase, _utcnow
+from autojudge.db._arena_solver import _ArenaSolverMixin
+from autojudge.db._base import AttemptClaim, _utcnow
 from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import (
     ActiveCustomValidator,
@@ -47,7 +48,7 @@ from shared.queue_schema import CustomValidatorValidationJob
 from shared.services.arena_notification_service import create_arena_notification
 
 
-class _CustomValidatorMixin(_DatabaseBase):
+class _CustomValidatorMixin(_ArenaSolverMixin):
     """List committed candidates for queue reconciliation."""
 
     async def list_recoverable_custom_validator_jobs(self) -> list[RecoverableCustomValidatorJob]:
@@ -391,6 +392,10 @@ class _CustomValidatorMixin(_DatabaseBase):
                     finished_at=now,
                 )
             )
+            # These judgments are now terminal without a verdict. Where one of
+            # them replaced an Accepted judgment for a rejudge, its pair no
+            # longer holds a live AC and must stop counting as solved.
+            await self.reconcile_arena_solvers_for_judgments(queued_ids)
         if owner_id is not None:
             await create_arena_notification(
                 self._conn,

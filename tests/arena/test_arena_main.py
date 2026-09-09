@@ -120,6 +120,7 @@ def _configure_lifespan_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "EmailService", _FakeEmailService)
     monkeypatch.setattr(main_module, "ImageProcessingService", _FakeImageProcessingService)
     monkeypatch.setattr(main_module, "ensure_sem_afiliacao", AsyncMock())
+    monkeypatch.setattr(main_module, "rebuild_user_throttle_hash_index", AsyncMock())
 
 
 @pytest.mark.asyncio

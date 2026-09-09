@@ -26,7 +26,7 @@
             {% for row in diff.rows %}
                 <tr class="arena-output-diff-row arena-output-diff-{{ row.kind }}">
                     <td class="arena-output-diff-no">{{ row.left_no if row.left_no is not none else "" }}</td>
-                    <td class="arena-output-diff-cell">
+                    <td class="arena-output-diff-cell arena-output-diff-cell--actual">
                         {% if row.left is not none %}
                             <pre class="arena-output-diff-pre">{{ row.left | e }}</pre>
                         {% elif row.kind == "missing" %}
@@ -34,7 +34,7 @@
                         {% endif %}
                     </td>
                     <td class="arena-output-diff-no">{{ row.right_no if row.right_no is not none else "" }}</td>
-                    <td class="arena-output-diff-cell">
+                    <td class="arena-output-diff-cell arena-output-diff-cell--expected">
                         {% if row.right is not none %}
                             <pre class="arena-output-diff-pre">{{ row.right | e }}</pre>
                         {% elif row.kind == "extra" %}
@@ -52,7 +52,8 @@
             The stored part of the output matches the expected output; the difference lies beyond what the judge keeps.
         {% else %}
             Showing {{ diff.differing_lines - diff.hidden_differing_lines }} of {{ diff.differing_lines }} differing line{{ "" if diff.differing_lines == 1 else "s" }}
-            {% if diff.hidden_differing_lines %}({{ diff.hidden_differing_lines }} more not shown){% endif %}
+            {%- if diff.hidden_differing_lines %} ({{ diff.hidden_differing_lines }} more not shown)
+            {%- endif -%}
             .
         {% endif %}
         {% if diff.actual_cut %}Only the first part of the output was stored by the judge.{% endif %}

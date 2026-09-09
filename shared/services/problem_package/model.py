@@ -102,6 +102,7 @@ class PackageMetadata:
     pids_limit: int
     output_limit_in_bytes: int
     categories: tuple[str, ...]
+    collection: str | None
     sample_testcases: tuple[int, ...]
     image: str | None
     image_caption: str | None

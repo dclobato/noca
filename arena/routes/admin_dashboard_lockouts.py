@@ -31,8 +31,8 @@ from arena.routes.admin_user_route_support import confirm_admin_password
 from arena.services import lockout_admin_service
 from shared.services.auth_lockout_admin import ActiveLockout, LockoutSubject, validate_ip
 from shared.services.auth_lockout_flow import (
-    describe_or_unavailable,
     format_remaining,
+    lockout_store,
     parse_identifier_hash,
     perform_audited_unlock,
 )
@@ -86,6 +86,7 @@ async def admin_dashboard_lockouts(
     prefill_ip = ip.strip()
     prefill_identifier = identifier.strip()
     prefill_hash = identifier_hash.strip()
+    status_subject: LockoutSubject | None = None
     if prefill_ip:
         try:
             valid_ip = validate_ip(prefill_ip)
@@ -93,14 +94,19 @@ async def admin_dashboard_lockouts(
             status_error = _INVALID_IP
         else:
             status_label = valid_ip
-            active, unavailable = await describe_or_unavailable(request, lockout_admin_service.subject_for_ip(valid_ip))
+            status_subject = lockout_admin_service.subject_for_ip(valid_ip)
     elif prefill_identifier or prefill_hash:
-        subject = await _account_subject(session, prefill_identifier, prefill_hash)
-        if subject is None:
+        status_subject = await _account_subject(session, prefill_identifier, prefill_hash)
+        if status_subject is None:
             status_error = _INVALID_IDENTIFIER
         else:
             status_label = prefill_identifier or f"hash {prefill_hash[:12]}…"
-            active, unavailable = await describe_or_unavailable(request, subject)
+    overview = await lockout_admin_service.list_lockout_overview(lockout_store(request), session)
+    if status_subject is not None:
+        if overview is None:
+            unavailable = True
+        else:
+            active = overview.for_subject(status_subject)
     templates = request.app.state.arena_templates
     return _html(
         templates.TemplateResponse(
@@ -115,6 +121,10 @@ async def admin_dashboard_lockouts(
                 "status_error": status_error,
                 "active_lockouts": active,
                 "status_unavailable": unavailable,
+                "lockout_list_unavailable": overview is None,
+                "blocked_addresses": overview.addresses if overview is not None else (),
+                "blocked_users": overview.users if overview is not None else (),
+                "unresolved_identifier_count": (overview.unresolved_identifier_count if overview is not None else 0),
                 "format_remaining": format_remaining,
             },
         )

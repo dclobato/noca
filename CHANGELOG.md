@@ -4,6 +4,43 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [21.1.0] - 2026-09-09
+
+### Features
+
+- **arena-lockouts:** List active lockouts on the admin dashboard
+- **arena:** Add overall problem set feedback
+- **arena:** Add collections as a second problem taxonomy
+- **arena:** Record which submission awarded each badge
+
+### Bug Fixes
+
+- **arena:** Restore output diff highlighting
+- **arena:** Clear the needs-feedback badge once the latest attempt is answered
+- **animator:** Size the team-photo modal to the photo
+- **arena:** Keep prev/next inside the filtered problem list
+- **arena:** Reconcile arena_problem_solvers against the live verdicts
+- **arena:** Show badge provenance on profiles
+- **autojudge:** Retain interactive Docker socket owner
+- **autojudge:** Log interactive bridge failures
+- **autojudge:** Expose missing isolate metadata
+- **autojudge:** Categorize isolate metadata errors
+- **rating:** Reconcile Rock Cracker from live data
+
+### Documentation
+
+- **legal:** Remove contradictory commercial-use wording
+- **arena-badges:** Record why a rejudge can duplicate a position badge
+
+### Build & CI
+
+- Run real-Docker tests serially
+- Pin Python for Docker stream stability
+- Reserve isolate box IDs for Docker tests
+- Allow isolate mount privatization
+
+
+
 ## [21.0.0] - 2026-09-07
 
 ### ⚠ Breaking Changes

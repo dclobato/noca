@@ -45,6 +45,7 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.admin_affiliations import router as arena_admin_affiliations_router
 from arena.routes.admin_announcements import router as arena_admin_announcements_router
 from arena.routes.admin_categories import router as arena_admin_categories_router
+from arena.routes.admin_collections import router as arena_admin_collections_router
 from arena.routes.admin_dashboard import router as arena_admin_dashboard_router
 from arena.routes.admin_dashboard_history import router as arena_admin_dashboard_history_router
 from arena.routes.admin_dashboard_lockouts import router as arena_admin_dashboard_lockouts_router
@@ -85,6 +86,7 @@ from arena.routes.live import router as arena_live_router
 from arena.routes.notifications import router as arena_notifications_router
 from arena.routes.presence import ARENA_PRESENCE_DOMAIN
 from arena.routes.presence import router as arena_presence_router
+from arena.routes.problem_collections import router as arena_problem_collections_router
 from arena.routes.problem_editorial import router as arena_problem_editorial_router
 from arena.routes.problem_problem_sets import router as arena_problem_problem_sets_router
 from arena.routes.problem_sets import router as arena_problem_sets_router
@@ -92,6 +94,7 @@ from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_
 from arena.routes.problem_sets_batch_feedback import router as arena_problem_sets_batch_feedback_router
 from arena.routes.problem_sets_full_report import router as arena_problem_sets_full_report_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
+from arena.routes.problem_sets_student_feedback import router as arena_problem_sets_student_feedback_router
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
@@ -107,6 +110,7 @@ from arena.services.google_oauth_service import build_google_oauth_client
 from arena.services.qrcode_service import QRCodeService
 from arena.services.startup_seeds import ensure_sem_afiliacao
 from arena.services.token_service import ArenaTokenAction, JWTService, load_token_config_from_dict
+from arena.services.user_throttle_hash_service import rebuild_user_throttle_hash_index
 from arena.services.valkey_service import create_arena_valkey_runtime
 from arena.template_globals import register_arena_template_globals
 from shared.app_logging import configure_logging, log_settings
@@ -291,6 +295,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     await ensure_sem_afiliacao(app.state.arena_db_session)
     logger.info('- Startup seed: "%s" affiliation ensured (exclude_from_ranking=True)', "Sem afiliação")
+    await rebuild_user_throttle_hash_index(app.state.arena_db_session)
 
     valkey_runtime = create_arena_valkey_runtime(
         healthcheck_interval_s=settings.VALKEY_HEALTHCHECK_INTERVAL_SECONDS,
@@ -629,6 +634,7 @@ app.include_router(arena_classes_members_router)
 app.include_router(arena_problem_sets_full_report_router)
 app.include_router(arena_problem_sets_router)
 app.include_router(arena_problem_sets_report_router)
+app.include_router(arena_problem_sets_student_feedback_router)
 app.include_router(arena_problem_sets_batch_feedback_router)
 app.include_router(arena_problem_sets_autocomplete_router)
 app.include_router(arena_student_problem_sets_router)
@@ -638,6 +644,7 @@ app.include_router(arena_announcements_router)
 app.include_router(arena_help_router)
 app.include_router(arena_problem_problem_sets_router)
 app.include_router(arena_problems_router)
+app.include_router(arena_problem_collections_router)
 app.include_router(arena_problem_editorial_router)
 app.include_router(arena_users_router)
 app.include_router(arena_user_username_api_router)
@@ -650,6 +657,7 @@ app.include_router(arena_affiliations_router)
 app.include_router(arena_ranking_router)
 app.include_router(arena_admin_affiliations_router)
 app.include_router(arena_admin_categories_router)
+app.include_router(arena_admin_collections_router)
 app.include_router(arena_admin_announcements_router)
 app.include_router(arena_admin_dashboard_router)
 app.include_router(arena_admin_dashboard_history_router)

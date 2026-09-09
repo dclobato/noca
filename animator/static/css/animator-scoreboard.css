@@ -199,8 +199,15 @@
 }
 
 /* ── Team-media modal ─────────────────────────────────────────────────── */
+/* The dialog is sized by the photo it carries, not by a fixed band: a portrait
+   shot used to sit inside a 75vw frame that was mostly empty. `fit-content`
+   takes the image's own intrinsic width, capped at 80% of the viewport (and at
+   the viewport minus Bootstrap's gutters), with a floor so a small photo still
+   leaves room for the title and the close button. */
 .team-media-dialog {
-    max-width: min(calc(75vw + 2rem), calc(100vw - 2rem));
+    width: fit-content;
+    min-width: min(20rem, calc(100vw - 2rem));
+    max-width: min(80vw, calc(100vw - 2rem));
 }
 
 .team-media-modal-body {
@@ -210,13 +217,17 @@
 }
 
 .team-media-photo {
-    max-width: min(75vw, 100%);
+    max-width: 100%;
     height: auto;
     border-radius: 0.5rem;
 }
 
+/* With no photo of its own a team gets the vector placeholder, which has no
+   meaningful intrinsic width to size the dialog by. It therefore asks for the
+   full 80% cap and the dialog's own max-width does the limiting. */
 .team-media-photo--placeholder {
-    width: 75vw;
+    width: 80vw;
+    max-width: 100%;
 }
 
 .team-media-photo-fallback {

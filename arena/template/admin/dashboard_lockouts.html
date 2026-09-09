@@ -64,108 +64,198 @@
                         {% endif %}
                     </section>
                 {% endif %}
-                <div class="row g-3">
-                    <div class="col-12 col-lg-6 d-flex">
-                        <section class="arena-card flex-fill" aria-labelledby="unlock-ip-heading">
-                            <h2 class="h5 mb-2" id="unlock-ip-heading">Unlock an address</h2>
-                            <p class="text-muted small mb-3" id="unlock-ip-help">
-                                Clears the failure counters and locks of one IPv4 or IPv6 address across every
-                                Arena sign-in step. Everyone behind that address is unblocked.
-                            </p>
-                            <form method="post"
-                                  action="{{ request.url_for("arena_admin_dashboard_unlock_ip") }}"
-                                  data-submit-once="Unlocking…">
-                                <div class="mb-3">
-                                    <label class="form-label" for="unlock-ip">IP address</label>
-                                    <input type="text"
-                                           class="form-control font-monospace"
-                                           id="unlock-ip"
-                                           name="ip"
-                                           value="{{ prefill_ip }}"
-                                           maxlength="45"
-                                           autocomplete="off"
-                                           autocapitalize="none"
-                                           autocorrect="off"
-                                           spellcheck="false"
-                                           placeholder="203.0.113.9"
-                                           aria-describedby="unlock-ip-help"
-                                           required>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label" for="confirm-pw-unlock-ip">Confirm with your password</label>
-                                    <input type="password"
-                                           class="form-control"
-                                           id="confirm-pw-unlock-ip"
-                                           name="confirm_password"
-                                           autocomplete="current-password"
-                                           {% if prefill_ip %}autofocus{% endif %}
-                                           required>
-                                </div>
-                                <div class="d-grid d-sm-block">
-                                    <button type="submit" class="btn btn-primary btn-sm">
-                                        {{ render_icon(icon="lock_open") }}
-                                        <span data-submit-once-label>Unlock address</span>
-                                    </button>
-                                </div>
-                            </form>
+                <div class="arena-lockout-card-grid">
+                    <section class="arena-card arena-lockout-card"
+                             aria-labelledby="unlock-ip-heading">
+                        <h2 class="h5 mb-2" id="unlock-ip-heading">Unlock an address</h2>
+                        <p class="text-muted small mb-3" id="unlock-ip-help">
+                            Clears the failure counters and locks of one IPv4 or IPv6 address across every
+                            Arena sign-in step. Everyone behind that address is unblocked.
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for("arena_admin_dashboard_unlock_ip") }}"
+                              data-submit-once="Unlocking…">
+                            <div class="mb-3">
+                                <label class="form-label" for="unlock-ip">IP address</label>
+                                <input type="text"
+                                       class="form-control font-monospace"
+                                       id="unlock-ip"
+                                       name="ip"
+                                       value="{{ prefill_ip }}"
+                                       maxlength="45"
+                                       autocomplete="off"
+                                       autocapitalize="none"
+                                       autocorrect="off"
+                                       spellcheck="false"
+                                       placeholder="203.0.113.9"
+                                       aria-describedby="unlock-ip-help"
+                                       required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="confirm-pw-unlock-ip">Confirm with your password</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="confirm-pw-unlock-ip"
+                                       name="confirm_password"
+                                       autocomplete="current-password"
+                                       {% if prefill_ip %}autofocus{% endif %}
+                                       required>
+                            </div>
+                            <div class="d-grid d-sm-block">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {{ render_icon(icon="lock_open") }}
+                                    <span data-submit-once-label>Unlock address</span>
+                                </button>
+                            </div>
+                        </form>
+                        <section class="arena-lockout-overview mt-4 pt-3"
+                                 aria-labelledby="blocked-addresses-heading">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                <h3 class="h6 mb-0" id="blocked-addresses-heading">Blocked addresses</h3>
+                                {% if blocked_addresses %}<span class="badge text-bg-danger">{{ blocked_addresses | length }}</span>{% endif %}
+                            </div>
+                            {% if lockout_list_unavailable %}
+                                <p class="text-warning-emphasis small mb-0">
+                                    {{ render_icon(icon="cloud_off") }}
+                                    The current list is unavailable.
+                                </p>
+                            {% elif blocked_addresses %}
+                                <p class="text-muted small mb-2">Select an address to fill the field above.</p>
+                                <ul class="arena-lockout-list list-unstyled mb-0">
+                                    {% for entry in blocked_addresses %}
+                                        <li>
+                                            <button type="button"
+                                                    class="arena-lockout-option"
+                                                    data-lockout-fill-target="unlock-ip"
+                                                    data-lockout-fill-value="{{ entry.value }}">
+                                                <span class="font-monospace text-break">{{ entry.value }}</span>
+                                                <span class="arena-lockout-option-meta">
+                                                    {{ entry.actions | join(", ") }} · up to {{ format_remaining(entry.retry_after_seconds) }}
+                                                </span>
+                                            </button>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <p class="text-success small mb-0">
+                                    {{ render_icon(icon="check_circle") }}
+                                    No addresses are currently blocked.
+                                </p>
+                            {% endif %}
                         </section>
-                    </div>
-                    <div class="col-12 col-lg-6 d-flex">
-                        <section class="arena-card flex-fill" aria-labelledby="unlock-account-heading">
-                            <h2 class="h5 mb-2" id="unlock-account-heading">Unlock a user</h2>
-                            <p class="text-muted small mb-3" id="unlock-identifier-help">
-                                Enter the email address the user signs in with. A known account is unlocked in
-                                every step at once; an unknown address is unlocked exactly as it was typed. The
-                                address itself stays locked: use the form beside this one for that.
-                            </p>
-                            <form method="post"
-                                  action="{{ request.url_for("arena_admin_dashboard_unlock_account") }}"
-                                  data-submit-once="Unlocking…">
-                                <div class="mb-3">
-                                    <label class="form-label" for="unlock-identifier">Email address</label>
-                                    <input type="email"
-                                           class="form-control"
-                                           id="unlock-identifier"
-                                           name="identifier"
-                                           value="{{ prefill_identifier }}"
-                                           maxlength="180"
-                                           autocomplete="off"
-                                           autocapitalize="none"
-                                           autocorrect="off"
-                                           spellcheck="false"
-                                           placeholder="user@example.org"
-                                           aria-describedby="unlock-identifier-help{% if prefill_hash %} unlock-identifier-hash-help{% endif %}"
-                                           {% if not prefill_hash %}required{% endif %}>
-                                    {% if prefill_hash %}
-                                        <input type="hidden" name="identifier_hash" value="{{ prefill_hash }}">
-                                        <div class="form-text text-break" id="unlock-identifier-hash-help">
-                                            Also clears the exact bucket the security event was recorded against
-                                            (<span class="font-monospace">{{ prefill_hash[:12] }}…</span>), whatever
-                                            is typed above.
-                                        </div>
-                                    {% endif %}
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label" for="confirm-pw-unlock-account">Confirm with your password</label>
-                                    <input type="password"
-                                           class="form-control"
-                                           id="confirm-pw-unlock-account"
-                                           name="confirm_password"
-                                           autocomplete="current-password"
-                                           {% if not prefill_ip and (prefill_identifier or prefill_hash) %}autofocus{% endif %}
-                                           required>
-                                </div>
-                                <div class="d-grid d-sm-block">
-                                    <button type="submit" class="btn btn-primary btn-sm">
-                                        {{ render_icon(icon="lock_open") }}
-                                        <span data-submit-once-label>Unlock user</span>
-                                    </button>
-                                </div>
-                            </form>
+                    </section>
+                    <section class="arena-card arena-lockout-card"
+                             aria-labelledby="unlock-account-heading">
+                        <h2 class="h5 mb-2" id="unlock-account-heading">Unlock a user</h2>
+                        <p class="text-muted small mb-3" id="unlock-identifier-help">
+                            Enter the email address the user signs in with. A known account is unlocked in
+                            every step at once; an unknown address is unlocked exactly as it was typed. The
+                            address itself stays locked: use the form beside this one for that.
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for("arena_admin_dashboard_unlock_account") }}"
+                              data-submit-once="Unlocking…">
+                            <div class="mb-3">
+                                <label class="form-label" for="unlock-identifier">Email address</label>
+                                <input type="email"
+                                       class="form-control"
+                                       id="unlock-identifier"
+                                       name="identifier"
+                                       value="{{ prefill_identifier }}"
+                                       maxlength="180"
+                                       autocomplete="off"
+                                       autocapitalize="none"
+                                       autocorrect="off"
+                                       spellcheck="false"
+                                       placeholder="user@example.org"
+                                       aria-describedby="unlock-identifier-help{% if prefill_hash %} unlock-identifier-hash-help{% endif %}"
+                                       {% if not prefill_hash %}required{% endif %}>
+                                {% if prefill_hash %}
+                                    <input type="hidden"
+                                           id="unlock-identifier-hash"
+                                           name="identifier_hash"
+                                           value="{{ prefill_hash }}">
+                                    <div class="form-text text-break"
+                                         id="unlock-identifier-hash-help"
+                                         data-lockout-hash-help>
+                                        Also clears the exact bucket the security event was recorded against
+                                        (<span class="font-monospace">{{ prefill_hash[:12] }}…</span>), whatever
+                                        is typed above.
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="confirm-pw-unlock-account">Confirm with your password</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="confirm-pw-unlock-account"
+                                       name="confirm_password"
+                                       autocomplete="current-password"
+                                       {% if not prefill_ip and (prefill_identifier or prefill_hash) %}autofocus{% endif %}
+                                       required>
+                            </div>
+                            <div class="d-grid d-sm-block">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {{ render_icon(icon="lock_open") }}
+                                    <span data-submit-once-label>Unlock user</span>
+                                </button>
+                            </div>
+                        </form>
+                        <section class="arena-lockout-overview mt-4 pt-3"
+                                 aria-labelledby="blocked-users-heading">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                <h3 class="h6 mb-0" id="blocked-users-heading">Blocked users</h3>
+                                {% if blocked_users %}<span class="badge text-bg-danger">{{ blocked_users | length }}</span>{% endif %}
+                            </div>
+                            {% if lockout_list_unavailable %}
+                                <p class="text-warning-emphasis small mb-0">
+                                    {{ render_icon(icon="cloud_off") }}
+                                    The current list is unavailable.
+                                </p>
+                            {% elif blocked_users %}
+                                <p class="text-muted small mb-2">Select an email to fill the field above.</p>
+                                <ul class="arena-lockout-list list-unstyled mb-0">
+                                    {% for entry in blocked_users %}
+                                        <li>
+                                            <button type="button"
+                                                    class="arena-lockout-option"
+                                                    data-lockout-fill-target="unlock-identifier"
+                                                    data-lockout-fill-value="{{ entry.value }}"
+                                                    data-lockout-clear-target="unlock-identifier-hash">
+                                                <span class="text-break">{{ entry.value }}</span>
+                                                <span class="arena-lockout-option-meta">
+                                                    {{ entry.actions | join(", ") }} · up to {{ format_remaining(entry.retry_after_seconds) }}
+                                                </span>
+                                            </button>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                                {% if unresolved_identifier_count %}
+                                    <p class="text-muted small mt-2 mb-0">
+                                        {{ unresolved_identifier_count }} additional account
+                                        {{ "identifier is" if unresolved_identifier_count == 1 else "identifiers are" }} blocked but cannot
+                                        be matched to a registered user.
+                                    </p>
+                                {% endif %}
+                            {% elif unresolved_identifier_count %}
+                                <p class="text-muted small mb-0">
+                                    {{ unresolved_identifier_count }} account
+                                    {{ "identifier is" if unresolved_identifier_count == 1 else "identifiers are" }} blocked but cannot
+                                    be matched to a registered user.
+                                </p>
+                            {% else %}
+                                <p class="text-success small mb-0">
+                                    {{ render_icon(icon="check_circle") }}
+                                    No registered users are currently blocked.
+                                </p>
+                            {% endif %}
                         </section>
-                    </div>
+                    </section>
                 </div>
             </div>
         </div>
     </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='admin-lockouts.js') }}?v={{ app_version }}"></script>
 {% endblock %}

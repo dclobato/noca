@@ -232,6 +232,7 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
         pids_limit=64,
         output_limit_in_bytes=1048576,
         categories=("sample", "math"),
+        collection=None,
         sample_testcases=tuple(case.ordinal for case in cases if case.is_sample),
         image=None,
         image_caption=None,

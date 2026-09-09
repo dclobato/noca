@@ -75,6 +75,22 @@
                 {% else %}
                     <div class="mb-3"></div>
                 {% endif %}
+                <p class="text-muted small mb-1">
+                    {{ render_icon(icon="update") }}
+                    Last updated at: {{ arena_format_datetime(problem.updated_at, current_user) }}
+                </p>
+                {% if problem.collection %}
+                    <p class="text-muted small mb-1">
+                        {{ render_icon(icon="collections_bookmark") }}
+                        Collection: {{ problem.collection.name }}
+                    </p>
+                {% endif %}
+                {% if problem.categories %}
+                    <p class="text-muted small mb-3">
+                        {{ render_icon(icon="category") }}
+                        Categories: {{ problem.categories | map(attribute="name") | sort | join(", ") }}
+                    </p>
+                {% endif %}
                 {# Problem image #}
                 {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}
                     {% include "_partials/problem_image_figure.html" %}

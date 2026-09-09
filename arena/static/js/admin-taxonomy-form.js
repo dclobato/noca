@@ -1,22 +1,29 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/*
+ * The standalone create/edit form for Arena's flat taxonomies -- categories and
+ * collections.  Both forms are identical, so the fields are found by data
+ * attribute rather than by a taxonomy-specific id.
+ *
+ * Requires shared/static/js/slugify.js and arena/static/js/taxonomy-slug.js.
+ */
 (() => {
   "use strict";
 
-  const nameInput = document.getElementById("category_name");
-  const slugInput = document.getElementById("category_slug");
-  const colorInput = document.getElementById("category_color");
+  const nameInput = document.querySelector("[data-taxonomy-name-input]");
+  const slugInput = document.querySelector("[data-taxonomy-slug-input]");
+  const colorInput = document.querySelector("[data-taxonomy-color-input]");
   const colorText = colorInput ? colorInput.parentElement.querySelector(".arena-monospace") : null;
 
-  // Slug preview comes from category-slug.js, shared with the category list
-  // modals, so both agree with the server's normalize_slug().
-  const slugify = (value) => window.NocaCategorySlug?.slugify(value) ?? value;
+  // Slug preview comes from taxonomy-slug.js, shared with the list modals, so
+  // both agree with the server's normalize_slug().
+  const slugify = (value) => window.NocaTaxonomySlug?.slugify(value) ?? value;
 
   if (nameInput && slugInput) {
     nameInput.addEventListener("input", () => {

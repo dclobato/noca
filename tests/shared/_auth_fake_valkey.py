@@ -44,6 +44,7 @@ class AuthFakeValkey:
         self.locks: dict[str, float] = {}  # key -> expires_at
         self.sets: dict[str, tuple[set[str], float]] = {}  # key -> (members, expires_at)
         self.unavailable = False
+        self.ttl_many_call_count = 0
         """When set, the administrative scan/delete pair answers ``None`` like a down store."""
 
     def advance(self, seconds: float) -> None:
@@ -133,3 +134,10 @@ class AuthFakeValkey:
             if key in live:
                 removed += await self.delete(key)
         return removed
+
+    async def ttl_many(self, keys: Sequence[str]) -> list[int | None] | None:
+        """Mirror the runtime's batched TTL read and fail-closed outage result."""
+        self.ttl_many_call_count += 1
+        if self.unavailable:
+            return None
+        return [ttl if (ttl := self._lock_ttl(key)) > 0 else None for key in keys]

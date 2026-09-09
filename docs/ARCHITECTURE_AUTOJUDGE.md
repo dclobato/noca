@@ -24,6 +24,18 @@ reconciliation of non-terminal jobs missing from the queue (recovering jobs lost
 between a producer's DB commit and its follow-up enqueue), zombie container
 cleanup, and worker heartbeat health monitoring.
 
+It also owns one piece of Arena progress state. Every Arena judgment that
+finishes with a verdict or `FAILED` reconciles the
+submitter's `arena_problem_solvers` row against the submissions that are still
+Accepted (`autojudge/db/_arena_solver.py`), so a rejudge that withdraws an AC
+stops the user counting as a solver and one that moves the first AC re-anchors
+`solved_at`. The write happens in the judgment's own transaction under a
+per-`(user, problem)` advisory lock. The derived counters in
+`arena_problem_ratings` are not maintained here -- the rating worker rebuilds
+them from these rows, and the judge cannot safely increment them because an
+absent solver row does not distinguish a first solve from a withdrawn one. See
+[DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md).
+
 ## What the judge shares with the other modules
 
 The judge never imports `web` or `arena`. It reads and writes the shared schema

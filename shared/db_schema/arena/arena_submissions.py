@@ -12,7 +12,11 @@ Tables defined here:
   - arena_submission_teacher_feedback: teacher feedback on a submission (1:1, sparse)
   - arena_submission_judgments: one judgment per submission (autojudge only)
   - arena_submission_test_results: first non-AC test case per judgment (at most one row)
-  - arena_problem_solvers: first AC per (user, problem) pair; source of truth for solved problems
+  - arena_problem_solvers: first still-Accepted submission per (user, problem) pair;
+    source of truth for solved problems. Reconciled against the live verdicts on every
+    terminal Arena judgment, so a rejudge that withdraws an AC removes the solver row
+    and one that moves the first AC re-anchors solved_at. Badges are never taken back;
+    this table is a statistic, not an honor (docs/ARENA_BADGES.md).
   - arena_problem_tried: problems a user has submitted to; updated on each new submission
 """
 

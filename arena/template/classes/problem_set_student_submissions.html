@@ -10,6 +10,16 @@
 {% block title_suffix %}&mdash; {{ student_name }}'s Submissions{% endblock %}
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_registered %}active{% endblock %}
+{% block extra_head %}
+    {% if can_leave_feedback %}
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='easymde.min.css') }}">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='fontawesome-all.min.css') }}">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+    {% endif %}
+{% endblock %}
 {% block content %}
     {% set totals = namespace(submissions=0, feedback=0) %}
     {% for group in groups %}
@@ -65,6 +75,77 @@
                     </div>
                 </div>
             </section>
+            {% if can_leave_feedback %}
+                <section class="arena-problem-set-student-report-feedback"
+                         aria-labelledby="problem-set-feedback-heading">
+                    <div class="arena-problem-set-student-report-section-heading">
+                        <div>
+                            <h2 class="arena-problem-set-student-report-section-title"
+                                id="problem-set-feedback-heading">
+                                {{ render_icon(icon="rate_review") }}
+                                Overall feedback
+                            </h2>
+                            <p class="arena-problem-set-student-report-section-copy mb-0">
+                                Leave feedback that covers this student's work across the whole problem set.
+                            </p>
+                        </div>
+                    </div>
+                    {% if feedback_error %}
+                        <div class="alert alert-danger"
+                             role="alert"
+                             id="problem-set-feedback-error">{{ feedback_error }}</div>
+                    {% endif %}
+                    <form id="problem-set-feedback-form"
+                          method="post"
+                          action="{{ request.url_for('arena_class_problem_set_student_feedback_save', class_id=class_id, set_id=set_id, user_id=user_id) }}"
+                          class="arena-problem-set-student-report-feedback-form">
+                        <input type="hidden" name="page" value="{{ page }}">
+                        <input type="hidden" name="sort" value="{{ sort }}">
+                        <input type="hidden" name="direction" value="{{ direction }}">
+                        <label class="form-label" for="problem-set-feedback-editor">Feedback (Markdown)</label>
+                        <textarea class="form-control{% if feedback_error %} is-invalid{% endif %}"
+                                  id="problem-set-feedback-editor"
+                                  name="feedback"
+                                  rows="12"
+                                  {% if feedback_error %}aria-describedby="problem-set-feedback-error"{% endif %}>{% if feedback_draft is not none %}{{ feedback_draft }}{% elif feedback %}{{ feedback.feedback_text }}{% endif %}</textarea>
+                        <div class="form-text">
+                            Markdown with LaTeX, Mermaid diagrams, and external links is supported. Raw HTML and images are not allowed.
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button type="submit" class="btn btn-primary">
+                                {{ render_icon(icon="save") }}
+                                {{ "Update feedback" if feedback else "Save feedback" }}
+                            </button>
+                        </div>
+                    </form>
+                    {% if feedback %}
+                        <form method="post"
+                              action="{{ request.url_for('arena_class_problem_set_student_feedback_remove', class_id=class_id, set_id=set_id, user_id=user_id) }}"
+                              class="mt-2"
+                              data-confirm="Remove this overall feedback?">
+                            <input type="hidden" name="page" value="{{ page }}">
+                            <input type="hidden" name="sort" value="{{ sort }}">
+                            <input type="hidden" name="direction" value="{{ direction }}">
+                            <button type="submit" class="btn btn-outline-danger">
+                                {{ render_icon(icon="delete") }}
+                                Remove feedback
+                            </button>
+                        </form>
+                    {% endif %}
+                </section>
+            {% else %}
+                <section class="arena-problem-set-student-report-feedback"
+                         aria-labelledby="problem-set-feedback-heading">
+                    <h2 class="arena-problem-set-student-report-section-title"
+                        id="problem-set-feedback-heading">
+                        {{ render_icon(icon="rate_review") }}
+                        Overall feedback
+                    </h2>
+                    <p class="arena-problem-set-student-report-section-copy mb-0">
+                        Overall feedback becomes available after this student submits to the problem set.
+                    </p>
+                </section>
+            {% endif %}
             {% if groups %}
                 <div class="accordion arena-problem-set-student-report-accordion"
                      id="submissions-accordion">
@@ -94,7 +175,7 @@
                                         {% endif %}
                                         {% if group.needs_feedback %}
                                             <span class="badge bg-warning text-dark d-inline-flex align-items-center gap-1"
-                                                  title="Student has not solved this problem yet">
+                                                  title="Student has not solved this problem yet and the latest attempt has no feedback">
                                                 {{ render_icon(icon="rate_review") }}
                                                 Needs feedback
                                             </span>
@@ -184,6 +265,16 @@
     </div>
 {% endblock %}
 {% block extra_script %}
+    {% if can_leave_feedback %}
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='arena-problem-set-feedback-editor.js') }}?v={{ app_version }}"></script>
+    {% endif %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

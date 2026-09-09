@@ -45,7 +45,13 @@ from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
+from arena.routes.problem_sets_student_feedback import router as arena_problem_sets_student_feedback_router
 from arena.routes.submissions import router as arena_submissions_router
+from arena.services.arena_problem_set_feedback_service import (
+    delete_problem_set_student_feedback,
+    get_problem_set_student_feedback,
+    upsert_problem_set_student_feedback,
+)
 from arena.services.arena_problem_set_report_service import get_student_problem_submissions_for_set
 from arena.services.arena_teacher_feedback_service import (
     delete_teacher_feedback,
@@ -55,6 +61,7 @@ from arena.services.arena_teacher_feedback_service import (
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema.arena import (
     arena_notifications,
+    arena_problem_set_student_feedback,
     arena_submission_judgments,
     arena_submission_teacher_feedback,
     arena_submissions,
@@ -237,7 +244,15 @@ def _build_app(session: AsyncSession) -> FastAPI:
     async def _report_student(class_id: str, set_id: str, user_id: str) -> Response:
         return Response("report")
 
+    @app.get(
+        "/classes/{class_id}/problem-sets/{set_id}/report",
+        name="arena_class_problem_set_report",
+    )
+    async def _report(class_id: str, set_id: str) -> Response:
+        return Response("report")
+
     app.include_router(arena_submissions_router)
+    app.include_router(arena_problem_sets_student_feedback_router)
     app.include_router(arena_legal_router)
     return app
 
@@ -449,13 +464,80 @@ async def test_delete_removes_row_and_is_idempotent(session: AsyncSession) -> No
 
 
 # ---------------------------------------------------------------------------
+# Service: problem-set feedback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_problem_set_feedback_upserts_allows_links_and_removes(session: AsyncSession) -> None:
+    """One student/set pair keeps one current Markdown feedback record."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    first_at = await upsert_problem_set_student_feedback(
+        session,
+        problem_set_id=pset.id,
+        student_id=student.id,
+        teacher_id=teacher.id,
+        feedback_text="Read the [loop guide](https://example.test/loops).",
+    )
+    await session.commit()
+    stored = await get_problem_set_student_feedback(session, problem_set_id=pset.id, student_id=student.id)
+    assert stored is not None
+    assert stored.feedback_text == "Read the [loop guide](https://example.test/loops)."
+
+    second_at = await upsert_problem_set_student_feedback(
+        session,
+        problem_set_id=pset.id,
+        student_id=student.id,
+        teacher_id=teacher.id,
+        feedback_text="Try another approach.",
+        feedback_at=first_at + timedelta(minutes=1),
+    )
+    await session.commit()
+    rows = (
+        await session.execute(
+            select(arena_problem_set_student_feedback.c.student_id).where(
+                arena_problem_set_student_feedback.c.problem_set_id == pset.id,
+                arena_problem_set_student_feedback.c.student_id == student.id,
+            )
+        )
+    ).all()
+    assert second_at > first_at
+    assert len(rows) == 1
+    assert await delete_problem_set_student_feedback(session, problem_set_id=pset.id, student_id=student.id)
+    await session.commit()
+    assert await get_problem_set_student_feedback(session, problem_set_id=pset.id, student_id=student.id) is None
+
+
+@pytest.mark.asyncio
+async def test_problem_set_feedback_rejects_raw_html(session: AsyncSession) -> None:
+    """The overall-feedback editor accepts links but retains Markdown safety rules."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    with pytest.raises(ValueError, match="disallowed content"):
+        await upsert_problem_set_student_feedback(
+            session,
+            problem_set_id=pset.id,
+            student_id=student.id,
+            teacher_id=teacher.id,
+            feedback_text="<script>alert(1)</script>",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Service: report indicators
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_report_feedback_indicators(session: AsyncSession) -> None:
-    """Report groups expose has_feedback per entry; needs_feedback stays True until an AC lands."""
+    """Report groups expose has_feedback per entry; feedback on the latest attempt clears the flag."""
     teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
     student = await _make_user(session, prefix="student")
     lang = await _make_language(session)
@@ -483,10 +565,9 @@ async def test_report_feedback_indicators(session: AsyncSession) -> None:
     by_id = {entry.submission_id: entry for entry in group.submissions}
     assert by_id[sub_with].has_feedback is True
     assert by_id[sub_without].has_feedback is False
-    # Neither submission is AC, so the group still needs feedback even though
-    # the newest submission already has some — teacher feedback no longer
-    # clears the flag on its own.
-    assert group.needs_feedback is True
+    # Neither submission is AC, but the newest attempt already carries teacher
+    # feedback, so the student is not waiting on anyone.
+    assert group.needs_feedback is False
 
 
 @pytest.mark.asyncio
@@ -566,10 +647,10 @@ async def test_report_non_ac_after_ac_clears_needs_feedback(session: AsyncSessio
 
 @pytest.mark.asyncio
 async def test_report_needs_feedback_without_any_ac(session: AsyncSession) -> None:
-    """Group keeps needing feedback across multiple non-AC submissions until an AC lands.
+    """Feedback on an older attempt does not clear the flag once the student submits again.
 
-    Existing teacher feedback on an earlier attempt does not clear the flag —
-    the only thing that clears it is an Accepted submission.
+    The student answered the teacher's note with a new attempt that is still
+    not Accepted, so the newest attempt is unanswered and the flag stays on.
     """
     teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
     student = await _make_user(session, prefix="student")
@@ -598,6 +679,81 @@ async def test_report_needs_feedback_without_any_ac(session: AsyncSession) -> No
         user_id=student.id,
     )
     assert groups[0].needs_feedback is True
+
+
+@pytest.mark.asyncio
+async def test_report_ac_in_history_clears_flag_whatever_follows(session: AsyncSession) -> None:
+    """WA, WA, AC, then TLE: the AC in the history clears the flag for good."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    now = datetime.now(UTC)
+    for minutes, verdict in enumerate((Verdict.WA, Verdict.WA, Verdict.AC, Verdict.TLE)):
+        await _make_submission(
+            session,
+            student,
+            problem,
+            lang,
+            verdict=verdict.value,
+            problem_set_id=pset.id,
+            created_at=now + timedelta(minutes=minutes),
+        )
+    await session.commit()
+
+    groups = await get_student_problem_submissions_for_set(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=pset.id,
+        user_id=student.id,
+    )
+    assert groups[0].needs_feedback is False
+
+
+@pytest.mark.asyncio
+async def test_report_unanswered_middle_attempt_does_not_flag(session: AsyncSession) -> None:
+    """WA/feedback, TLE/no-feedback, WA/feedback: only the newest attempt is asked about.
+
+    The teacher skipped the middle attempt, but they have replied to the latest
+    one, so the student is not waiting on anybody.
+    """
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    now = datetime.now(UTC)
+    first = await _make_submission(session, student, problem, lang, problem_set_id=pset.id, created_at=now)
+    await _make_submission(
+        session,
+        student,
+        problem,
+        lang,
+        verdict=Verdict.TLE.value,
+        problem_set_id=pset.id,
+        created_at=now + timedelta(minutes=1),
+    )
+    last = await _make_submission(
+        session, student, problem, lang, problem_set_id=pset.id, created_at=now + timedelta(minutes=2)
+    )
+    for sub_id in (first, last):
+        await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="See above")
+    await session.commit()
+
+    groups = await get_student_problem_submissions_for_set(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=pset.id,
+        user_id=student.id,
+    )
+    assert groups[0].needs_feedback is False
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +803,90 @@ async def test_post_teacher_creates_feedback_and_notifies(session: AsyncSession)
     assert len(notif) == 1
     assert notif[0].target_url == f"/submissions/{sub_id}"
     assert str(problem.arena_number) in notif[0].message
+
+
+@pytest.mark.asyncio
+async def test_post_problem_set_feedback_saves_notifies_and_removes(session: AsyncSession) -> None:
+    """A manager can publish, edit, and withdraw one student's overall feedback."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    base_url = f"/classes/{arena_class.id}/problem-sets/{pset.id}/report/student/{student.id}/feedback"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        saved = await client.post(
+            base_url,
+            data={"feedback": "See the [recursion guide](https://example.test/recursion)."},
+            follow_redirects=False,
+        )
+        removed = await client.post(f"{base_url}/remove", follow_redirects=False)
+
+    assert saved.status_code == 303
+    assert removed.status_code == 303
+    assert await get_problem_set_student_feedback(session, problem_set_id=pset.id, student_id=student.id) is None
+    notifications = (
+        await session.execute(
+            select(arena_notifications.c.target_url).where(
+                arena_notifications.c.user_id == student.id,
+                arena_notifications.c.notification_kind == ArenaNotificationKind.PROBLEM_SET_FEEDBACK_POSTED.value,
+            )
+        )
+    ).all()
+    assert notifications == [(f"/classes/{arena_class.id}/problem-sets/{pset.id}/detail",)]
+
+
+@pytest.mark.asyncio
+async def test_post_problem_set_feedback_requires_a_student_submission(session: AsyncSession) -> None:
+    """Teachers cannot create overall feedback before the student submits to the set."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        response = await client.post(
+            f"/classes/{arena_class.id}/problem-sets/{pset.id}/report/student/{student.id}/feedback",
+            data={"feedback": "Great work."},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_problem_set_feedback_preserves_invalid_markdown_draft(session: AsyncSession) -> None:
+    """Unsafe Markdown re-renders the editor with the teacher's complete draft."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    draft = "Keep this useful paragraph.\n\n<br>"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        response = await client.post(
+            f"/classes/{arena_class.id}/problem-sets/{pset.id}/report/student/{student.id}/feedback",
+            data={"feedback": draft},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    assert "disallowed content" in response.text
+    assert "Keep this useful paragraph." in response.text
+    assert "&lt;br&gt;" in response.text
+    assert await get_problem_set_student_feedback(session, problem_set_id=pset.id, student_id=student.id) is None
 
 
 @pytest.mark.asyncio

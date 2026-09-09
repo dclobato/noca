@@ -20,11 +20,13 @@ from .arena_classes import (
 from .arena_heatmap import arena_user_submission_heatmap
 from .arena_notifications import arena_notifications
 from .arena_problem_favorites import arena_problem_favorites
+from .arena_problem_set_feedback import arena_problem_set_student_feedback
 from .arena_problem_set_snapshots import (
     arena_problem_set_problem_snapshots,
     arena_problem_set_user_snapshots,
 )
 from .arena_problems import (
+    arena_collections,
     arena_problem_categories,
     arena_problem_category_map,
     arena_problem_custom_validators,
@@ -54,7 +56,14 @@ from .arena_submissions import (
 from .arena_user_google_identities import arena_user_google_identities
 from .arena_user_reputation import arena_user_reputation
 from .arena_user_statistics import arena_user_statistics
-from .arena_users import arena_affiliations, arena_backup_2fa, arena_login_history, arena_users
+from .arena_users import (
+    arena_affiliations,
+    arena_backup_2fa,
+    arena_login_history,
+    arena_throttle_secret_versions,
+    arena_user_throttle_hashes,
+    arena_users,
+)
 from .arena_worker_control import arena_worker_command_audit, arena_worker_pause_state
 
 __all__ = [
@@ -68,12 +77,14 @@ __all__ = [
     "arena_classes",
     "arena_problem_favorites",
     "arena_problem_set_problem_snapshots",
+    "arena_problem_set_student_feedback",
     "arena_problem_set_problems",
     "arena_problem_set_user_snapshots",
     "arena_problem_sets",
     "arena_backup_2fa",
     "arena_login_history",
     "arena_notifications",
+    "arena_collections",
     "arena_problem_categories",
     "arena_problem_custom_validators",
     "arena_problem_category_map",
@@ -99,6 +110,8 @@ __all__ = [
     "arena_user_reputation",
     "arena_user_submission_heatmap",
     "arena_user_statistics",
+    "arena_throttle_secret_versions",
+    "arena_user_throttle_hashes",
     "arena_users",
     "arena_worker_command_audit",
     "arena_worker_pause_state",

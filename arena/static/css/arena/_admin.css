@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -238,6 +238,62 @@
 .arena-autocomplete-option:focus-visible {
     background: var(--arena-surface-container-low);
     outline: none;
+}
+
+/* ── Sign-in lockout overview ───────────────────────────────────────────── */
+.arena-lockout-card-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+@media (min-width: 992px) {
+    .arena-lockout-card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        row-gap: 0;
+    }
+
+    .arena-lockout-card {
+        display: grid;
+        /* Keep these four rows in sync with the cards' heading, help, form, and list. */
+        grid-row: span 4;
+        grid-template-rows: subgrid;
+    }
+}
+
+.arena-lockout-overview {
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-lockout-list {
+    max-height: 16rem;
+    overflow-y: auto;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+}
+
+.arena-lockout-list li + li {
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-lockout-option {
+    display: grid;
+    gap: 0.125rem;
+    width: 100%;
+    padding: 0.5rem 0.625rem;
+    border: 0;
+    background: transparent;
+    color: var(--arena-on-surface);
+    text-align: start;
+}
+
+.arena-lockout-option:hover,
+.arena-lockout-option:focus-visible {
+    background: var(--arena-surface-container-low);
+}
+
+.arena-lockout-option-meta {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
 }
 
 /* ── Category filter dropdown (problem list) ─────────────────────────────── */

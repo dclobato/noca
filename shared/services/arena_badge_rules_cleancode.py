@@ -6,10 +6,9 @@
 
 """The dynamic CLEAN_CODE badge rule: top-5% ranking with revocation.
 
-CLEAN_CODE is the only badge a user can stop deserving. Every other badge
-records an event that happened — a first solve, a streak, a fixed runtime error
-— and is therefore append-only. CLEAN_CODE records a *rank*, and a rank moves
-as faster solvers arrive. It is consequently reconciled rather than awarded:
+CLEAN_CODE is one of the badges a user can stop deserving. Unlike the dynamic
+solve-rate criterion for ROCK_CRACKER, CLEAN_CODE records a *rank*, and that
+rank moves as faster solvers arrive. It is consequently reconciled rather than awarded:
 :func:`reconcile_clean_code` re-derives the whole holder set from all Accepted
 history on the full-reconcile pass and both inserts and deletes.
 
@@ -113,7 +112,7 @@ def clean_code_qualifiers(rows: list[Row[Any]]) -> set[str]:
 async def reconcile_clean_code(session: AsyncSession) -> tuple[int, int]:
     """Re-derive CLEAN_CODE across the whole catalogue, awarding and revoking.
 
-    CLEAN_CODE is the one *dynamic* badge: a solution that ranked in a problem's
+    CLEAN_CODE is a *dynamic* badge: a solution that ranked in a problem's
     top 5% falls out of it as faster solvers arrive, and a problem below the
     minimum solver count ranks nobody at all. It is therefore evaluated only on
     the full-reconcile pass, over every Accepted submission rather than the
@@ -136,6 +135,10 @@ async def reconcile_clean_code(session: AsyncSession) -> tuple[int, int]:
 
     awarded = 0
     for user_id in qualifiers:
+        # No submission id: CLEAN_CODE is a rank held across several problems at
+        # once, and its qualifying set is rewritten on every reconcile, so any
+        # single anchor captured at award time would be wrong by the next pass.
+        # The row stays NULL by design; see docs/ARENA_BADGES.md.
         if await award_badge(session, user_id, ArenaBadge.CLEAN_CODE):
             awarded += 1
     revoked = await revoke_badge_except(session, ArenaBadge.CLEAN_CODE, qualifiers)

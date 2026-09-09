@@ -39,6 +39,9 @@ from shared.services.user_timezone import timezone_name_for_country
 # One row of a user's submission history: (created_at, submission_id, final_verdict).
 PairHistory = dict[tuple[str, str], list[tuple[datetime, str, str | None]]]
 
+# Badges a user already holds, mapped to the submission each is anchored to (or None).
+OwnedBadges = dict[str, dict[ArenaBadge, str | None]]
+
 
 @dataclass(frozen=True)
 class AcEvent:
@@ -95,26 +98,70 @@ def ac_join(active: Subquery) -> Join:
     )
 
 
-async def award_badge(session: AsyncSession, user_id: str, badge: ArenaBadge) -> bool:
-    """Insert one badge for a user, ignoring duplicates.
+async def award_badge(
+    session: AsyncSession,
+    user_id: str,
+    badge: ArenaBadge,
+    submission_id: str | None = None,
+) -> bool:
+    """Insert one badge for a user, or fill in the submission it was earned on.
+
+    A first award stores ``submission_id`` with the row. A repeat award never
+    rewrites it: an existing anchor wins over any later re-derivation, since the
+    live award saw the history as it actually was, while a re-derivation only
+    sees today's data. A row still carrying NULL -- one written before the
+    column existed, or by a rule that had no submission at the time -- is filled
+    in instead. That fill is what backfills the ledger: the periodic
+    full-reconcile pass re-derives every badge from all Accepted history, so the
+    rows predating this column acquire their anchors within one reconcile
+    interval without a migration or a one-off script.
+
+    ``submission_id`` is ``None`` for CLEAN_CODE, which records a rank held
+    across several problems rather than a single event; that row stays NULL by
+    design and is never filled.
 
     Args:
         session: Active async session (transaction owned by the caller).
         user_id: Recipient Arena user id.
         badge: Badge to award.
+        submission_id: Submission the rule fired on, when the badge has one.
 
     Returns:
-        True when a new row was inserted, False when the user already held it.
+        True when a new row was inserted, False when the user already held it,
+        including when this call only filled in its submission id.
     """
     insert = sqlite_insert if _dialect_name(session) == "sqlite" else pg_insert
     stmt = (
         insert(arena_user_badges)
-        .values(id=_new_uuid(), user_id=user_id, badge=badge.value, awarded_at=_utcnow())
+        .values(
+            id=_new_uuid(),
+            user_id=user_id,
+            badge=badge.value,
+            awarded_at=_utcnow(),
+            submission_id=submission_id,
+        )
         .on_conflict_do_nothing(index_elements=["user_id", "badge"])
         .returning(arena_user_badges.c.id)
     )
-    result = await session.execute(stmt)
-    return result.first() is not None
+    if (await session.execute(stmt)).first() is not None:
+        return True
+    await _fill_submission(session, user_id, badge, submission_id)
+    return False
+
+
+async def _fill_submission(session: AsyncSession, user_id: str, badge: ArenaBadge, submission_id: str | None) -> None:
+    """Anchor a held badge to ``submission_id``, only while the row carries NULL."""
+    if submission_id is None:
+        return
+    await session.execute(
+        update(arena_user_badges)
+        .where(
+            arena_user_badges.c.user_id == user_id,
+            arena_user_badges.c.badge == badge.value,
+            arena_user_badges.c.submission_id.is_(None),
+        )
+        .values(submission_id=submission_id)
+    )
 
 
 async def revoke_badge_except(session: AsyncSession, badge: ArenaBadge, keep_user_ids: set[str]) -> int:
@@ -288,19 +335,73 @@ async def load_pair_history(session: AsyncSession, events: list[AcEvent]) -> Pai
     return history
 
 
-async def load_owned_badges(session: AsyncSession, user_ids: set[str]) -> dict[str, set[ArenaBadge]]:
-    """Load the badges each affected user already holds."""
-    owned: dict[str, set[ArenaBadge]] = defaultdict(set)
+async def load_owned_badges(session: AsyncSession, user_ids: set[str]) -> OwnedBadges:
+    """Load each affected user's held badges and the submission each is anchored to.
+
+    The submission id is part of the answer because it is what the callers'
+    short-circuits key off: a badge already held *and* anchored needs no further
+    work, while one held with a NULL anchor must still be evaluated so the pass
+    can fill it in. Once the backfill has run every row is anchored and the
+    short-circuits revert to their original cheap behavior.
+    """
+    owned: OwnedBadges = defaultdict(dict)
     rows = (
         await session.execute(
-            select(arena_user_badges.c.user_id, arena_user_badges.c.badge).where(
-                arena_user_badges.c.user_id.in_(user_ids)
-            )
+            select(
+                arena_user_badges.c.user_id,
+                arena_user_badges.c.badge,
+                arena_user_badges.c.submission_id,
+            ).where(arena_user_badges.c.user_id.in_(user_ids))
         )
     ).all()
-    for user_id, badge in rows:
-        owned[user_id].add(ArenaBadge(badge))
+    for user_id, badge, submission_id in rows:
+        owned[user_id][ArenaBadge(badge)] = submission_id
     return owned
+
+
+def is_anchored(owned: OwnedBadges, user_id: str, badge: ArenaBadge) -> bool:
+    """Return whether ``user_id`` already holds ``badge`` *with* a submission id."""
+    return owned.get(user_id, {}).get(badge) is not None
+
+
+async def load_first_ac_submissions(session: AsyncSession, pairs: set[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """Return the earliest still-Accepted submission for each ``(user, problem)`` pair.
+
+    The rules that read ``arena_problem_solvers`` -- problem counts, FIRST_SOLVER,
+    and ROCK_CRACKER -- know *that* a user solved a problem but not with which
+    submission, because that table stores only ``solved_at``. This resolves the
+    anchor for them in one batch query rather than one lookup per pair.
+
+    Ordering is the canonical ``(created_at, id)``, so the anchor matches the one
+    the per-submission evaluator would have chosen for the same pair.
+
+    Args:
+        session: Active async session.
+        pairs: The ``(user_id, problem_id)`` pairs to resolve.
+
+    Returns:
+        Anchor submission id per pair; a pair with no live AC is absent.
+    """
+    if not pairs:
+        return {}
+    active = active_arena_judgment_subquery()
+    rows = (
+        await session.execute(
+            select(_submissions.c.user_id, _submissions.c.problem_id, _submissions.c.id)
+            .select_from(ac_join(active))
+            .where(
+                _submissions.c.user_id.in_({user_id for user_id, _ in pairs}),
+                _submissions.c.problem_id.in_({problem_id for _, problem_id in pairs}),
+            )
+            .order_by(_submissions.c.created_at, _submissions.c.id)
+        )
+    ).all()
+    first: dict[tuple[str, str], str] = {}
+    for user_id, problem_id, submission_id in rows:
+        key = (user_id, problem_id)
+        if key in pairs and key not in first:
+            first[key] = submission_id
+    return first
 
 
 async def load_state_for_update(session: AsyncSession, now: datetime) -> Row[Any] | None:

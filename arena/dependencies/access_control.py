@@ -33,8 +33,10 @@ from arena.routes.root import FAVICON_ASSETS
 #: ``FAVICON_ASSETS`` is keyed by filename, so iterating yields the filenames.
 #: ``/problems`` is the (exact) public problem list; the ``/problems/{number}``
 #: detail and sub-resources stay protected because they are different paths.
+#: ``/collections`` is the public collection index, which exists to lead into
+#: that list and would be pointless behind a login the list itself does not have.
 _PUBLIC_EXACT: frozenset[str] = frozenset(
-    {"/", "/dashboard", "/health", "/problems"} | {f"/{name}" for name in FAVICON_ASSETS}
+    {"/", "/collections", "/dashboard", "/health", "/problems"} | {f"/{name}" for name in FAVICON_ASSETS}
 )
 
 #: Public path prefixes. A path is public when it equals the prefix or begins

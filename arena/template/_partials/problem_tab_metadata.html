@@ -303,6 +303,24 @@
                 measured value takes over and the estimate is no longer shown.
             </div>
         </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="collection_id">Collection</label>
+            <select class="form-select{% if field_errors.collection_id %} is-invalid{% endif %}"
+                    id="collection_id"
+                    name="collection_id"
+                    form="edit-form"
+                    aria-describedby="collection-help">
+                <option value="">&mdash; none &mdash;</option>
+                {% for coll in all_collections %}
+                    <option value="{{ coll.id }}"
+                            {% if form.collection_id == coll.id %}selected{% endif %}>{{ coll.name }}</option>
+                {% endfor %}
+            </select>
+            {% if field_errors.collection_id %}<div class="invalid-feedback">{{ field_errors.collection_id }}</div>{% endif %}
+            <div class="form-text small" id="collection-help">
+                The event or class this problem came from. A problem belongs to at most one.
+            </div>
+        </div>
         <div class="col-12">
             <label class="form-label" for="cat-input">Categories</label>
             <div class="arena-combo"

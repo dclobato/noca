@@ -272,7 +272,9 @@ contest by `animator/services/public_scope_service.py`.
   valid.
 - **Media.** The modal fetches the scoped photo, uses
   `X-NOCA-Team-Image-Kind` to expand only the checked-in placeholder, and keeps
-  real photos and avatars at their intrinsic width up to `75vw`. On
+  real photos and avatars at their intrinsic width; the dialog itself is
+  `fit-content`, so it wraps the photo instead of reserving a fixed band, capped
+  at `80vw`. On
   `shown.bs.modal`, it assigns the audio URL and calls `play()` inside the
   activation the click granted. Native controls stay hidden until playback
   starts, or until loaded metadata confirms the clip exists after the browser

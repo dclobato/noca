@@ -36,6 +36,7 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.student_problem_sets import router as arena_student_problem_sets_router
 from arena.services import arena_problem_set_service as svc
+from arena.services.arena_problem_set_feedback_service import upsert_problem_set_student_feedback
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema.arena import arena_problem_set_user_snapshots
 from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, ProblemValidatorType, Verdict
@@ -339,6 +340,47 @@ async def test_student_ps_detail_renders_problem_with_verdict(session: AsyncSess
     assert "Week 2" in response.text
     assert "Dijkstra Paths" in response.text
     assert Verdict.AC.value in response.text
+
+
+@pytest.mark.asyncio
+async def test_student_ps_detail_renders_overall_teacher_feedback(session: AsyncSession) -> None:
+    """The student detail displays overall feedback through the Markdown binding."""
+    teacher = await _create_user(
+        session, name="Teacher", email="teacher-spsd-feedback@test.example", role=ArenaRole.ARENA_JUDGE
+    )
+    student = await _create_user(
+        session, name="Student", email="student-spsd-feedback@test.example", role=ArenaRole.ARENA_USER
+    )
+    arena_class = await _create_class(session, teacher)
+    await _enroll(session, arena_class.id, student.id)
+    problem_set = await svc.create_problem_set(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        class_id=arena_class.id,
+        name="Feedback Set",
+    )
+    await upsert_problem_set_student_feedback(
+        session,
+        problem_set_id=problem_set.id,
+        student_id=student.id,
+        teacher_id=teacher.id,
+        feedback_text="See the [guide](https://example.test/guide).",
+    )
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _token(app, student)},
+    ) as client:
+        response = await client.get(f"/classes/{arena_class.id}/my-problem-sets/{problem_set.id}")
+
+    assert response.status_code == 200
+    assert "Overall feedback" in response.text
+    assert 'data-noca-markdown="problem-set-feedback-src"' in response.text
+    assert "See the [guide]" in response.text
 
 
 @pytest.mark.asyncio

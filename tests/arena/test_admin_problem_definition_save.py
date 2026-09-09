@@ -16,6 +16,7 @@ Arena statements are Markdown in the database, so this Save writes no file at al
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 
 import pytest
@@ -24,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings as arena_settings
-from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
+from arena.models.arena_problems import ArenaCollection, ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema.arena import arena_problems
 from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType
@@ -713,3 +714,68 @@ async def test_invalid_save_action_returns_422(session: AsyncSession) -> None:
 
     assert response.status_code == 422
     assert "Choose Save and keep editing, Save and enable, or Save and disable." in response.text
+
+
+@pytest.mark.asyncio
+async def test_saving_files_the_problem_under_a_collection_and_blank_unfiles_it(
+    session: AsyncSession,
+) -> None:
+    """A collection is optional: an empty value stores NULL rather than failing."""
+    client, owner_id = await _client(session, "collection-save@test.example")
+    problem_id = await _make_problem(session, owner_id)
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.commit()
+
+    async with client:
+        filed = await client.post(_page(problem_id), data={**_base_form(), "collection_id": collection.id})
+        assert filed.status_code == 303
+        assert (await _reload(session, problem_id)).collection_id == collection.id
+
+        unfiled = await client.post(_page(problem_id), data={**_base_form(), "collection_id": ""})
+        assert unfiled.status_code == 303
+        assert (await _reload(session, problem_id)).collection_id is None
+
+
+@pytest.mark.asyncio
+async def test_saving_with_an_unknown_collection_is_a_form_error_not_a_crash(
+    session: AsyncSession,
+) -> None:
+    """A stale form (collection deleted between render and submit) must not 500."""
+    client, owner_id = await _client(session, "collection-stale@test.example")
+    problem_id = await _make_problem(session, owner_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data={**_base_form(), "collection_id": "00000000-0000-0000-0000-000000000000"},
+        )
+
+    assert response.status_code == 422
+    assert "collection no longer exists" in response.text
+    # The problem is left exactly as it was, not half-saved.
+    assert (await _reload(session, problem_id)).collection_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_save_keeps_the_submitted_collection_selected(session: AsyncSession) -> None:
+    """A validation failure elsewhere must not silently drop the author's choice."""
+    client, owner_id = await _client(session, "collection-rerender@test.example")
+    problem_id = await _make_problem(session, owner_id)
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.commit()
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data={**_base_form(), "title": "", "collection_id": collection.id},
+        )
+
+    assert response.status_code == 422
+    # The option for the submitted collection must come back marked selected,
+    # not merely present: a present-but-unselected option is the silent drop.
+    assert re.search(
+        rf'<option value="{re.escape(collection.id)}"\s+selected>',
+        response.text,
+    )

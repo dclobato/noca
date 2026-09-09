@@ -16,7 +16,15 @@
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="code") }}
                     Problems
+                    {% if scoped_collection %}<span class="align-middle ms-1">{{ scoped_collection.name }}</span>{% endif %}
                 </h1>
+                {% if scoped_collection %}
+                    <a href="{{ request.url_for("arena_collection_index") }}"
+                       class="btn btn-outline-secondary btn-sm">
+                        {{ render_icon(icon="arrow_back") }}
+                        All collections
+                    </a>
+                {% endif %}
             </div>
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"
@@ -55,11 +63,11 @@
                                                    name="category_slugs"
                                                    value="{{ cat.slug }}"
                                                    {% if cat.slug in selected_category_slugs %}checked{% endif %}>
-                                            {# Category pill colours are dynamic (user-defined hex) and
-                                               cannot be expressed as static CSS classes. #}
+                                            {# Pill colours are per-row data (user-defined hex), so they
+                                               are applied by shared/static/js/swatch-color.js. #}
                                             <span class="badge rounded-pill"
-                                                  style="background:{{ cat.color }};
-                                                         color:{{ cat.foreground_color }}">{{ cat.name }}</span>
+                                                  data-swatch-color="{{ cat.color }}"
+                                                  data-swatch-foreground="{{ cat.foreground_color }}">{{ cat.name }}</span>
                                         </label>
                                     </div>
                                 {% else %}
@@ -71,6 +79,20 @@
                             </div>
                         </div>
                     </div>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="collection">Collection</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="collection"
+                            name="collection">
+                        <option value="">All collections</option>
+                        {% for coll in all_collections %}
+                            <option value="{{ coll.slug }}"
+                                    {% if scoped_collection and coll.slug == scoped_collection.slug %}selected{% endif %}>
+                                {{ coll.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div>
                     <label class="form-label form-label-sm mb-1" for="language">Language</label>
@@ -90,7 +112,10 @@
                 <input type="hidden" name="page" value="1">
                 {% include "_partials/filter_submit_button.html" %}
                 {% set _filters_active = search or language or (selected_category_slugs | length > 0) or sort_by != 'number_asc' %}
-                {% with clear_url=request.url_for("arena_problem_list"), filters_active=_filters_active %}
+                {# Clearing filters keeps the collection scope: the scope is where you
+                   are browsing, not one of the filters applied inside it. #}
+                {% set _clear_url = request.url_for("arena_problem_list") ~ '?collection=' ~ scoped_collection.slug if scoped_collection else request.url_for("arena_problem_list") %}
+                {% with clear_url=_clear_url, filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
@@ -142,6 +167,7 @@
                                     {% endif %}
                                 </a>
                             </th>
+                            <th class="column-width-narrow">Collection</th>
                             <th class="column-width-medium">Categories</th>
                             <th class="arena-col-sortable column-width-tiny">
                                 <a href="{{ request.url.include_query_params(sort_by='solvers_desc' if sort_by == 'solvers_asc' else 'solvers_asc', page=1) }}"
@@ -196,10 +222,17 @@
                                         {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator", label="This problem uses a custom validator") }}
                                     {% endif %}
                                 </td>
+                                <td class="column-width-narrow">
+                                    {% if item.collection %}
+                                        {{ item.collection.name }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
                                 <td class="column-width-medium">
                                     {% for cat in item.categories %}
-                                        <span class="arena-category-color-swatch"
-                                              data-category-color="{{ cat.color }}"
+                                        <span class="arena-badge-color-swatch"
+                                              data-swatch-color="{{ cat.color }}"
                                               title="{{ cat.name }}"
                                               aria-label="{{ cat.name }}"></span>
                                     {% endfor %}
@@ -266,6 +299,7 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='swatch-color.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='problem-list.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"></script>
 {% endblock %}

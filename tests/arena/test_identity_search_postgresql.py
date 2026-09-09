@@ -33,6 +33,7 @@ from arena.services.ranking_service import get_ranked_affiliations_paginated, ge
 from arena.services.text_search_primitives import apply_trigram_threshold
 from shared.db_schema.arena import arena_affiliations, arena_users
 from shared.enumerations import ArenaRole
+from tests.conftest import skip_unless_schema_at_head
 
 _AFFILIATION_ID = "00000000-0000-4000-8000-000000000a01"
 _ADA_ID = "00000000-0000-4000-8000-000000000a11"
@@ -64,6 +65,7 @@ async def postgres_ranking_session() -> AsyncIterator[AsyncSession]:
             # Broad by design, as in the Valkey fixtures: the driver raises its own
             # unwrapped errors (bad password, missing database) alongside OSError.
             pytest.skip(f"PostgreSQL at {safe_url} is unavailable for tests: {exc}")
+        await skip_unless_schema_at_head(connection, safe_url)
         try:
             transaction = await connection.begin()
             async with AsyncSession(bind=connection, expire_on_commit=False) as session:

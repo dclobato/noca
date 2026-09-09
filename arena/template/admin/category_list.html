@@ -21,7 +21,7 @@
                 <button type="button"
                         class="btn btn-primary btn-sm"
                         data-bs-toggle="modal"
-                        data-bs-target="#category-new-modal">
+                        data-bs-target="#taxonomy-new-modal">
                     {{ render_icon(icon="add") }}
                     Add new category
                 </button>
@@ -92,8 +92,8 @@
                                 </td>
                                 <td class="arena-monospace">{{ row.category.slug }}</td>
                                 <td>
-                                    <span class="arena-category-color-swatch"
-                                          data-category-color="{{ row.category.color }}"
+                                    <span class="arena-badge-color-swatch"
+                                          data-swatch-color="{{ row.category.color }}"
                                           aria-hidden="true"></span>
                                     <span class="arena-monospace">{{ row.category.color }}</span>
                                 </td>
@@ -105,11 +105,11 @@
                                             data-bs-toggle="tooltip"
                                             data-bs-container="body"
                                             data-bs-boundary="viewport"
-                                            data-category-edit-button
-                                            data-category-name="{{ row.category.name }}"
-                                            data-category-slug="{{ row.category.slug }}"
-                                            data-category-edit-color="{{ row.category.color }}"
-                                            data-category-action="{{ request.url_for('arena_admin_category_update', category_id=row.category.id) }}"
+                                            data-taxonomy-edit-button
+                                            data-taxonomy-name="{{ row.category.name }}"
+                                            data-taxonomy-slug="{{ row.category.slug }}"
+                                            data-taxonomy-edit-color="{{ row.category.color }}"
+                                            data-taxonomy-action="{{ request.url_for('arena_admin_category_update', category_id=row.category.id) }}"
                                             aria-label="Edit category">{{ render_icon(icon="edit") }}</button>
                                     <button type="button"
                                             class="btn arena-icon-button btn-sm text-danger"
@@ -117,12 +117,12 @@
                                             data-bs-toggle="tooltip"
                                             data-bs-container="body"
                                             data-bs-boundary="viewport"
-                                            data-category-delete-button
-                                            data-category-name="{{ row.category.name }}"
-                                            data-category-count="{{ row.problem_count }}"
-                                            data-category-action="{{ request.url_for('arena_admin_category_delete', category_id=row.category.id) }}"
-                                            data-category-page="{{ pagination.page }}"
-                                            data-category-per-page="{{ per_page }}"
+                                            data-taxonomy-delete-button
+                                            data-taxonomy-name="{{ row.category.name }}"
+                                            data-taxonomy-count="{{ row.problem_count }}"
+                                            data-taxonomy-action="{{ request.url_for('arena_admin_category_delete', category_id=row.category.id) }}"
+                                            data-taxonomy-page="{{ pagination.page }}"
+                                            data-taxonomy-per-page="{{ per_page }}"
                                             aria-label="Remove category">{{ render_icon(icon="delete") }}</button>
                                 </td>
                             </tr>
@@ -140,16 +140,16 @@
         </div>
     </div>
     <div class="modal fade"
-         id="category-new-modal"
+         id="taxonomy-new-modal"
          tabindex="-1"
-         aria-labelledby="category-new-modal-title"
+         aria-labelledby="taxonomy-new-modal-title"
          aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post"
                       action="{{ request.url_for("arena_admin_category_create") }}">
                     <div class="modal-header">
-                        <h2 class="modal-title fs-5" id="category-new-modal-title">
+                        <h2 class="modal-title fs-5" id="taxonomy-new-modal-title">
                             {{ render_icon(icon="category") }}
                             New Category
                         </h2>
@@ -161,38 +161,38 @@
                     <div class="modal-body">
                         <div class="row g-3">
                             <div class="col-12">
-                                <label class="form-label" for="new_category_name">Name</label>
+                                <label class="form-label" for="new_taxonomy_name">Name</label>
                                 <input type="text"
                                        class="form-control"
-                                       id="new_category_name"
+                                       id="new_taxonomy_name"
                                        name="name"
                                        maxlength="128"
                                        required
                                        autocomplete="off">
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="new_category_slug">Slug</label>
+                                <label class="form-label" for="new_taxonomy_slug">Slug</label>
                                 <input type="text"
                                        class="form-control"
-                                       id="new_category_slug"
+                                       id="new_taxonomy_slug"
                                        name="slug"
                                        maxlength="128"
                                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
                                        required>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="new_category_color">Color</label>
+                                <label class="form-label" for="new_taxonomy_color">Color</label>
                                 {# The hex field carries no name: `color` is submitted by the swatch. #}
                                 <div class="input-group">
                                     <input type="color"
                                            class="form-control form-control-color"
-                                           id="new_category_color"
+                                           id="new_taxonomy_color"
                                            name="color"
                                            value="#6c757d"
                                            required>
                                     <input type="text"
                                            class="form-control arena-monospace arena-color-hex-input"
-                                           id="new_category_color_hex"
+                                           id="new_taxonomy_color_hex"
                                            value="#6c757d"
                                            maxlength="7"
                                            pattern="#[0-9a-fA-F]{6}"
@@ -202,7 +202,7 @@
                                            aria-label="Hex color value">
                                     <button type="button"
                                             class="btn btn-outline-secondary"
-                                            id="new_category_color_random"
+                                            id="new_taxonomy_color_random"
                                             title="Generate random color"
                                             aria-label="Generate random color">
                                         {{ render_icon(icon="casino") }}
@@ -225,18 +225,18 @@
         </div>
     </div>
     <div class="modal fade"
-         id="category-edit-modal"
+         id="taxonomy-edit-modal"
          tabindex="-1"
-         aria-labelledby="category-edit-modal-title"
+         aria-labelledby="taxonomy-edit-modal-title"
          aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
-                <form method="post" data-category-edit-form>
+                <form method="post" data-taxonomy-edit-form>
                     <input type="hidden" name="page" value="{{ pagination.page }}">
                     <input type="hidden" name="per_page" value="{{ per_page }}">
                     <input type="hidden" name="search" value="{{ search }}">
                     <div class="modal-header">
-                        <h2 class="modal-title fs-5" id="category-edit-modal-title">
+                        <h2 class="modal-title fs-5" id="taxonomy-edit-modal-title">
                             {{ render_icon(icon="edit") }}
                             Edit Category
                         </h2>
@@ -248,38 +248,38 @@
                     <div class="modal-body">
                         <div class="row g-3">
                             <div class="col-12">
-                                <label class="form-label" for="edit_category_name">Name</label>
+                                <label class="form-label" for="edit_taxonomy_name">Name</label>
                                 <input type="text"
                                        class="form-control"
-                                       id="edit_category_name"
+                                       id="edit_taxonomy_name"
                                        name="name"
                                        maxlength="128"
                                        required
                                        autocomplete="off">
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="edit_category_slug">Slug</label>
+                                <label class="form-label" for="edit_taxonomy_slug">Slug</label>
                                 <input type="text"
                                        class="form-control"
-                                       id="edit_category_slug"
+                                       id="edit_taxonomy_slug"
                                        name="slug"
                                        maxlength="128"
                                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
                                        required>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="edit_category_color">Color</label>
+                                <label class="form-label" for="edit_taxonomy_color">Color</label>
                                 {# The hex field carries no name: `color` is submitted by the swatch. #}
                                 <div class="input-group">
                                     <input type="color"
                                            class="form-control form-control-color"
-                                           id="edit_category_color"
+                                           id="edit_taxonomy_color"
                                            name="color"
                                            value="#6c757d"
                                            required>
                                     <input type="text"
                                            class="form-control arena-monospace arena-color-hex-input"
-                                           id="edit_category_color_hex"
+                                           id="edit_taxonomy_color_hex"
                                            value="#6c757d"
                                            maxlength="7"
                                            pattern="#[0-9a-fA-F]{6}"
@@ -289,7 +289,7 @@
                                            aria-label="Hex color value">
                                     <button type="button"
                                             class="btn btn-outline-secondary"
-                                            id="edit_category_color_random"
+                                            id="edit_taxonomy_color_random"
                                             title="Generate random color"
                                             aria-label="Generate random color">
                                         {{ render_icon(icon="casino") }}
@@ -312,18 +312,20 @@
         </div>
     </div>
     <div class="modal fade"
-         id="category-delete-modal"
+         id="taxonomy-delete-modal"
+         data-taxonomy-delete-count-one="Its link to 1 problem will be removed. The problem remains available."
+         data-taxonomy-delete-count-many="Its links to {count} problems will be removed. The problems remain available."
          tabindex="-1"
-         aria-labelledby="category-delete-modal-title"
+         aria-labelledby="taxonomy-delete-modal-title"
          aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
-                <form method="post" data-category-delete-form>
+                <form method="post" data-taxonomy-delete-form>
                     <input type="hidden" name="page" value="{{ pagination.page }}">
                     <input type="hidden" name="per_page" value="{{ per_page }}">
                     <input type="hidden" name="search" value="{{ search }}">
                     <div class="modal-header">
-                        <h2 class="modal-title fs-5" id="category-delete-modal-title">Remove category</h2>
+                        <h2 class="modal-title fs-5" id="taxonomy-delete-modal-title">Remove category</h2>
                         <button type="button"
                                 class="btn-close"
                                 data-bs-dismiss="modal"
@@ -331,9 +333,9 @@
                     </div>
                     <div class="modal-body">
                         <p class="mb-1">
-                            Remove <strong data-category-delete-name></strong>?
+                            Remove <strong data-taxonomy-delete-name></strong>?
                         </p>
-                        <p class="text-muted small mb-0" data-category-delete-count></p>
+                        <p class="text-muted small mb-0" data-taxonomy-delete-count></p>
                     </div>
                     <div class="modal-footer">
                         <button type="button"
@@ -349,6 +351,7 @@
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='category-slug.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='admin-category-list.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='swatch-color.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='taxonomy-slug.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-taxonomy-list.js') }}?v={{ app_version }}"></script>
 {% endblock %}

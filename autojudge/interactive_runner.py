@@ -16,8 +16,8 @@ before the two processes start talking.
 from __future__ import annotations
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -49,6 +49,33 @@ from autojudge.sandbox import (
 )
 from autojudge.types import IsolateMeta, ProblemLimits
 from shared.enumerations import CustomValidatorCrashReason, Verdict
+
+logger = logging.getLogger(__name__)
+
+_ISOLATE_ERROR_CATEGORIES = (
+    ("different user", "box_owned_by_other_user"),
+    ("incompatible control group", "incompatible_cgroup_mode"),
+    ("not initialized properly", "box_not_initialized"),
+    ("box not found", "box_not_found"),
+    ("control group root", "cgroup_root_missing"),
+    ("control group", "cgroup_operation_failed"),
+    ("privatize mounts", "mount_privatization_failed"),
+    ("clone failed", "process_clone_failed"),
+    ("cannot create box", "box_create_failed"),
+    ("cannot chown box", "box_chown_failed"),
+    ("metafile", "metafile_open_failed"),
+    ("unknown option", "unknown_option"),
+    ("invalid path", "invalid_path"),
+)
+
+
+def _isolate_error_category(exc: Exception) -> str:
+    """Return a fixed, non-sensitive category for an isolate failure."""
+    error_text = str(exc).lower()
+    for fragment, category in _ISOLATE_ERROR_CATEGORIES:
+        if fragment in error_text:
+            return category
+    return "unclassified"
 
 
 class InteractiveEndpoint(Protocol):
@@ -195,17 +222,39 @@ async def run_docker_interaction(
     contestant_meta = None
     validator_meta = None
     if contestant_meta_text is not None:
-        with suppress(Exception):
+        try:
             contestant_meta = _parse_isolate_meta(
                 contestant_meta_text,
                 isolate_exit_code=bridge_result.contestant_exit_code or 0,
             )
+        except Exception as exc:
+            logger.error(
+                "Contestant isolate metadata parse failed: %s",
+                _isolate_error_category(exc),
+            )
     if validator_meta_text is not None:
-        with suppress(Exception):
+        try:
             validator_meta = _parse_isolate_meta(
                 validator_meta_text,
                 isolate_exit_code=bridge_result.validator_exit_code or 0,
             )
+        except Exception as exc:
+            logger.error(
+                "Validator isolate metadata parse failed: %s",
+                _isolate_error_category(exc),
+            )
+    if contestant_meta is None:
+        logger.error(
+            "Contestant isolate metadata unavailable: exec_exit=%r state=%s",
+            bridge_result.contestant_exit_code,
+            "missing" if contestant_meta_text is None else "invalid",
+        )
+    if validator_meta is None:
+        logger.error(
+            "Validator isolate metadata unavailable: exec_exit=%r state=%s",
+            bridge_result.validator_exit_code,
+            "missing" if validator_meta_text is None else "invalid",
+        )
 
     return finalize_interactive_metadata(bridge_result, contestant_meta, validator_meta)
 
@@ -390,6 +439,7 @@ async def run_interaction(
                 watchdog_stalled_side = "validator"
         await asyncio.gather(contestant.terminate(), validator.terminate(), return_exceptions=True)
     except Exception:
+        logger.exception("Interactive bridge communication failed")
         crash_reason = CustomValidatorCrashReason.COMMUNICATION
         await asyncio.gather(contestant.terminate(), validator.terminate(), return_exceptions=True)
 

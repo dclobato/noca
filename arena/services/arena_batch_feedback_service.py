@@ -32,6 +32,7 @@ from arena.models.arena_problems import ArenaProblem
 from arena.services.arena_class_service import _active_members_subquery
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetNotFoundError,
+    FeedbackAttempt,
     _assert_teacher,
     _load_set_and_class,
     _needs_feedback,
@@ -318,16 +319,26 @@ async def _load_test_result(
 async def get_non_ac_counts_for_set(
     session: AsyncSession, *, actor_id: str, actor_role: ArenaRole, set_id: str
 ) -> dict[str, int]:
-    """Return {problem_id: count} of active members with no Accepted submission yet."""
+    """Return {problem_id: count} of active members whose latest attempt still needs feedback.
+
+    A student is counted for a problem when they have no Accepted verdict for it
+    and their most recent non-Accepted attempt carries no teacher feedback.
+    """
     _problem_set, arena_class = await _load_set_and_class(session, set_id)
     _assert_teacher(arena_class, actor_id=actor_id, actor_role=actor_role)
     rows = await _submission_rows_for_set(session, set_id=set_id, class_id=arena_class.id)
-    verdicts_by_key: dict[tuple[str, str], list[str | None]] = {}
+    attempts_by_key: dict[tuple[str, str], list[FeedbackAttempt]] = {}
     for row in rows:
-        verdicts_by_key.setdefault((row.problem_id, row.user_id), []).append(row.final_verdict)
+        attempts_by_key.setdefault((row.problem_id, row.user_id), []).append(
+            FeedbackAttempt(
+                submitted_at=row.created_at,
+                verdict=row.final_verdict,
+                has_feedback=row.feedback_text is not None,
+            )
+        )
     counts: dict[str, int] = {}
-    for (problem_id, _user_id), verdicts in verdicts_by_key.items():
-        if _needs_feedback(verdicts):
+    for (problem_id, _user_id), attempts in attempts_by_key.items():
+        if _needs_feedback(attempts):
             counts[problem_id] = counts.get(problem_id, 0) + 1
     return counts
 

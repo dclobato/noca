@@ -251,6 +251,7 @@ def _problem_json(
         "pids_limit": metadata.pids_limit,
         "output_limit_in_bytes": metadata.output_limit_in_bytes,
         "categories": list(metadata.categories),
+        "collection": metadata.collection,
         "sample_testcases": [case.ordinal for case in package.test_cases if case.is_sample],
         "image": package.image.member if package.image is not None else None,
         "image_caption": metadata.image_caption,

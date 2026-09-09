@@ -51,6 +51,7 @@ from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
 from arena.routes.problem_sets_full_report import router as arena_problem_sets_full_report_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
+from arena.routes.problem_sets_student_feedback import router as arena_problem_sets_student_feedback_router
 from arena.services import arena_problem_set_service
 from arena.services.arena_class_service import create_class
 from arena.services.token_service import ArenaTokenAction
@@ -189,6 +190,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_problem_sets_full_report_router)
     app.include_router(arena_problem_sets_router)
     app.include_router(arena_problem_sets_report_router)
+    app.include_router(arena_problem_sets_student_feedback_router)
     app.include_router(arena_problem_sets_autocomplete_router)
     app.include_router(arena_legal_router)
     return app
@@ -722,6 +724,8 @@ async def test_problem_set_manage_and_report_pages_render(session: AsyncSession)
     assert student_report_response.status_code == 200
     assert "Submission history" in student_report_response.text
     assert "No submissions in this problem set" in student_report_response.text
+    assert "Overall feedback becomes available after this student submits" in student_report_response.text
+    assert 'id="problem-set-feedback-editor"' not in student_report_response.text
     assert autocomplete_response.status_code == 200
     assert autocomplete_response.json()["problems"] == []
 

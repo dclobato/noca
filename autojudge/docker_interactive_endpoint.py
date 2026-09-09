@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,12 +26,17 @@ class DockerExecEndpoint:
         docker_client: docker.DockerClient,
         container_id: str,
         exec_id: str,
+        socket_owner: Any,
         raw_socket: socket.socket,
         executor: ThreadPoolExecutor,
     ) -> None:
         self._client = docker_client
         self._container_id = container_id
         self._exec_id = exec_id
+        # Docker returns a socket-like owner (SocketIO for a Unix daemon) that
+        # closes its inner `_sock` when finalized. Keep it alive for the whole
+        # attached exec instead of retaining only the inner descriptor.
+        self._socket_owner = socket_owner
         self._socket = raw_socket
         self._executor = executor
         self._stdout: asyncio.Queue[bytes] = asyncio.Queue()
@@ -79,6 +84,7 @@ class DockerExecEndpoint:
             docker_client=docker_client,
             container_id=container_id,
             exec_id=exec_id,
+            socket_owner=attached,
             raw_socket=raw_socket,
             executor=executor,
         )
@@ -97,6 +103,12 @@ class DockerExecEndpoint:
                     break
                 await (self._stderr if header[0] == 2 else self._stdout).put(payload)
         finally:
+            # Close the connection descriptor, but leave Docker's SocketIO owner
+            # open so its HTTP response can finalize the wrapper in the normal
+            # order. Closing SocketIO first makes Python 3.14's response cleanup
+            # try to flush an already-closed file.
+            with suppress(OSError):
+                self._socket.close()
             await self._stdout.put(b"")
             await self._stderr.put(b"")
 

@@ -1,13 +1,11 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 """Arena admin category CRUD routes."""
 
-import colorsys
-import random
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -22,6 +20,7 @@ from arena.models.arena_problems import ArenaCategory
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_category_service
 from arena.services.pagination_service import parse_page
+from arena.services.taxonomy_validation import random_badge_color
 from shared.services.admin_audit import record_admin_action
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -29,23 +28,6 @@ router = APIRouter(prefix="/admin", tags=["arena-admin"])
 _ALLOWED_PER_PAGE = [10, 25, 50, 100]
 _DEFAULT_PER_PAGE = 25
 _DEFAULT_COLOR = "#6c757d"
-
-
-def _random_category_color() -> str:
-    """Return a random, visually pleasing hex color for a new category.
-
-    Generates a color in HSL space with a random hue and constrained
-    saturation/lightness so the result is always vivid and readable as a
-    badge background.
-
-    Returns:
-        A hex color string such as ``"#4a9ef2"``.
-    """
-    hue = random.random()
-    saturation = random.uniform(0.55, 0.75)
-    lightness = random.uniform(0.40, 0.58)
-    red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
-    return f"#{int(red * 255):02x}{int(green * 255):02x}{int(blue * 255):02x}"
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -155,7 +137,7 @@ async def admin_category_new(
             {
                 "mode": "create",
                 "category": None,
-                "form": {"name": "", "slug": "", "color": _random_category_color()},
+                "form": {"name": "", "slug": "", "color": random_badge_color()},
                 "back_url": str(request.url_for("arena_admin_category_list")),
                 "current_user": admin,
             },

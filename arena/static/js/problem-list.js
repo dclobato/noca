@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,11 +19,6 @@
   const catFilterSearch    = document.getElementById("cat-filter-search");
   const catFilterCount     = document.getElementById("cat-filter-count");
   const catFilterNoMatches = document.getElementById("cat-filter-no-matches");
-
-  document.querySelectorAll("[data-category-color]").forEach((el) => {
-    const color = el.getAttribute("data-category-color") || "#6c757d";
-    el.style.backgroundColor = color;
-  });
 
   function updateCatCount() {
     if (!catFilterList || !catFilterCount) return;

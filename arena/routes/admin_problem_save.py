@@ -39,7 +39,7 @@ from arena.routes.admin_problem_form_views import (
 )
 from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.routes.admin_problem_new import resolve_choice_or_redirect
-from arena.services import admin_problem_service
+from arena.services import admin_collection_service, admin_problem_service
 from arena.services.statement_language_service import (
     LanguageConflict,
     conflict_context,
@@ -133,12 +133,14 @@ async def admin_problem_create(
     editorial: str = Form(""),
     editorial_release_policy: str = Form(ArenaEditorialReleasePolicy.NEVER.value),
     category_ids: list[str] = Form(default=[]),
+    collection_id: str = Form(""),
     return_page: str = Form("1"),
     return_per_page: str = Form("25"),
     return_search: str = Form(""),
     return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     return_owner_id: str = Form(""),
     return_category_slugs: list[str] = Form(default=[]),
+    return_collection: str = Form(""),
     return_language: str = Form(""),
     return_enabled: str = Form(""),
     return_editorial: str = Form(""),
@@ -173,6 +175,7 @@ async def admin_problem_create(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        collection=return_collection,
         language=return_language,
         enabled=return_enabled,
         editorial=return_editorial,
@@ -184,6 +187,7 @@ async def admin_problem_create(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        collection=return_collection,
         language=return_language,
         enabled=return_enabled,
         editorial=return_editorial,
@@ -202,6 +206,7 @@ async def admin_problem_create(
         editorial=editorial,
         editorial_release_policy=editorial_release_policy,
         category_ids=category_ids,
+        collection_id=collection_id,
         image_caption=image_caption,
         notes=notes,
         license=license,
@@ -217,12 +222,14 @@ async def admin_problem_create(
         error_tab: str | None = None,
     ) -> HTMLResponse:
         all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
+        all_collections = await admin_collection_service.list_collections(session)
         return render_problem_form(
             request,
             mode="create",
             validator_type=strategy,
             form=form,
             cats_data=selected_cats_data(all_categories, category_ids),
+            all_collections=all_collections,
             back_url=back_url,
             state=state,
             current_user=current_user,
@@ -320,6 +327,7 @@ async def admin_problem_create(
             notes=notes or None,
             license=license or None,
             category_ids=category_ids,
+            collection_id=collection_id,
             statement_language=resolved_language,
             expected_difficulty=resolved_expected_difficulty,
             validator_type=strategy,
@@ -368,12 +376,14 @@ async def admin_problem_update(
     editorial: str = Form(""),
     editorial_release_policy: str = Form(ArenaEditorialReleasePolicy.NEVER.value),
     category_ids: list[str] = Form(default=[]),
+    collection_id: str = Form(""),
     return_page: str = Form("1"),
     return_per_page: str = Form("25"),
     return_search: str = Form(""),
     return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     return_owner_id: str = Form(""),
     return_category_slugs: list[str] = Form(default=[]),
+    return_collection: str = Form(""),
     return_language: str = Form(""),
     return_enabled: str = Form(""),
     return_editorial: str = Form(""),
@@ -413,6 +423,7 @@ async def admin_problem_update(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        collection=return_collection,
         language=return_language,
         enabled=return_enabled,
         editorial=return_editorial,
@@ -425,6 +436,7 @@ async def admin_problem_update(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        collection=return_collection,
         language=return_language,
         enabled=return_enabled,
         editorial=return_editorial,
@@ -443,6 +455,7 @@ async def admin_problem_update(
         editorial=editorial,
         editorial_release_policy=editorial_release_policy,
         category_ids=category_ids,
+        collection_id=collection_id,
         image_caption=image_caption,
         notes=notes,
         license=license,
@@ -457,13 +470,14 @@ async def admin_problem_update(
         field_errors: dict[str, str] | None = None,
         error_tab: str | None = None,
     ) -> HTMLResponse:
-        all_categories, problem_owner = await edit_form_extras(problem, current_user, session)
+        all_categories, all_collections, problem_owner = await edit_form_extras(problem, current_user, session)
         return render_problem_form(
             request,
             mode="edit",
             problem=problem,
             form=form,
             cats_data=selected_cats_data(all_categories, category_ids),
+            all_collections=all_collections,
             back_url=back_url,
             next_url=safe_next,
             state=state,
@@ -568,6 +582,7 @@ async def admin_problem_update(
             license=license or None,
             clear_image=clear_image,
             category_ids=category_ids,
+            collection_id=collection_id,
             statement_language=resolved_language,
             expected_difficulty=resolved_expected_difficulty,
         )
@@ -626,6 +641,7 @@ async def admin_problem_update(
             sort_by=return_sort_by,
             owner_id=return_owner_id,
             category_slugs=return_category_slugs,
+            collection=return_collection,
             language=return_language,
             enabled=return_enabled,
             editorial=return_editorial,

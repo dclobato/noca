@@ -204,6 +204,9 @@
                                     {% for category_slug in back_category_slugs %}
                                         <input type="hidden" name="back_category_slugs" value="{{ category_slug }}">
                                     {% endfor %}
+                                    <input type="hidden"
+                                           name="back_collection_slug"
+                                           value="{{ back_collection_slug }}">
                                     <div class="mb-3">
                                         <label class="form-label" for="assignment-class-select">Class</label>
                                         <select class="form-select form-select-sm"
@@ -332,16 +335,17 @@
                 {{ render_icon(icon="update") }}
                 Last updated at: {{ arena_format_datetime(problem.updated_at, current_user) }}
             </p>
-            {# Category pills #}
+            {% if problem.collection %}
+                <p class="text-muted small mb-2">
+                    {{ render_icon(icon="collections_bookmark") }}
+                    Collection: {{ problem.collection.name }}
+                </p>
+            {% endif %}
             {% if problem.categories %}
-                <div class="mb-4">
-                    {% for cat in problem.categories %}
-                        {# Dynamic colors from DB cannot be expressed as static CSS classes #}
-                        <span class="badge rounded-pill me-1"
-                              style="background:{{ cat.color }};
-                                     color:{{ cat.foreground_color }}">{{ cat.name }}</span>
-                    {% endfor %}
-                </div>
+                <p class="text-muted small mb-4">
+                    {{ render_icon(icon="category") }}
+                    Categories: {{ problem.categories | map(attribute="name") | sort | join(", ") }}
+                </p>
             {% endif %}
             {# Problem image #}
             {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}

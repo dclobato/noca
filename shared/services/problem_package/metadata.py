@@ -27,6 +27,7 @@ from shared.services.problem_package.constants import (
     EDITORIAL_MD_MEMBER,
     LEGACY_FORMAT_VERSION,
     MAX_AUTHOR_CHARS,
+    MAX_COLLECTION_CHARS,
     MAX_IMAGE_CAPTION_CHARS,
     MAX_LICENSE_CHARS,
     MAX_NOTES_CHARS,
@@ -116,6 +117,7 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
             meta, "output_limit_in_bytes", default=_LIMIT_DEFAULTS["output_limit_in_bytes"]
         ),
         categories=_categories(_absent_or(meta, "categories")),
+        collection=_string(meta, "collection", MAX_COLLECTION_CHARS),
         sample_testcases=_sample_testcases(_absent_or(meta, "sample_testcases")),
         image=_string(meta, "image", 255),
         image_caption=_string(meta, "image_caption", MAX_IMAGE_CAPTION_CHARS),

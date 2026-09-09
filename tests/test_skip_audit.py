@@ -44,14 +44,9 @@ def test_when_a_skip_must_fail_the_session(environ: dict[str, str], required: bo
 @pytest.mark.parametrize(
     ("nodeid", "markers", "sanctioned"),
     [
-        # The four groups that legitimately cannot run without a credential or a
-        # live service CI deliberately does not provide.
-        pytest.param(
-            "tests/autojudge/test_container_startup_real_docker.py::test_x",
-            {"real_docker"},
-            True,
-            id="real-docker",
-        ),
+        # The only two groups that can legitimately skip, and only when their
+        # credential is absent. With a key configured they must run: see
+        # test_a_configured_credential_unsanctions_its_group below.
         pytest.param("tests/aiassistant/test_openai_e2e.py::test_x", {"real_openai"}, True, id="real-openai"),
         pytest.param(
             "tests/shared/test_email_reputation.py::test_live_good_email",
@@ -59,10 +54,21 @@ def test_when_a_skip_must_fail_the_session(environ: dict[str, str], required: bo
             True,
             id="real-ipqualityscore",
         ),
+        # The browser checks stay sanctioned by path: they smoke-check a
+        # populated instance, and their data-dependent skips ("no problem to
+        # open") describe a fixture gap rather than a broken environment.
         pytest.param("tests/browser/test_problem_editor_ui.py::test_x", set(), True, id="browser-by-path"),
         # A collection-level skip carries no markers at all, which is exactly why
         # the browser suite is matched by path rather than by marker.
         pytest.param("tests/browser/conftest.py", set(), True, id="browser-collection-skip"),
+        # Docker is not a licence to skip: CI has a daemon and pulls the judge
+        # images, so these eight ran nowhere until that was fixed.
+        pytest.param(
+            "tests/autojudge/test_container_startup_real_docker.py::test_x",
+            {"real_docker"},
+            False,
+            id="real-docker-must-run",
+        ),
         # Everything else must run. These are the skips that previously hid a
         # broken environment behind a green summary line.
         pytest.param("tests/arena/test_problem_search_postgresql.py::test_x", set(), False, id="database-down"),
@@ -77,5 +83,28 @@ def test_when_a_skip_must_fail_the_session(environ: dict[str, str], required: bo
     ],
 )
 def test_which_skips_are_sanctioned(nodeid: str, markers: set[str], sanctioned: bool) -> None:
-    """Only an external credential or a live service CI lacks earns a skip."""
-    assert skip_is_sanctioned(nodeid, markers) is sanctioned
+    """Only a missing external credential earns a skip."""
+    assert skip_is_sanctioned(nodeid, markers, environ={}) is sanctioned
+
+
+@pytest.mark.parametrize(
+    ("marker", "variable"),
+    [("real_openai", "NOCA_AI_OPENAI_API_KEY"), ("real_ipqualityscore", "NOCA_IPQUALITYSCORE_APIKEY")],
+)
+def test_a_configured_credential_unsanctions_its_group(marker: str, variable: str) -> None:
+    """With the key present, skipping is a failure to run, not an impossibility.
+
+    This is the whole point of gating on the credential rather than the marker:
+    a CI run that holds a key must actually spend it, or the test is decorative.
+    """
+    assert skip_is_sanctioned("tests/x.py::test_x", {marker}, environ={}) is True
+    assert skip_is_sanctioned("tests/x.py::test_x", {marker}, environ={variable: "sk-configured"}) is False
+    # An empty value is not a key.
+    assert skip_is_sanctioned("tests/x.py::test_x", {marker}, environ={variable: ""}) is True
+
+
+def test_one_groups_credential_does_not_unsanction_the_other() -> None:
+    """Each group is gated by its own variable, never by any key at all."""
+    environ = {"NOCA_AI_OPENAI_API_KEY": "sk-configured"}
+    assert skip_is_sanctioned("tests/x.py::test_x", {"real_ipqualityscore"}, environ=environ) is True
+    assert skip_is_sanctioned("tests/x.py::test_x", {"real_openai"}, environ=environ) is False

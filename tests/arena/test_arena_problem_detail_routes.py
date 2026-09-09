@@ -6,7 +6,9 @@
 
 """Route tests for Arena public problem detail pages."""
 
+import html
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -30,7 +32,7 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_classes import ArenaClass
 from arena.models.arena_problem_sets import ArenaProblemSet
-from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
+from arena.models.arena_problems import ArenaCategory, ArenaCollection, ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.problem_editorial import router as arena_problem_editorial_router
@@ -39,7 +41,7 @@ from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
-from shared.db_schema.arena import arena_problem_set_problems, arena_problem_solvers
+from shared.db_schema.arena import arena_problem_category_map, arena_problem_set_problems, arena_problem_solvers
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
     ArenaRole,
@@ -1233,3 +1235,167 @@ async def test_problem_detail_gates_editorial_link_after_ac(session: AsyncSessio
     assert _EDITORIAL_PENDING_HINT not in after_ac_detail.text
     assert after_ac_direct.status_code == 200
     assert "Greedy works here." in after_ac_direct.text
+
+
+@pytest.mark.asyncio
+async def test_problem_list_scoped_to_a_collection_names_the_scope(session: AsyncSession) -> None:
+    """A valid scope filters the list and shows which collection is in view."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(session, name="Judge", role=ArenaRole.ARENA_JUDGE, email="judge@test.example")
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.flush()
+    inside = await _create_enabled_problem(session, author, title="Inside The Collection")
+    outside = await _create_enabled_problem(session, author, title="Outside The Collection")
+    inside.collection_id = collection.id
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/problems?collection=interif")
+
+    assert response.status_code == 200
+    assert inside.title in response.text
+    assert outside.title not in response.text
+    assert "InterIF" in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_list_rejects_an_unknown_collection_slug(session: AsyncSession) -> None:
+    """An unknown scope is a 404, not an empty page under no name."""
+    app = _build_problem_detail_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        unknown = await client.get("/problems?collection=does-not-exist")
+        blank = await client.get("/problems?collection=%20%20")
+
+    assert unknown.status_code == 404
+    # A blank value is "no scope", so it must not be mistaken for a miss.
+    assert blank.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_collection_index_lists_collections_and_the_all_card(session: AsyncSession) -> None:
+    """The index is public and always offers a way back to the whole catalogue."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(session, name="Judge", role=ArenaRole.ARENA_JUDGE, email="judge@test.example")
+    collection = ArenaCollection(name="Maratona SBC", slug="maratona-sbc")
+    session.add(collection)
+    await session.flush()
+    problem = await _create_enabled_problem(session, author, title="Filed Problem")
+    problem.collection_id = collection.id
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/collections")
+
+    assert response.status_code == 200
+    assert "Maratona SBC" in response.text
+    assert "All collections" in response.text
+    assert "?collection=maratona-sbc" in response.text
+    assert "1 problem" in response.text
+
+
+@pytest.mark.asyncio
+async def test_collection_scope_survives_the_trip_into_a_problem_and_back(session: AsyncSession) -> None:
+    """The scope is part of the list state, so it must round-trip like the rest.
+
+    Losing it would drop the reader out of the collection they were browsing the
+    moment they opened a problem, which is the one thing the scope exists to hold.
+    """
+    app = _build_problem_detail_app(session)
+    author = await _create_user(session, name="Judge", role=ArenaRole.ARENA_JUDGE, email="judge@test.example")
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.flush()
+    problem = await _create_enabled_problem(session, author, title="Scoped Problem")
+    problem.collection_id = collection.id
+    await session.commit()
+    token = _login_token(app, author)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        listing = await client.get("/problems?collection=interif")
+        assert listing.status_code == 200
+        row_links = [href for href in re.findall(r'href="([^"]+)"', listing.text) if "/problems/" in href]
+        scoped = [href for href in row_links if "back_collection_slug=interif" in href]
+        assert scoped, "the row link must carry the collection back-state"
+
+        detail = await client.get(html.unescape(scoped[0]))
+        assert detail.status_code == 200
+        back_links = [href for href in re.findall(r'href="([^"]+)"', detail.text) if "/problems?" in href]
+        assert any("collection=interif" in href for href in back_links), (
+            "Back to list must return to the scoped catalogue"
+        )
+
+
+@pytest.mark.asyncio
+async def test_prev_next_stay_inside_the_filtered_list(session: AsyncSession) -> None:
+    """The arrows walk the list the reader came from, not the whole catalogue.
+
+    Prev/next sit beside a "Back to list" button that honours the filters, so
+    arrows that leave the filtered set contradict the control next to them.
+    """
+    app = _build_problem_detail_app(session)
+    author = await _create_user(session, name="Judge", role=ArenaRole.ARENA_JUDGE, email="judge@test.example")
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.flush()
+
+    # 1 and 3 are in the collection; 2 sits between them and is not.
+    first = await _create_enabled_problem(session, author, title="First In Scope")
+    outsider = await _create_enabled_problem(session, author, title="Not In Scope")
+    third = await _create_enabled_problem(session, author, title="Third In Scope")
+    first.collection_id = collection.id
+    third.collection_id = collection.id
+    await session.commit()
+    assert first.arena_number < outsider.arena_number < third.arena_number
+    token = _login_token(app, author)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        scoped = await client.get(f"/problems/{first.arena_number}?back_collection_slug=interif")
+        assert scoped.status_code == 200
+        # Next skips the out-of-scope problem entirely.
+        assert f"/problems/{third.arena_number}" in scoped.text
+        assert f"/problems/{outsider.arena_number}" not in scoped.text
+        # ...and carries the scope forward, or it would be lost after one click.
+        arrow = next(
+            href for href in re.findall(r'href="([^"]+)"', scoped.text) if f"/problems/{third.arena_number}" in href
+        )
+        assert "back_collection_slug=interif" in html.unescape(arrow)
+
+        # Without the scope the arrows walk the whole catalogue again.
+        unscoped = await client.get(f"/problems/{first.arena_number}")
+        assert unscoped.status_code == 200
+        assert f"/problems/{outsider.arena_number}" in unscoped.text
+
+
+@pytest.mark.asyncio
+async def test_prev_next_respect_the_category_filter(session: AsyncSession) -> None:
+    """Category filtering narrows the arrows with the same OR semantics."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(session, name="Judge", role=ArenaRole.ARENA_JUDGE, email="judge@test.example")
+    graphs = ArenaCategory(name="Grafos", slug="grafos")
+    session.add(graphs)
+    await session.flush()
+
+    first = await _create_enabled_problem(session, author, title="Graphs One")
+    outsider = await _create_enabled_problem(session, author, title="Uncategorised")
+    third = await _create_enabled_problem(session, author, title="Graphs Two")
+    await session.execute(
+        arena_problem_category_map.insert(),
+        [{"problem_id": first.id, "category_id": graphs.id}, {"problem_id": third.id, "category_id": graphs.id}],
+    )
+    await session.commit()
+    token = _login_token(app, author)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        scoped = await client.get(f"/problems/{first.arena_number}?back_category_slugs=grafos")
+
+    assert scoped.status_code == 200
+    assert f"/problems/{third.arena_number}" in scoped.text
+    assert f"/problems/{outsider.arena_number}" not in scoped.text

@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings as arena_settings
-from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
+from arena.models.arena_problems import ArenaCategory, ArenaCollection, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service, admin_problem_tc_service
 from shared.enumerations import (
@@ -31,6 +31,8 @@ from shared.enumerations import (
 )
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_package import PackageError, read_problem_package
+from shared.services.problem_package.constants import FORMAT_VERSION
+from shared.services.problem_package.errors import WARN_UNKNOWN_COLLECTION
 from shared.services.sample_problem_package import build_sample_problem_package as _write_sample_package
 from shared.services.testcase_files import get_testcase_path
 from web.models.language import Language
@@ -132,6 +134,9 @@ def _build_package(
     categories: list[str],
     time_limit_ms: int = 1000,
     memory_limit_kb: int = 262144,
+    collection: str | None = None,
+    format_version: int | None = None,
+    validator_type: str | None = None,
 ) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -147,6 +152,11 @@ def _build_package(
                     "pids_limit": 64,
                     "output_limit_in_bytes": 65536,
                     "categories": categories,
+                    # Absent unless a test asks for it, so the default package
+                    # stays shaped like every version before 4.
+                    **({"collection": collection} if collection is not None else {}),
+                    **({"format_version": format_version} if format_version is not None else {}),
+                    **({"validator_type": validator_type} if validator_type is not None else {}),
                     # Arena-specific optional metadata
                     "notes": "ignore me",
                     "license": "CC BY-SA 4.0",
@@ -994,3 +1004,80 @@ async def test_a_problem_without_an_editorial_exports_a_null_editorial(session: 
     meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
 
     assert meta["editorial"] is None
+
+
+@pytest.mark.asyncio
+async def test_v3_package_without_a_collection_imports_unfiled(session: AsyncSession) -> None:
+    """Version 4 added the key; a version 3 package has none and must still import."""
+    author = await _make_author(session)
+    await session.commit()
+
+    result = await _import_zip(
+        session,
+        zip_bytes=_build_package(categories=[], format_version=3, validator_type="standard"),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.collection_id is None
+    assert not any(warning.code == WARN_UNKNOWN_COLLECTION for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_unknown_collection_is_dropped_with_a_warning(session: AsyncSession) -> None:
+    """An import must not invent a collection the admin has not defined."""
+    author = await _make_author(session)
+    await session.commit()
+
+    result = await _import_zip(
+        session,
+        zip_bytes=_build_package(categories=[], collection="does-not-exist"),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.collection_id is None
+    assert any(warning.code == WARN_UNKNOWN_COLLECTION for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_collection_round_trips_through_export_and_import(session: AsyncSession) -> None:
+    """A v4 export carries the collection slug and re-import files it again."""
+    author = await _make_author(session)
+    session.add(ArenaCollection(name="InterIF", slug="interif"))
+    await session.commit()
+
+    imported = (
+        await _import_zip(
+            session,
+            zip_bytes=_build_package(categories=[], collection="interif"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    await session.commit()
+
+    reloaded = await admin_problem_service.get_problem(session, imported.id, caller_id=author.id, is_admin=True)
+    assert reloaded is not None
+    await session.refresh(reloaded, attribute_names=["collection"])
+    assert reloaded.collection is not None
+    assert reloaded.collection.slug == "interif"
+
+    exported = _export_zip(reloaded, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    metadata = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json"))
+    assert metadata["format_version"] == FORMAT_VERSION
+    assert metadata["collection"] == "interif"
+
+    round_tripped = (
+        await _import_zip(
+            session,
+            zip_bytes=exported,
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    assert round_tripped.collection_id == reloaded.collection_id

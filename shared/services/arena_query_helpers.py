@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,13 +12,14 @@ keeping the "active judgment" definition in one place so callers cannot drift.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, func, select
-from sqlalchemy.sql.selectable import Subquery
+from sqlalchemy import ColumnElement, Select, and_, func, select
+from sqlalchemy.sql.selectable import Join, Subquery
 
-from shared.db_schema.arena import arena_submission_judgments
-from shared.enumerations import JudgmentStatus
+from shared.db_schema.arena import arena_submission_judgments, arena_submissions
+from shared.enumerations import JudgmentStatus, Verdict
 
 _SUPERSEDED = JudgmentStatus.SUPERSEDED.value
 
@@ -81,3 +82,112 @@ def active_arena_judgment_subquery() -> Subquery:
         .group_by(arena_submission_judgments.c.submission_id)
         .subquery()
     )
+
+
+def _live_ac_join(user_id: str | None, problem_id: str | None) -> Join:
+    """Join submissions to the active judgment, kept only when it is Accepted.
+
+    The active judgment is each submission's most recent non-superseded one --
+    the same view the badge rules use, so "still Accepted" means one thing
+    across the judge, the rating worker and the badge rules.
+
+    The grouped subquery is scoped to the pair whenever the caller names one.
+    The unscoped aggregate is right for a whole-corpus pass and wrong on the
+    judge's per-judgment path, where it would run a full-table aggregate for
+    every settled submission.
+
+    Args:
+        user_id: Restrict to one solver, or None for all.
+        problem_id: Restrict to one problem, or None for all.
+
+    Returns:
+        Join: submissions joined to their active, Accepted, DONE judgment.
+    """
+    active = select(
+        arena_submission_judgments.c.submission_id,
+        func.max(arena_submission_judgments.c.created_at).label("max_created_at"),
+    ).where(arena_submission_judgments.c.status != _SUPERSEDED)
+    if user_id is not None or problem_id is not None:
+        scope = select(arena_submissions.c.id)
+        if user_id is not None:
+            scope = scope.where(arena_submissions.c.user_id == user_id)
+        if problem_id is not None:
+            scope = scope.where(arena_submissions.c.problem_id == problem_id)
+        active = active.where(arena_submission_judgments.c.submission_id.in_(scope))
+    grouped = active.group_by(arena_submission_judgments.c.submission_id).subquery()
+    return arena_submissions.join(grouped, grouped.c.submission_id == arena_submissions.c.id).join(
+        arena_submission_judgments,
+        and_(
+            arena_submission_judgments.c.submission_id == arena_submissions.c.id,
+            arena_submission_judgments.c.created_at == grouped.c.max_created_at,
+            arena_submission_judgments.c.final_verdict == Verdict.AC.value,
+            arena_submission_judgments.c.status == JudgmentStatus.DONE.value,
+        ),
+    )
+
+
+def first_live_ac_per_pair_select(
+    *,
+    user_id: str | None = None,
+    problem_id: str | None = None,
+) -> Select[tuple[str, str, datetime]]:
+    """Return each ``(user, problem)`` pair's first still-Accepted judgment time.
+
+    The *first* AC is the earliest submission that is still Accepted, and the
+    value reported is when its judgment completed -- the documented meaning of
+    ``arena_problem_solvers.solved_at``. Ranking by submission rather than by
+    completion matters after a rejudge, where an earlier submission's
+    replacement judgment can finish after a later submission's.
+
+    This is the single definition of a solver row's correct content. The judge
+    applies it to one pair on every finishing judgment and the one-off
+    reconciliation script applies it to the whole corpus; they must not drift.
+
+    Args:
+        user_id: Restrict to one solver, or None for all.
+        problem_id: Restrict to one problem, or None for all.
+
+    Returns:
+        Select: Yields ``(user_id, problem_id, solved_at)``, one row per pair
+        that still holds an Accepted submission.
+    """
+    ranked = (
+        select(
+            arena_submissions.c.user_id,
+            arena_submissions.c.problem_id,
+            arena_submission_judgments.c.finished_at.label("solved_at"),
+            func.row_number()
+            .over(
+                partition_by=(arena_submissions.c.user_id, arena_submissions.c.problem_id),
+                order_by=(arena_submissions.c.created_at, arena_submissions.c.id),
+            )
+            .label("ac_rank"),
+        )
+        .select_from(_live_ac_join(user_id, problem_id))
+        .where(arena_submission_judgments.c.finished_at.isnot(None))
+        .subquery()
+    )
+    statement = select(ranked.c.user_id, ranked.c.problem_id, ranked.c.solved_at).where(ranked.c.ac_rank == 1)
+    if user_id is not None:
+        statement = statement.where(ranked.c.user_id == user_id)
+    if problem_id is not None:
+        statement = statement.where(ranked.c.problem_id == problem_id)
+    return statement
+
+
+def first_live_ac_solved_at_select(user_id: str, problem_id: str) -> Select[tuple[datetime]]:
+    """Return the ``solved_at`` one pair should carry, scalar-shaped for the judge.
+
+    Scoped single-pair form of :func:`first_live_ac_per_pair_select`, so the
+    judge can ``scalar()`` it directly on the pair it has in hand.
+
+    Args:
+        user_id: The solver's Arena user id.
+        problem_id: UUID of the Arena problem.
+
+    Returns:
+        Select: Yields the ``finished_at`` of the pair's first live AC, or no
+        row at all when the pair holds no Accepted submission any more.
+    """
+    pair = first_live_ac_per_pair_select(user_id=user_id, problem_id=problem_id).subquery()
+    return select(pair.c.solved_at)

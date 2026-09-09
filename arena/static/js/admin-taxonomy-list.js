@@ -1,11 +1,21 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/*
+ * New / edit / delete modals for Arena's flat, colored taxonomies -- categories
+ * and collections.  Both list pages have identical widgets, so they share this
+ * file and differ only in the DOM hooks' values: the page supplies its own
+ * endpoints through data attributes and its own delete wording through
+ * `data-taxonomy-delete-count-one` / `-many` on the delete modal (`{count}` is
+ * substituted).  Nothing here names one taxonomy.
+ *
+ * Requires shared/static/js/slugify.js and arena/static/js/taxonomy-slug.js.
+ */
 (() => {
   "use strict";
 
@@ -20,18 +30,12 @@
     }
   });
 
-  // ── Category color swatches ───────────────────────────────────────────────
-  document.querySelectorAll("[data-category-color]").forEach((el) => {
-    const color = el.getAttribute("data-category-color") || "#6c757d";
-    el.style.backgroundColor = color;
-  });
-
   // ── Shared utilities ──────────────────────────────────────────────────────
-  // Slug preview comes from category-slug.js, shared with the legacy category
-  // form, so both agree with the server's normalize_slug().
-  const slugify = (value) => window.NocaCategorySlug?.slugify(value) ?? value;
+  // Slug preview comes from taxonomy-slug.js, shared with the standalone forms,
+  // so every surface agrees with the server's normalize_slug().
+  const slugify = (value) => window.NocaTaxonomySlug?.slugify(value) ?? value;
 
-  function randomCategoryColor() {
+  function randomBadgeColor() {
     const hueToRgb = (p, q, t) => {
       let tt = t;
       if (tt < 0) tt += 1;
@@ -68,9 +72,9 @@
    * submitted, so a half-typed hex can never reach the server.
    */
   function wireColorGroup(root, prefix) {
-    const colorInput = root.querySelector(`#${prefix}_category_color`);
-    const hexInput = root.querySelector(`#${prefix}_category_color_hex`);
-    const randomBtn = root.querySelector(`#${prefix}_category_color_random`);
+    const colorInput = root.querySelector(`#${prefix}_taxonomy_color`);
+    const hexInput = root.querySelector(`#${prefix}_taxonomy_color_hex`);
+    const randomBtn = root.querySelector(`#${prefix}_taxonomy_color_random`);
 
     if (colorInput && hexInput) {
       colorInput.addEventListener("input", () => applyColor(null, hexInput, colorInput.value));
@@ -90,49 +94,52 @@
     }
 
     if (randomBtn) {
-      randomBtn.addEventListener("click", () => applyColor(colorInput, hexInput, randomCategoryColor()));
+      randomBtn.addEventListener("click", () => applyColor(colorInput, hexInput, randomBadgeColor()));
     }
 
     return { colorInput, hexInput };
   }
 
-  // ── Delete category modal ─────────────────────────────────────────────────
-  const deleteModalEl = document.getElementById("category-delete-modal");
+  // ── Delete modal ─────────────────────────────────────────────────
+  const deleteModalEl = document.getElementById("taxonomy-delete-modal");
   if (deleteModalEl) {
     const deleteModal = new bootstrap.Modal(deleteModalEl);
-    const deleteForm = deleteModalEl.querySelector("[data-category-delete-form]");
-    const nameEl = deleteModalEl.querySelector("[data-category-delete-name]");
-    const countEl = deleteModalEl.querySelector("[data-category-delete-count]");
+    const deleteForm = deleteModalEl.querySelector("[data-taxonomy-delete-form]");
+    const nameEl = deleteModalEl.querySelector("[data-taxonomy-delete-name]");
+    const countEl = deleteModalEl.querySelector("[data-taxonomy-delete-count]");
     const pageInput = deleteForm ? deleteForm.querySelector("input[name='page']") : null;
     const perPageInput = deleteForm ? deleteForm.querySelector("input[name='per_page']") : null;
 
-    document.querySelectorAll("[data-category-delete-button]").forEach((button) => {
+    document.querySelectorAll("[data-taxonomy-delete-button]").forEach((button) => {
       button.addEventListener("click", () => {
-        const name = button.getAttribute("data-category-name") || "this category";
-        const count = Number(button.getAttribute("data-category-count") || "0");
-        const action = button.getAttribute("data-category-action") || "";
+        const name = button.getAttribute("data-taxonomy-name") || "this entry";
+        const count = Number(button.getAttribute("data-taxonomy-count") || "0");
+        const action = button.getAttribute("data-taxonomy-action") || "";
 
         if (deleteForm) deleteForm.setAttribute("action", action);
         if (nameEl) nameEl.textContent = name;
         if (countEl) {
-          countEl.textContent =
+          // Wording is the one thing that genuinely differs between taxonomies:
+          // a category unlinks, a collection unfiles.  The page owns the phrasing.
+          const template =
             count === 1
-              ? "Its link to 1 problem will be removed. The problem remains available."
-              : `Its links to ${count} problems will be removed. The problems remain available.`;
+              ? deleteModalEl.getAttribute("data-taxonomy-delete-count-one") || ""
+              : deleteModalEl.getAttribute("data-taxonomy-delete-count-many") || "";
+          countEl.textContent = template.replace("{count}", String(count));
         }
-        if (pageInput) pageInput.value = button.getAttribute("data-category-page") || "1";
-        if (perPageInput) perPageInput.value = button.getAttribute("data-category-per-page") || "25";
+        if (pageInput) pageInput.value = button.getAttribute("data-taxonomy-page") || "1";
+        if (perPageInput) perPageInput.value = button.getAttribute("data-taxonomy-per-page") || "25";
 
         deleteModal.show();
       });
     });
   }
 
-  // ── New category modal ────────────────────────────────────────────────────
-  const newModalEl = document.getElementById("category-new-modal");
+  // ── New modal ────────────────────────────────────────────────────
+  const newModalEl = document.getElementById("taxonomy-new-modal");
   if (newModalEl) {
-    const nameInput = newModalEl.querySelector("#new_category_name");
-    const slugInput = newModalEl.querySelector("#new_category_slug");
+    const nameInput = newModalEl.querySelector("#new_taxonomy_name");
+    const slugInput = newModalEl.querySelector("#new_taxonomy_slug");
     const { colorInput, hexInput } = wireColorGroup(newModalEl, "new");
 
     if (nameInput && slugInput) {
@@ -153,27 +160,27 @@
         slugInput.value = "";
         delete slugInput.dataset.userEdited;
       }
-      applyColor(colorInput, hexInput, randomCategoryColor());
+      applyColor(colorInput, hexInput, randomBadgeColor());
     });
 
     newModalEl.addEventListener("shown.bs.modal", () => nameInput?.focus());
   }
 
-  // ── Edit category modal ───────────────────────────────────────────────────
-  const editModalEl = document.getElementById("category-edit-modal");
+  // ── Edit modal ───────────────────────────────────────────────────
+  const editModalEl = document.getElementById("taxonomy-edit-modal");
   if (editModalEl) {
     const editModal = new bootstrap.Modal(editModalEl);
-    const editForm = editModalEl.querySelector("[data-category-edit-form]");
-    const nameInput = editModalEl.querySelector("#edit_category_name");
-    const slugInput = editModalEl.querySelector("#edit_category_slug");
+    const editForm = editModalEl.querySelector("[data-taxonomy-edit-form]");
+    const nameInput = editModalEl.querySelector("#edit_taxonomy_name");
+    const slugInput = editModalEl.querySelector("#edit_taxonomy_slug");
     const { colorInput, hexInput } = wireColorGroup(editModalEl, "edit");
 
-    document.querySelectorAll("[data-category-edit-button]").forEach((button) => {
+    document.querySelectorAll("[data-taxonomy-edit-button]").forEach((button) => {
       button.addEventListener("click", () => {
-        const name = button.getAttribute("data-category-name") || "";
-        const slug = button.getAttribute("data-category-slug") || "";
-        const color = button.getAttribute("data-category-edit-color") || "#6c757d";
-        const action = button.getAttribute("data-category-action") || "";
+        const name = button.getAttribute("data-taxonomy-name") || "";
+        const slug = button.getAttribute("data-taxonomy-slug") || "";
+        const color = button.getAttribute("data-taxonomy-edit-color") || "#6c757d";
+        const action = button.getAttribute("data-taxonomy-action") || "";
 
         if (editForm) editForm.setAttribute("action", action);
         if (nameInput) nameInput.value = name;

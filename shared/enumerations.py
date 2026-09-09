@@ -336,6 +336,7 @@ class ArenaNotificationKind(StrEnum):
     PROBLEM_REMOVAL_REQUEST = "PROBLEM_REMOVAL_REQUEST"
     CUSTOM_VALIDATOR_DISABLED = "CUSTOM_VALIDATOR_DISABLED"
     TEACHER_FEEDBACK_POSTED = "TEACHER_FEEDBACK_POSTED"
+    PROBLEM_SET_FEEDBACK_POSTED = "PROBLEM_SET_FEEDBACK_POSTED"
     OTHER = "OTHER"
 
 
@@ -381,6 +382,7 @@ ARENA_NOTIFICATION_ICONS: dict[ArenaNotificationKind, str] = {
     ArenaNotificationKind.PROBLEM_REMOVAL_REQUEST: "delete_forever",
     ArenaNotificationKind.CUSTOM_VALIDATOR_DISABLED: "code_off",
     ArenaNotificationKind.TEACHER_FEEDBACK_POSTED: "rate_review",
+    ArenaNotificationKind.PROBLEM_SET_FEEDBACK_POSTED: "rate_review",
     ArenaNotificationKind.OTHER: "stacked_email",
 }
 

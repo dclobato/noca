@@ -6,6 +6,8 @@
 
 """Route tests for Arena admin problem management."""
 
+import html
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -28,7 +30,7 @@ import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
-from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
+from arena.models.arena_problems import ArenaCategory, ArenaCollection, ArenaProblemCustomValidator
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
@@ -408,6 +410,74 @@ async def test_problem_list_filters_categories_by_slug(session: AsyncSession) ->
     assert "Plain Math" not in response.text
     assert 'name="category_slugs"' in response.text
     assert 'value="graphs"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_list_filters_by_collection_slug(session: AsyncSession) -> None:
+    """`?collection=<slug>` scopes the admin list.
+
+    This is the query key the collection admin list links to, so a rename on
+    either side must fail here rather than silently opening the whole list.
+    """
+    app = _build_admin_app(session)
+    judge = await _create_user(session, email="jcoll@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.flush()
+    filed = await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Filed Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+        collection_id=collection.id,
+        validator_type=ProblemValidatorType.STANDARD,
+    )
+    await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Unfiled Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
+    )
+    await session.commit()
+    assert filed.collection_id == collection.id
+
+    token = _login_token(app, judge)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        scoped = await client.get("/admin/problems?collection=interif")
+        unscoped = await client.get("/admin/problems")
+
+    assert scoped.status_code == 200
+    assert "Filed Problem" in scoped.text
+    assert "Unfiled Problem" not in scoped.text
+    # The filter dropdown comes back with the scope selected.
+    assert 'name="collection"' in scoped.text
+    assert unscoped.status_code == 200
+    assert "Unfiled Problem" in unscoped.text
 
 
 # ── Create problem ────────────────────────────────────────────────────────────
@@ -1029,3 +1099,55 @@ async def test_admin_list_shows_all_problems(session: AsyncSession) -> None:
     assert "Difficulty" in response.text
     assert f'id="{problem.id}"' in response.text
     assert "highlight-row.js" in response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_collection_scope_survives_the_trip_into_the_editor(session: AsyncSession) -> None:
+    """The admin list carries its whole query into the editor and back again.
+
+    The row link forwards `request.url.query` verbatim, so the scope rides along
+    with the other filters; the editor's Back/Cancel rebuilds the list URL from
+    the parameters it was given, and must not drop the collection on the way.
+    """
+    app = _build_admin_app(session)
+    judge = await _create_user(session, email="jscope@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
+    collection = ArenaCollection(name="InterIF", slug="interif")
+    session.add(collection)
+    await session.flush()
+    await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Scoped Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+        collection_id=collection.id,
+        validator_type=ProblemValidatorType.STANDARD,
+    )
+    await session.commit()
+
+    token = _login_token(app, judge)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        listing = await client.get("/admin/problems?collection=interif")
+        assert listing.status_code == 200
+        row_links = [href for href in re.findall(r'href="([^"]+)"', listing.text) if "/edit" in href]
+        scoped = [href for href in row_links if "collection=interif" in href]
+        assert scoped, "the admin row link must carry the collection scope into the editor"
+
+        editor = await client.get(html.unescape(scoped[0]))
+        assert editor.status_code == 200
+        back_links = [href for href in re.findall(r'href="([^"]+)"', editor.text) if "/admin/problems?" in href]
+        assert any("collection=interif" in href for href in back_links), (
+            "the editor's Back/Cancel must return to the scoped list"
+        )

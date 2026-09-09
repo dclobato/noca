@@ -13,6 +13,7 @@ The decisions under test:
 - an account unlock resolves a known address to the account's full recipe,
   hashes an unknown one as typed, and honours an explicit event hash
 - a prefilled subject renders its live status; a malformed one is refused
+- active addresses and registered users are listed as fill controls below the forms
 - every outcome is audited with a target that never names an unresolved
   identifier in clear
 """
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
 from arena.models.arena_users import ArenaUser
+from arena.services.user_throttle_hash_service import refresh_user_throttle_hashes
 from shared.enumerations import ArenaRole
 from shared.services.auth_rate_limit import hash_identifier
 from tests.arena._lockout_helpers import admin_actions, is_locked, seed_lock
@@ -73,6 +75,77 @@ async def test_page_renders_the_status_of_a_prefilled_address(session: AsyncSess
     assert "arena/login" in prefilled.text
     assert "lifts in 10 min" in prefilled.text
     assert "Enter one IPv4 or IPv6 address." in malformed.text
+
+
+@pytest.mark.asyncio
+async def test_page_lists_blocked_addresses_and_registered_users_as_fill_controls(
+    session: AsyncSession,
+) -> None:
+    app, valkey, admin = await _setup(session)
+    target = await _create_arena_user(session, name="Target", email="target@test.example")
+    await refresh_user_throttle_hashes(session, target)
+    await session.commit()
+    seed_lock(valkey, module="arena", action="login", ip=_IP)
+    seed_lock(valkey, module="arena", action="2fa", ip=_IP)
+    seed_lock(valkey, module="arena", action="login", identifier=target.email_normalizado)
+    seed_lock(valkey, module="arena", action="password_verify", identifier=target.id)
+    seed_lock(valkey, module="arena", action="login", identifier="unknown@test.example")
+    seed_lock(valkey, module="arena", action="login", ip="unknown")
+    seed_lock(valkey, module="web", action="login", ip="198.51.100.7")
+
+    async with _client(app, admin) as client:
+        response = await client.get(_PAGE)
+
+    assert response.status_code == 200
+    assert 'data-lockout-fill-target="unlock-ip"' in response.text
+    assert f'data-lockout-fill-value="{_IP}"' in response.text
+    assert 'data-lockout-fill-target="unlock-identifier"' in response.text
+    assert 'data-lockout-fill-value="target@test.example"' in response.text
+    assert response.text.count('data-lockout-fill-value="target@test.example"') == 1
+    assert "login, password_verify" in response.text
+    assert "1 additional account" in response.text
+    assert "identifier is blocked but cannot" in response.text
+    assert 'data-lockout-fill-value="unknown"' not in response.text
+    assert "198.51.100.7" not in response.text
+    assert "admin-lockouts.js" in response.text
+
+
+@pytest.mark.asyncio
+async def test_page_resolves_a_shared_canonical_hash_to_each_registered_user(
+    session: AsyncSession,
+) -> None:
+    """Alias collisions are many-to-many and render in a stable order."""
+    app, valkey, admin = await _setup(session)
+    first = await _create_arena_user(session, name="First", email="a.alias@test.example")
+    second = await _create_arena_user(session, name="Second", email="aalias@test.example")
+    first.email_canonical = "aalias@test.example"
+    second.email_canonical = "aalias@test.example"
+    await refresh_user_throttle_hashes(session, first)
+    await refresh_user_throttle_hashes(session, second)
+    await session.commit()
+    seed_lock(valkey, module="arena", action="login", identifier="aalias@test.example")
+
+    async with _client(app, admin) as client:
+        response = await client.get(_PAGE)
+
+    first_position = response.text.index('data-lockout-fill-value="a.alias@test.example"')
+    second_position = response.text.index('data-lockout-fill-value="aalias@test.example"')
+    assert first_position < second_position
+    assert "additional account" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_page_reports_when_the_global_lockout_list_is_unavailable(session: AsyncSession) -> None:
+    app, valkey, admin = await _setup(session)
+    valkey.unavailable = True
+
+    async with _client(app, admin) as client:
+        response = await client.get(_PAGE)
+
+    assert response.status_code == 200
+    assert response.text.count("The current list is unavailable.") == 2
+    assert "No addresses are currently blocked." not in response.text
+    assert "No registered users are currently blocked." not in response.text
 
 
 @pytest.mark.asyncio

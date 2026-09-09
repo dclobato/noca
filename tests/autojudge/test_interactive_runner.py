@@ -5,7 +5,10 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 import asyncio
+import socket
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -423,3 +426,28 @@ async def test_docker_frame_suffix_is_retained_across_bounded_reads() -> None:
 
     assert first + second + third == b"abcdefgh"
     assert remainder == b""
+
+
+@pytest.mark.asyncio
+async def test_docker_endpoint_retains_the_owner_and_closes_the_raw_socket() -> None:
+    """Unwrapping SocketIO must not let its owner close the live exec socket."""
+    raw_socket = MagicMock(spec=socket.socket)
+    raw_socket.recv.return_value = b""
+    attached_socket = MagicMock()
+    attached_socket._sock = raw_socket
+    docker_client = MagicMock()
+    docker_client.api.exec_create.return_value = {"Id": "exec-id"}
+    docker_client.api.exec_start.return_value = attached_socket
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        endpoint = await DockerExecEndpoint.start(
+            docker_client=docker_client,
+            container_id="container-id",
+            command=["true"],
+            executor=executor,
+        )
+        await endpoint._reader_task
+
+    assert endpoint._socket_owner is attached_socket
+    raw_socket.close.assert_called_once_with()
+    attached_socket.close.assert_not_called()

@@ -53,6 +53,7 @@ def creation_return_query(
     sort_by: str,
     owner_id: str,
     category_slugs: list[str] | None,
+    collection: str = "",
     language: str,
     enabled: str,
     editorial: str = "",
@@ -70,6 +71,7 @@ def creation_return_query(
         sort_by: Active sort key.
         owner_id: Active owner filter.
         category_slugs: Active category filters.
+        collection: Active collection scope slug.
         language: Active statement-language filter.
         enabled: Active enabled/disabled filter.
         editorial: Active editorial filter.
@@ -85,6 +87,7 @@ def creation_return_query(
         "search": search,
         "sort_by": sort_by,
         "owner_id": owner_id,
+        "collection": collection,
         "language": language,
         "enabled": enabled,
         "editorial": editorial,
@@ -137,6 +140,7 @@ async def admin_problem_new_choose(
     sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -153,6 +157,7 @@ async def admin_problem_new_choose(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        collection=collection,
         language=language,
         enabled=enabled,
         editorial=editorial,
@@ -166,6 +171,7 @@ async def admin_problem_new_choose(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        collection=collection,
         language=language,
         enabled=enabled,
         editorial=editorial,

@@ -602,7 +602,9 @@
                  aria-labelledby="ap-badges-tab"
                  tabindex="0">
                 {% if active_tab == 'badges' %}
-                    {% include "users/_badges_grid.html" %}
+                    {% with badge_audience="admin" %}
+                        {% include "users/_badges_grid.html" %}
+                    {% endwith %}
                 {% endif %}
             </div>
             <div class="tab-pane fade {% if active_tab == 'notifications' %}show active{% endif %}"

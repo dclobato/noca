@@ -24,6 +24,8 @@ from sqlalchemy import event
 from sqlalchemy.orm import Mapped, Session, relationship
 
 from arena.database import ArenaBase
+from arena.models.mixins import BadgeColorMixin
+from shared.db_schema.arena import arena_collections as arena_collections_table
 from shared.db_schema.arena import arena_problem_categories as arena_problem_categories_table
 from shared.db_schema.arena import arena_problem_category_map as arena_problem_category_map_table
 from shared.db_schema.arena import arena_problem_custom_validators as arena_problem_custom_validators_table
@@ -65,6 +67,7 @@ class ArenaProblem(ArenaBase):
     pids_limit: Mapped[int]
     output_limit_in_bytes: Mapped[int]
     owner_id: Mapped[str]
+    collection_id: Mapped[str | None]
     author: Mapped[str | None]
     author_is_owner: Mapped[bool]
     source: Mapped[str | None]
@@ -119,6 +122,11 @@ class ArenaProblem(ArenaBase):
         lazy="select",
     )
 
+    collection: Mapped[ArenaCollection | None] = relationship(
+        "ArenaCollection",
+        back_populates="problems",
+        lazy="select",
+    )
     categories: Mapped[list[ArenaCategory]] = relationship(
         "ArenaCategory",
         secondary=arena_problem_category_map_table,
@@ -276,7 +284,35 @@ class ArenaRatingProblem(ArenaBase):
         return int(100 * (1 - exp(-self.attempted_users / CONFIDENCE_SCALE)))
 
 
-class ArenaCategory(ArenaBase):
+class ArenaCollection(ArenaBase):
+    """ORM model for a problem collection.
+
+    A collection is an event (ICPC, Maratona SBC, InterIF) or a class
+    (Iniciantes, Expressoes regulares). Unlike categories, a problem belongs to
+    at most one collection, enforced by the nullable ``collection_id`` foreign
+    key on ``arena_problems`` rather than a junction table. Filtering by
+    collection therefore narrows (AND) the category tag set, which ORs.
+
+    Deliberately plain: a collection is a name and a slug. It carries no badge
+    color, so nothing here renders as a colored pill the way a category does.
+    """
+
+    __table__ = arena_collections_table
+
+    id: Mapped[str]
+    name: Mapped[str]
+    slug: Mapped[str]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    problems: Mapped[list[ArenaProblem]] = relationship(
+        "ArenaProblem",
+        back_populates="collection",
+        lazy="select",
+    )
+
+
+class ArenaCategory(BadgeColorMixin, ArenaBase):
     """ORM model for a problem category tag.
 
     Categories form a flat taxonomy: each category has a unique human-readable
@@ -300,29 +336,6 @@ class ArenaCategory(ArenaBase):
         back_populates="categories",
         lazy="select",
     )
-
-    @property
-    def foreground_color(self) -> str:
-        """Return black or white, whichever has better WCAG contrast with ``color``.
-
-        Returns:
-            str: ``"#000000"`` for black text or ``"#ffffff"`` for white text.
-        """
-        hex_color = self.color.removeprefix("#")
-        red = int(hex_color[0:2], 16) / 255
-        green = int(hex_color[2:4], 16) / 255
-        blue = int(hex_color[4:6], 16) / 255
-
-        def linear(channel: float) -> float:
-            """Convert an sRGB channel to linear light."""
-            if channel <= 0.03928:
-                return channel / 12.92
-            return float(((channel + 0.055) / 1.055) ** 2.4)
-
-        luminance = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
-        contrast_with_black = (luminance + 0.05) / 0.05
-        contrast_with_white = 1.05 / (luminance + 0.05)
-        return "#000000" if contrast_with_black >= contrast_with_white else "#ffffff"
 
 
 @event.listens_for(Session, "before_flush")

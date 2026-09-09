@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetPermissionError,
+    FeedbackAttempt,
     ProblemRow,
     _assert_teacher,
     _load_set_and_class,
@@ -340,7 +341,14 @@ async def get_student_problem_submissions_for_set(
                 problem_title=group_meta[pid][1],
                 submissions=tuple(entries),
                 best_verdict=best_verdict(entry.verdict for entry in entries),
-                needs_feedback=_needs_feedback(entry.verdict for entry in entries),
+                needs_feedback=_needs_feedback(
+                    FeedbackAttempt(
+                        submitted_at=entry.submitted_at,
+                        verdict=entry.verdict,
+                        has_feedback=entry.has_feedback,
+                    )
+                    for entry in entries
+                ),
             )
         )
     return tuple(result)

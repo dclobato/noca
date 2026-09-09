@@ -14,6 +14,7 @@ shapes the login routes write rather than against strings typed here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,7 @@ from shared.services.auth_lockout_admin import (
     LockoutSubject,
     account_identifier_hashes,
     describe_lockouts,
+    list_active_lockouts,
     parse_lockout_key,
     unlock,
     unlock_account_hashes,
@@ -320,6 +322,49 @@ async def test_describe_raises_rather_than_reporting_not_locked_when_the_store_i
     valkey.unavailable = True
     with pytest.raises(LockoutStoreUnavailableError):
         await describe_lockouts(valkey, LockoutSubject(modules=("arena",), ip="203.0.113.9"))
+
+
+@pytest.mark.asyncio
+async def test_list_active_lockouts_enumerates_allowed_modules_and_fallbacks() -> None:
+    valkey = AuthFakeValkey()
+    limiter = InMemoryAuthRateLimiter()
+    await _lock_account(valkey, limiter, module="arena", action="login", identifier="ana@example.org")
+    await _lock_account(None, limiter, module="arena", action="2fa", identifier="bia@example.org")
+    await _lock_account(valkey, limiter, module="web", action="login", identifier="web@example.org")
+
+    ttl_calls_before = valkey.ttl_many_call_count
+    active = await list_active_lockouts(valkey, modules=("arena",))
+
+    assert [(lock.module, lock.action, lock.scope) for lock in active] == [
+        ("arena", "2fa", "acct"),
+        ("arena", "login", "acct"),
+    ]
+    assert valkey.ttl_many_call_count == ttl_calls_before + 1
+
+
+@pytest.mark.asyncio
+async def test_list_active_lockouts_reports_an_unavailable_store() -> None:
+    valkey = AuthFakeValkey()
+    valkey.unavailable = True
+
+    with pytest.raises(LockoutStoreUnavailableError):
+        await list_active_lockouts(valkey, modules=("arena",))
+
+
+@pytest.mark.asyncio
+async def test_list_active_lockouts_fails_closed_when_the_ttl_batch_fails() -> None:
+    """A successful scan followed by a failed pipeline cannot become a partial list."""
+
+    class _TTLUnavailableValkey(AuthFakeValkey):
+        async def ttl_many(self, keys: Sequence[str]) -> list[int | None] | None:
+            return None
+
+    valkey = _TTLUnavailableValkey()
+    limiter = InMemoryAuthRateLimiter()
+    await _lock_account(valkey, limiter, module="arena", action="login", identifier="ana@example.org")
+
+    with pytest.raises(LockoutStoreUnavailableError):
+        await list_active_lockouts(valkey, modules=("arena",))
 
 
 @pytest.mark.asyncio

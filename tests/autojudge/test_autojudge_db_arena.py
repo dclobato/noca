@@ -210,7 +210,14 @@ async def test_arena_judgment_dispatched_clears_stale_result(engine, session: As
 
 
 async def test_arena_judgment_done_records_first_solver_stats(engine, session: AsyncSession) -> None:
-    """First Arena AC should create solver row and increment solved counters once."""
+    """First Arena AC records the solver row and leaves the rating counters alone.
+
+    The judge writes no ``arena_problem_ratings`` counter. It cannot: a
+    withdrawn AC deletes the solver row without touching the counters, so an
+    absent row does not distinguish a first solve from a re-solve and
+    incrementing here would credit the same user twice. The rating worker
+    rebuilds both counters from the solver rows each cycle.
+    """
     lang = _make_language(session, lang_id=f"arena-lang-{uuid.uuid4().hex[:6]}")
     author = _make_arena_user(session)
     user = _make_arena_user(session)
@@ -281,8 +288,8 @@ async def test_arena_judgment_done_records_first_solver_stats(engine, session: A
         assert solver is not None
         rating = await vs.get(ArenaRatingProblem, problem.id)
         assert rating is not None
-        assert rating.solved_users == 1
-        assert rating.total_tries_before_solve == 2
+        assert rating.solved_users == 0
+        assert rating.total_tries_before_solve == 0
         notifications = (
             (
                 await vs.execute(
@@ -308,7 +315,13 @@ async def test_arena_judgment_done_counts_non_owner_admin_solve(
     engine,
     session: AsyncSession,
 ) -> None:
-    """A non-owner admin AC counts toward aggregate rating evidence; roles are ignored."""
+    """A non-owner admin AC records a solver row like any other; roles are ignored.
+
+    The owner-exclusion and role-independence rules still exist, but they now
+    apply only where the counters are actually computed -- the rating worker's
+    ``_recompute_stats_for_problem``, through ``counts_toward_problem_rating``.
+    The judge records the solver row for every submitter and counts nothing.
+    """
     lang = _make_language(session, lang_id=f"arena-lang-{uuid.uuid4().hex[:6]}")
     author = _make_arena_user(session)
     admin = _make_arena_user(session, role=ArenaRole.ARENA_ADMIN)
@@ -365,8 +378,9 @@ async def test_arena_judgment_done_counts_non_owner_admin_solve(
         assert solver is not None
         rating = await vs.get(ArenaRatingProblem, problem.id)
         assert rating is not None
-        assert rating.solved_users == 1
-        assert rating.total_tries_before_solve == 1
+        # The judge maintains no rating counters; the rating worker rebuilds them.
+        assert rating.solved_users == 0
+        assert rating.total_tries_before_solve == 0
 
 
 async def test_arena_judgment_done_excludes_author_self_solve_from_counters(

@@ -551,10 +551,29 @@ Main entrypoints:
   `shared/services/arena_rating.py`, `shared/services/arena_problem_stats.py`, and
   `arena/services/problem_browse_service.py`
 - `is_excluded_from_problem_rating(user_id, owner_id) -> bool` — Python-side
-  counterpart used by `arena/services/submission_service.py` and
-  `autojudge/db/_arena_submission.py`
+  counterpart used by `arena/services/submission_service.py`. The judge no
+  longer needs it: it maintains no rating counters, so the owner-exclusion rule
+  now applies only where those counters are computed
+- `first_live_ac_per_pair_select(*, user_id=None, problem_id=None) -> Select` —
+  `(user_id, problem_id, solved_at)` for every pair that still holds an Accepted
+  submission, where the *first* AC is the earliest submission still Accepted and
+  `solved_at` is when its judgment completed. This is the single definition of
+  what an `arena_problem_solvers` row should contain: the judge applies it to one
+  pair on every judgment that finishes with a verdict or `FAILED`, and
+  `scripts/arena/reconcile_arena_solvers.py`
+  applies it to the whole corpus, so a per-pair reconciliation and a whole-corpus
+  pass cannot disagree. Ranking by submission rather than by completion matters
+  after a rejudge, where an earlier submission's replacement judgment can finish
+  after a later submission's. The grouped subquery is scoped to the pair whenever
+  one is named — the unscoped `active_arena_judgment_subquery` aggregate is right
+  for a whole-corpus pass and would be a full-table aggregate per judgment on the
+  judge's path
+- `first_live_ac_solved_at_select(user_id, problem_id) -> Select` — scalar-shaped
+  single-pair form of the above, for `autojudge/db/_arena_solver.py`
 
 Reused by:
+- `autojudge/db/_arena_solver.py` and `scripts/arena/reconcile_arena_solvers.py`,
+  which share the solver-row rule,
 - `arena/services/live_feed_service.py`, `arena/services/submission_list_service.py`,
   `arena/services/arena_problem_set_service.py`,
   `arena/services/arena_batch_feedback_service.py`,
@@ -564,29 +583,32 @@ Reused by:
   `shared/services/arena_badge_rules_catalogue.py`,
   `shared/services/arena_badge_rules_sets.py`,
   `shared/services/arena_badge_rules_sequences.py`, and
-  `shared/services/arena_badge_rules_cleancode.py`
+  `shared/services/arena_badge_rules_cleancode.py`, and
+  `shared/services/arena_badge_rules_rock_cracker.py`
 
 ---
 
 ## `arena_badges.py`
 
 Purpose:
-- award Arena gamification badges (`ArenaBadge`) into the append-only `arena_user_badges`
-  ledger from Accepted submissions
+- award Arena gamification badges (`ArenaBadge`) into the mostly append-only
+  `arena_user_badges` set from submission and catalogue state
 - the periodic loop that drives this lives in the `rating/` worker module
   (`rating.loops.run_badge_assignment_loop`), on its own `BADGE_INTERVAL` timer
 
 Canonical location:
 - `shared/services/arena_badges.py` — public API and the per-submission evaluator
 - `shared/services/arena_badge_data.py` — sibling: state/cursor access, the Accepted and
-  non-AC batch queries, per-(user, problem) history, the all-AC metrics query, and the
-  badge insert/revoke helpers
+  non-AC batch queries, per-(user, problem) history, the all-AC metrics query, the first-AC
+  anchor lookup, and the badge insert/revoke helpers
 - `shared/services/arena_badge_rules.py` — sibling: aggregate rules (streaks, FULL_CLEAR,
   distinct-problem-count tiers)
 - `shared/services/arena_badge_rules_cleancode.py` — sibling: the dynamic CLEAN_CODE rule
   (top-5% ranking, minimum solver count, and revocation)
+- `shared/services/arena_badge_rules_rock_cracker.py` — sibling: the dynamic
+  ROCK_CRACKER rule (live participant solve rate, incremental awards, and full revocation)
 - `shared/services/arena_badge_rules_catalogue.py` — sibling: catalogue aggregate rules
-  (distinct-language tiers, FIRST_SOLVER, ROCK_CRACKER)
+  (distinct-language tiers and FIRST_SOLVER)
 - `shared/services/arena_badge_rules_sets.py` — sibling: problem-set scoped rules
   (FIRST_TO_HAND_IN, ALMOST_LATE)
 - `shared/services/arena_badge_rules_sequences.py` — sibling: ordered sequence and burst
@@ -598,8 +620,10 @@ Main entrypoints:
   returns the number of badge rows newly inserted. When `full_reconcile` is `None` the mode is
   derived from the persisted `arena_badge_cycle_state.last_reconciled_at` so a process restart
   does not force a reconciliation. Does not commit; the caller owns the transaction.
-- `award_badge(session, user_id, badge) -> bool` — inserts one badge with
-  `ON CONFLICT (user_id, badge) DO NOTHING`; returns whether a new row was written.
+- `award_badge(session, user_id, badge, submission_id=None) -> bool` — inserts one badge with
+  `ON CONFLICT (user_id, badge) DO NOTHING`; returns whether a new row was written. When the
+  user already holds the badge and its `submission_id` is still `NULL`, the call fills that
+  column in and still returns `False`. An anchor that is already set is never rewritten.
 
 Model:
 - two passes share one implementation: an **incremental** pass each cycle processes active AC
@@ -608,17 +632,42 @@ Model:
   **full reconciliation** pass (`full_reconcile=True`) re-evaluates all relevant history.
   Correctness rests on the reconcile pass; every operation is idempotent (unique
   `(user_id, badge)`, advance-only/award-only logic, order-independent streak recompute), so
-  reprocessing an event is harmless. The ledger is append-only for every badge except
-  CLEAN_CODE, which the reconcile pass also revokes (see below). The watermark advances from
-  the maximum `finished_at` seen in either the AC or non-AC batch.
+  reprocessing an event is harmless. Most badge rows are append-only; full reconciliation may
+  revoke CLEAN_CODE and ROCK_CRACKER. The watermark advances from the maximum `finished_at`
+  seen in either the AC or non-AC batch.
+- every badge records the submission that earned it in `arena_user_badges.submission_id`, a
+  nullable FK with `ON DELETE SET NULL` so deleting a submission clears the anchor rather than
+  the badge. An event badge stores its qualifying AC. An aggregate badge stores the submission
+  that *crossed* the threshold — the AC that completed the streak, that reached the Nth distinct
+  problem, that finished the set — which is a documented convention rather than a fact, since a
+  set of submissions earned it. CLEAN_CODE stores `NULL`: it records a rank held across several
+  problems and its qualifying set is rewritten on every reconcile, so any single anchor would be
+  wrong by the next pass. `load_first_ac_submissions()` resolves the anchor for the rules that
+  read `arena_problem_solvers` (problem-count tiers, FIRST_SOLVER, ROCK_CRACKER), which stores
+  only `solved_at`.
+  A surviving ROCK_CRACKER row keeps its non-`NULL` anchor even when a different problem now
+  supplies eligibility. A revoked and re-awarded row gets a fresh timestamp and an anchor from
+  the current qualifying problems.
+- rows written before the column existed need no data migration or one-off script. The
+  full-reconcile pass re-derives every badge from all AC history, `award_badge()` fills a `NULL`
+  anchor, and the `owned` short-circuits in `_award_per_ac` and `award_full_clear` skip a badge
+  only when it is held **and** anchored — so an unanchored row is still evaluated. Existing rows
+  therefore acquire anchors within one reconcile interval, and once every row is filled the
+  short-circuits revert to their original cheap behavior. That backfill is best-effort: it yields
+  the earliest submission that would award the badge under *today's* data, which diverges from
+  the historical one after a rejudge, after a problem set is deleted (`problem_set_id` is
+  `ON DELETE SET NULL`, so FIRST_TO_HAND_IN, ALMOST_LATE and FULL_CLEAR correctly stay `NULL`),
+  or after set membership or deadlines move. `awarded_at` is never rewritten, so a filled row can
+  point at a submission whose timestamp disagrees with its award timestamp; that skew is accepted.
 - badge eligibility uses **only** the active-judgment selection
   (`active_arena_judgment_subquery`); it does **not** apply
   `counts_toward_problem_rating` by default. Rule-specific filters still apply,
-  such as `FIRST_SOLVER` excluding the problem owner.
+  such as `FIRST_SOLVER` excluding the problem owner and ROCK_CRACKER applying
+  the exclusion to both attempted and solved populations.
 - event ordering is canonical `(submission.created_at, submission.id)`; per-submission badges use
   the AC's `created_at` in the submitter's timezone (via `user_timezone.py`), while the watermark
   cursor is the judgment `finished_at`.
-- CLEAN_CODE is the one **revocable** badge, and runs on the **full-reconcile pass only**
+- CLEAN_CODE is **revocable** and runs on the **full-reconcile pass only**
   (`arena_badge_rules_cleancode.py`). It records a rank rather than an event, so a holder falls
   out of it as faster solvers arrive. Each pass re-derives the whole holder set from all AC
   history and both inserts and deletes: a problem needs at least 20 distinct solvers to rank
@@ -627,7 +676,15 @@ Model:
   `floor(0.05 * solvers)` qualifies nobody (which is what keeps quantized memory readings from
   sweeping in half the field). The incremental pass skips it: it loads only the cycle's touched
   problems, so it can neither rank a full population nor revoke on a partial view.
-  STRIKE badges use the user's **historical maximum**
+- ROCK_CRACKER is also **revocable**. It computes attempted users from distinct raw submitters
+  without a judgment join and solved users from current `arena_problem_solvers`; both
+  aggregates exclude the problem owner with `counts_toward_problem_rating`. The integer
+  comparison `solved_users * 5 < attempted_users` makes the 20% boundary exact. An incremental
+  cycle evaluates the complete populations of problems touched by either AC or non-AC events
+  and only awards. A full cycle uses one set of grouped whole-catalogue aggregates and revokes
+  outside the complete qualifying set. It reads no `arena_problem_ratings` counters. Anchor
+  lookup is limited to new holders and holders whose anchor is `NULL`.
+- STRIKE badges use the user's **historical maximum**
   consecutive solve-day run (recomputed into `arena_users.current_streak` / `longest_streak` /
   `last_ac_date`). The distinct-problem-count tiers (PROBLEMS_10 / PROBLEMS_25 / PROBLEMS_100 /
   PROBLEMS_500) are award-only: each user in the batch is awarded every threshold their distinct
@@ -637,8 +694,8 @@ Model:
   owner is excluded and any other user is eligible regardless of role.
   FIRST_TO_HAND_IN and ALMOST_LATE consider only AC submissions explicitly tied to a problem set
   through `arena_submissions.problem_set_id`, with ALMOST_LATE requiring a non-null elapsed
-  deadline. ROCK_CRACKER reads solve rates from `arena_problem_ratings`, THIS_IS_THE_WAY scans a
-  user's ordered DONE verdict history for a 15-problem distinct AC run, and LOCO_CODER scans
+  deadline. THIS_IS_THE_WAY scans a user's ordered DONE verdict history for a 15-problem
+  distinct AC run, and LOCO_CODER scans
   non-AC DONE verdict bursts independently of the AC batch.
 
 ---
@@ -3498,15 +3555,26 @@ Key types and functions:
   per-contest `contest-login` buckets, one hash per contest — must therefore
   stay several rows, or two contests' locks would collapse into one and neither
   could be named. Hashes are one-way, so *labelling* a row is the caller's job
-  (Web's `ResolvedLogin.contest_labels`); this only says which bucket it was limiters
+  (Web's `ResolvedLogin.contest_labels`); this only says which bucket it was
+- `list_active_lockouts(store, *, modules) -> list[ActiveLockout]` — every live
+  lock in the allowed modules, discovered with one suffix-constrained scan per
+  module, read through `LockoutStoreClient.ttl_many(...)`, and merged with this
+  process's fallback. `ValkeyRuntime.ttl_many` uses non-transactional pipelines
+  capped at 500 keys, so an incident cannot turn the page into one sequential
+  round trip per lock or one unbounded pipeline. A failed or incomplete batch
+  makes the whole overview unavailable. The caller remains responsible for
+  resolving one-way account hashes to display labels
 - `LockoutStoreUnavailableError` — carries `fallback_entries_removed`
 
 Notes:
-- **`SCAN`, not a registry.** Buckets are discovered with
+- **`SCAN`, not a registry.** Unlock buckets are discovered with
   `auth:rate-limit:{module}:*:ip:{ip}:*` / `…:acct:{hash}:*`, so a bucket added
   later is covered the day it lands; every scanned key is re-parsed exactly
   before it is touched, so a glob can never over-match. `SCAN` is O(keyspace);
-  this is a rare, password-confirmed admin action, not a request-path primitive
+  unlock discovery is a rare, password-confirmed admin action. The admin-only
+  lockout-overview GET is the deliberate exception: it scans only lock suffixes
+  once per allowed module and batches the subsequent TTL reads. Do not reuse
+  that overview primitive on a general request hot path
 - **fails closed**, unlike the throttle itself: the process-local fallback
   limiters are cleared first (cheap, and exactly the state that matters during
   an outage), then the store is scanned and the keys deleted with a counted

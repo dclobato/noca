@@ -54,8 +54,9 @@ Use this endpoint for runtime health probes.
 
 | `url_for` call | Generated path | Notes |
 |---|---|---|
-| `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `language`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise |
-| `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs`, `back_language` |
+| `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `collection` (one slug; ANDs with the category OR-set, 404 when unknown), `language`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise |
+| `request.url_for('arena_collection_index')` | `/collections` | Public collection index; no query params. Cards link to `arena_problem_list` with `?collection=<slug>` |
+| `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs`, `back_language`, `back_collection_slug` (scalar; restored as `?collection=` on the way back to the list) |
 | `request.url_for('arena_problem_print', arena_number=N)` | `/problems/{N}/print` | Standalone print-friendly problem page (statement, samples, limits); requires auth |
 | `request.url_for('arena_problem_editorial_view', arena_number=N)` | `/problems/{N}/editorial` | Standalone Markdown editorial viewer, opened in a new tab from the detail page; requires auth; 404 unless the problem has an editorial and its `editorial_release_policy` gate passes (`always`, or `after_ac` with the current user already AC'd) |
 | `request.url_for('arena_problem_rating_history_public', arena_number=N)` | `/problems/{N}/rating-history` | Returns JSON `{history:[…]}`; requires auth despite the endpoint name |
@@ -91,6 +92,8 @@ Brazilian origins include the user's UF and local state-flag URL when available.
 | `request.url_for('arena_submission_source_download', submission_id=ID)` | `/submissions/{ID}/source` | Downloads the raw source code as a UTF-8 attachment. Uses the same owner/admin authorization as the detail page; authorized class-report viewers must forward `back_context`, `back_class_id`, `back_set_id`, and `back_user_id` |
 | `request.url_for('arena_submission_request_ai_review', submission_id=ID)` | `/submissions/{ID}/request-ai-review` | POST only; owner-only (no admin bypass); idempotent (a pending submission is never re-enqueued); capped per user by `NOCA_ARENA_AI_REVIEW_RATE_LIMIT_*` (danger flash + 303 over budget); requires `ai_api_key` or `ai_backend_credits > 0`; consumes one credit when using platform key |
 | `request.url_for('arena_submission_teacher_feedback', submission_id=ID)` | `/submissions/{ID}/teacher-feedback` | POST only; manager-only (set's teacher or ARENA_ADMIN); non-AC, set-tied submissions; upserts feedback and notifies the student; `back_class_id`/`back_set_id`/`back_user_id`/`back_context` form fields are navigation-only |
+| `request.url_for('arena_class_problem_set_student_feedback_save', class_id=ID, set_id=ID, user_id=ID)` | `/classes/{class_id}/problem-sets/{set_id}/report/student/{user_id}/feedback` | POST only; manager-only; saves one student's Markdown overall feedback for a problem set and notifies that student |
+| `request.url_for('arena_class_problem_set_student_feedback_remove', class_id=ID, set_id=ID, user_id=ID)` | `/classes/{class_id}/problem-sets/{set_id}/report/student/{user_id}/feedback/remove` | POST only; manager-only; removes one student's overall problem-set feedback |
 | `request.url_for('arena_submission_force_rejudge', submission_id=ID)` | `/submissions/{ID}/force-rejudge` | POST only; ARENA_ADMIN-only; supersedes the active judgment, queues a new one, and enqueues a fresh judging job; rendered as a confirmation modal on the submission detail page |
 
 ## Notification Routes (`arena/routes/notifications.py`)
@@ -270,7 +273,7 @@ and summarizes the recent Valkey turnaround statistics above its filters.
 | `GET /admin/dashboard/security-events.csv` | `arena_admin_dashboard_security_events_csv` | none | `admin_dashboard_security.py` |
 | `GET /admin/dashboard/terms` | `arena_admin_dashboard_terms` | none | `admin_dashboard_terms.py` |
 | `POST /admin/dashboard/terms/reset` | `arena_admin_terms_reset` | Form: `confirm_password` | `admin_dashboard_terms.py` |
-| `GET /admin/dashboard/lockouts` | `arena_admin_dashboard_lockouts` | `ip=`, `identifier=`, `identifier_hash=` (prefill + live status) | `admin_dashboard_lockouts.py` |
+| `GET /admin/dashboard/lockouts` | `arena_admin_dashboard_lockouts` | `ip=`, `identifier=`, `identifier_hash=` (prefill + live status); lists active Arena addresses and resolvable registered users | `admin_dashboard_lockouts.py` |
 | `POST /admin/dashboard/lockouts/unlock-ip` | `arena_admin_dashboard_unlock_ip` | Form: `ip`, `confirm_password` | `admin_dashboard_lockouts.py` |
 | `POST /admin/dashboard/lockouts/unlock-account` | `arena_admin_dashboard_unlock_account` | Form: `identifier` and/or `identifier_hash`, `confirm_password` | `admin_dashboard_lockouts.py` |
 
@@ -317,6 +320,17 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | `GET /admin/categories/{category_id}/edit` | `arena_admin_category_edit` | `category_id=` | `admin_categories.py` |
 | `POST /admin/categories/{category_id}/edit` | `arena_admin_category_update` | `category_id=` | `admin_categories.py` |
 | `POST /admin/categories/{category_id}/delete` | `arena_admin_category_delete` | `category_id=` | `admin_categories.py` |
+
+## Arena Admin – Collection Management Routes (`arena/routes/admin_collections.py`)
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `GET /admin/collections` | `arena_admin_collection_list` | — | `admin_collections.py` |
+| `GET /admin/collections/new` | `arena_admin_collection_new` | — | `admin_collections.py` |
+| `POST /admin/collections/new` | `arena_admin_collection_create` | — | `admin_collections.py` |
+| `GET /admin/collections/{collection_id}/edit` | `arena_admin_collection_edit` | `collection_id=` | `admin_collections.py` |
+| `POST /admin/collections/{collection_id}/edit` | `arena_admin_collection_update` | `collection_id=` | `admin_collections.py` |
+| `POST /admin/collections/{collection_id}/delete` | `arena_admin_collection_delete` | `collection_id=` | `admin_collections.py` |
 
 ## Arena Admin – Announcement Management Routes (`arena/routes/admin_announcements.py`)
 

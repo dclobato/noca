@@ -435,14 +435,18 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
     assert ".ceremony-cell--next" in reduced
     static_fallback = reduced[reduced.index(".ceremony-cell--next") :]
     assert "background-color" in static_fallback[: static_fallback.index("}")]
-    # Real photos retain their intrinsic size but cannot exceed 75% of the
-    # projector viewport. The checked-in placeholder expands to that width.
-    photo_rule = shared_css[shared_css.index(".team-media-photo") :]
-    assert "75vw" in photo_rule[: photo_rule.index("}")]
+    # The dialog is sized by the photo rather than by a fixed band, so a narrow
+    # portrait no longer opens inside a mostly empty frame. The cap is 80% of
+    # the projector viewport, and the placeholder (which has no useful intrinsic
+    # width) asks for that whole cap.
+    dialog_rule = shared_css[shared_css.index(".team-media-dialog {") :]
+    dialog_rule = dialog_rule[: dialog_rule.index("}")]
+    assert "width: fit-content" in dialog_rule
+    assert "max-width: min(80vw, calc(100vw - 2rem))" in dialog_rule
+    photo_rule = shared_css[shared_css.index(".team-media-photo {") :]
+    assert "max-width: 100%" in photo_rule[: photo_rule.index("}")]
     placeholder_rule = shared_css[shared_css.index(".team-media-photo--placeholder") :]
-    assert "width: 75vw" in placeholder_rule[: placeholder_rule.index("}")]
-    dialog_rule = shared_css[shared_css.index(".team-media-dialog") :]
-    assert "75vw" in dialog_rule[: dialog_rule.index("}")]
+    assert "width: 80vw" in placeholder_rule[: placeholder_rule.index("}")]
     site_rule = shared_css[shared_css.index(".animator-team-secondary {") :]
     site_rule = site_rule[: site_rule.index("}")]
     assert "display: block" in site_rule

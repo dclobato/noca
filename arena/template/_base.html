@@ -192,6 +192,11 @@
                             {{ render_icon(icon="code") }}
                             <span>Problems</span>
                         </a>
+                        <a href="{{ request.url_for("arena_collection_index") }}"
+                           class="nav-link {% block nav_collections %}{% endblock %}">
+                            {{ render_icon(icon="collections_bookmark") }}
+                            <span>Collections</span>
+                        </a>
                         {% if current_user %}
                             <a href="{{ request.url_for("arena_classes_index") }}"
                                class="nav-link {% block nav_classes %}{% endblock %}">
@@ -303,6 +308,10 @@
                                     <a href="{{ request.url_for("arena_admin_category_list") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_categories %}{% endblock %}">
                                         <span>Manage categories</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_collection_list") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_collections %}{% endblock %}">
+                                        <span>Manage collections</span>
                                     </a>
                                     <a href="{{ request.url_for("arena_admin_announcement_list") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_announcements %}{% endblock %}">

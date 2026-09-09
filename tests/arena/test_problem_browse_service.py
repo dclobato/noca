@@ -18,9 +18,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
-from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaProblemCustomValidator
+from arena.models.arena_problems import (
+    ArenaCategory,
+    ArenaCollection,
+    ArenaProblem,
+    ArenaProblemCustomValidator,
+)
 from arena.models.arena_users import ArenaUser
-from arena.services.problem_browse_service import get_latest_problems, list_enabled_problems_paginated
+from arena.services.problem_browse_service import (
+    get_latest_problems,
+    list_collections_with_counts,
+    list_enabled_problems_paginated,
+)
 from shared.db_schema.arena import arena_problem_category_map, arena_problem_ratings, arena_problem_solvers
 from shared.enumerations import (
     ArenaRole,
@@ -367,8 +376,10 @@ async def test_public_problem_list_uses_narrow_bounded_queries(
     sql_statements.clear()
     guest_page = await list_enabled_problems_paginated(session, page=1)
 
-    assert len(sql_statements) == 3
-    count_sql, page_sql, category_sql = [statement.lower() for statement in sql_statements]
+    # Count, page, then one bounded IN-query per enrichment: categories and
+    # collections. A guest needs no favorite/solved lookups.
+    assert len(sql_statements) == 4
+    count_sql, page_sql, category_sql, collection_sql = [statement.lower() for statement in sql_statements]
     assert "arena_problem_ratings" not in count_sql
     assert "arena_problem_solvers" not in count_sql
     assert "arena_problem_custom_validators" not in count_sql
@@ -383,12 +394,14 @@ async def test_public_problem_list_uses_narrow_bounded_queries(
     assert "arena_problem_custom_validators.active_source," not in page_sql
     assert "arena_problem_custom_validators.candidate_source," not in page_sql
     assert " in (" in category_sql
+    # Page-scoped, not one query per row.
+    assert " in (" in collection_sql
     assert [item.id for item in guest_page.items] == [problem.id]
     assert len({item.id for item in guest_page.items}) == len(guest_page.items)
 
     sql_statements.clear()
     await list_enabled_problems_paginated(session, page=1, user_id=owner.id)
-    assert len(sql_statements) == 5
+    assert len(sql_statements) == 6
 
 
 @pytest.mark.asyncio
@@ -433,3 +446,97 @@ def test_problem_list_template_includes_custom_validator_legend_and_marker() -> 
     assert "use a custom validator" in template
     assert "published_with_changes" in template
     assert "item.has_custom_validator" in template
+
+
+@pytest.mark.asyncio
+async def test_collection_scope_ands_with_the_category_or_set(session: AsyncSession) -> None:
+    """The exact case from issue #185.
+
+    Categories OR together, so ``interif OR arvores OR grafos`` also returns
+    Maratona SBC problems. Scoping to a collection must narrow that set rather
+    than widen it, making "InterIF problems about trees or graphs" expressible.
+    """
+    owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    interif = ArenaCollection(name="InterIF", slug="interif")
+    sbc = ArenaCollection(name="Maratona SBC", slug="maratona-sbc")
+    trees = ArenaCategory(name="Arvores", slug="arvores")
+    graphs = ArenaCategory(name="Grafos", slug="grafos")
+    strings = ArenaCategory(name="Strings", slug="strings")
+    session.add_all([interif, sbc, trees, graphs, strings])
+    await session.flush()
+
+    wanted = await _make_problem(session, owner, arena_number=451, title="InterIF trees")
+    also_wanted = await _make_problem(session, owner, arena_number=452, title="InterIF graphs")
+    wrong_category = await _make_problem(session, owner, arena_number=453, title="InterIF strings")
+    wrong_collection = await _make_problem(session, owner, arena_number=454, title="SBC graphs")
+    unfiled = await _make_problem(session, owner, arena_number=455, title="Unfiled trees")
+    wanted.collection_id = interif.id
+    also_wanted.collection_id = interif.id
+    wrong_category.collection_id = interif.id
+    wrong_collection.collection_id = sbc.id
+    await session.flush()
+    await session.execute(
+        arena_problem_category_map.insert(),
+        [
+            {"problem_id": wanted.id, "category_id": trees.id},
+            {"problem_id": also_wanted.id, "category_id": graphs.id},
+            {"problem_id": wrong_category.id, "category_id": strings.id},
+            {"problem_id": wrong_collection.id, "category_id": graphs.id},
+            {"problem_id": unfiled.id, "category_id": trees.id},
+        ],
+    )
+    await session.flush()
+
+    scoped = await list_enabled_problems_paginated(
+        session,
+        page=1,
+        category_slugs=["arvores", "grafos"],
+        collection_id=interif.id,
+    )
+
+    assert sorted(item.arena_number for item in scoped.items) == [451, 452]
+    assert scoped.total == 2
+
+    # Without the scope the same category filter reaches into every collection.
+    unscoped = await list_enabled_problems_paginated(session, page=1, category_slugs=["arvores", "grafos"])
+    assert sorted(item.arena_number for item in unscoped.items) == [451, 452, 454, 455]
+
+
+@pytest.mark.asyncio
+async def test_collection_scope_alone_returns_the_whole_collection(session: AsyncSession) -> None:
+    """A collection with no category filter returns exactly its own problems."""
+    owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    interif = ArenaCollection(name="InterIF", slug="interif")
+    session.add(interif)
+    await session.flush()
+    inside = await _make_problem(session, owner, arena_number=461, title="Inside")
+    inside.collection_id = interif.id
+    await _make_problem(session, owner, arena_number=462, title="Outside")
+    await session.flush()
+
+    pagination = await list_enabled_problems_paginated(session, page=1, collection_id=interif.id)
+
+    assert [item.arena_number for item in pagination.items] == [461]
+
+
+@pytest.mark.asyncio
+async def test_collection_cards_count_only_enabled_problems(session: AsyncSession) -> None:
+    """A card must not advertise problems the catalogue will not show."""
+    owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    interif = ArenaCollection(name="InterIF", slug="interif")
+    empty = ArenaCollection(name="Empty", slug="empty")
+    session.add_all([interif, empty])
+    await session.flush()
+    visible = await _make_problem(session, owner, arena_number=471, title="Visible")
+    hidden = await _make_problem(session, owner, arena_number=472, title="Hidden")
+    visible.collection_id = interif.id
+    hidden.collection_id = interif.id
+    hidden.enabled = False
+    await session.flush()
+
+    cards = await list_collections_with_counts(session)
+
+    counts = {card.name: card.problem_count for card in cards}
+    assert counts == {"Empty": 0, "InterIF": 1}
+    interif_card = next(card for card in cards if card.slug == "interif")
+    assert interif_card.name == "InterIF"

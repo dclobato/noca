@@ -132,6 +132,7 @@ controles de paginação.
 |---|---|
 | `arena/template/admin/problem_list.html` | Referência canônica completa |
 | `arena/template/admin/category_list.html` | Com botão "Add new category" |
+| `arena/template/admin/collection_list.html` | Mesmo padrão, para coleções (evento ou turma) |
 | `arena/template/admin/affiliation_list.html` | Com filtros de country/subdivision |
 | `arena/template/admin/user_list.html` | Sem botão de criação |
 | `arena/template/problems/problem_list.html` | Versão pública (sem painel admin) |

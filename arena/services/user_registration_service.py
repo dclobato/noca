@@ -33,6 +33,7 @@ from arena.services.user_service import (
     UserServiceResult,
     _utcnow,
 )
+from arena.services.user_throttle_hash_service import refresh_user_throttle_hashes
 from arena.services.user_visibility_service import is_shielded
 from arena.services.username_service import generate_unique_username
 from shared.enumerations import ArenaRole
@@ -364,6 +365,7 @@ async def registrar_usuario(
                 status=UserOperationStatus.USERNAME_CONFLICT,
                 error_message="Could not allocate a unique username for the new account.",
             )
+        await refresh_user_throttle_hashes(session, usuario)
         await session.refresh(usuario)
         token = _gerar_token_confirmacao_email(usuario, jwt_service)
         email_sent = False

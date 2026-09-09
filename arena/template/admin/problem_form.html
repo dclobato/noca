@@ -69,6 +69,10 @@
                 {% endfor %}
                 <input type="hidden"
                        data-noca-draft-ignore
+                       name="return_collection"
+                       value="{{ return_state.collection | default("") }}">
+                <input type="hidden"
+                       data-noca-draft-ignore
                        name="return_language"
                        value="{{ return_state.language | default("") }}">
                 <input type="hidden"

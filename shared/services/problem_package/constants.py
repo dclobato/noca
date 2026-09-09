@@ -23,8 +23,13 @@ from shared.services.sample_interactions import (
     MAX_INTERACTION_MEMBER_BYTES,
 )
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 """The package format version this build writes.
+
+Version 4 adds the optional ``collection`` field: the slug of the Arena
+collection (an event or a class) the problem is filed under. A problem belongs
+to at most one. The field is absent in every earlier version, which reads as
+"unfiled", so a version 3 package still imports unchanged.
 
 Version 3 redefines ``language_limits[].time_limit_ms`` as the limit for *one*
 repetition of a test case; before it, the same field was the budget shared by
@@ -48,7 +53,7 @@ An import of anything older has to divide that field by the repetition count in
 effect for it; at or above this version the stored value is used as written.
 """
 
-SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, 2, FORMAT_VERSION)
+SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, 2, 3, FORMAT_VERSION)
 """Every package format version this build accepts on import."""
 
 # --- Field-length caps (the larger of each historical pair, both domains) -----
@@ -58,6 +63,7 @@ MAX_AUTHOR_CHARS = 256
 MAX_NOTES_CHARS = 512
 MAX_SOURCE_CHARS = 256
 MAX_LICENSE_CHARS = 256
+MAX_COLLECTION_CHARS = 128
 MAX_IMAGE_CAPTION_CHARS = 512
 
 # --- Limit defaults ----------------------------------------------------------

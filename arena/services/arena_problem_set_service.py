@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -588,20 +588,41 @@ async def _set_tied_verdicts(session: AsyncSession, set_id: str) -> dict[tuple[s
     return {(user_id, problem_id): verdicts for (_, user_id, problem_id), verdicts in grouped.items()}
 
 
-def _needs_feedback(verdicts: Iterable[str | None]) -> bool:
-    """Return True when at least one judged verdict exists and none of them is Accepted.
+@dataclass(frozen=True)
+class FeedbackAttempt:
+    """One set-tied submission, as the needs-feedback predicate sees it."""
 
-    A submission still awaiting judgment (``verdict is None``) does not by
-    itself count as needing feedback.
+    submitted_at: datetime
+    verdict: str | None
+    has_feedback: bool
+
+
+def _needs_feedback(attempts: Iterable[FeedbackAttempt]) -> bool:
+    """Return True when the student is stuck on this problem and nobody has replied yet.
+
+    A student needs feedback when they have no Accepted verdict for the problem
+    *and* their most recent non-Accepted attempt carries no teacher feedback.
+    Feedback on an older attempt does not clear the flag: the student has since
+    submitted again and is still not passing.
+
+    A submission still awaiting judgment (``verdict is None``) counts neither as
+    an Accepted verdict nor as the most recent non-Accepted attempt.
+
+    Args:
+        attempts: The student's set-tied attempts for one problem, in any order.
+
+    Returns:
+        bool: True when the problem should be flagged as needing feedback.
     """
-    has_judged_verdict = False
-    for verdict in verdicts:
-        if verdict is None:
+    latest_non_ac: FeedbackAttempt | None = None
+    for attempt in attempts:
+        if attempt.verdict is None:
             continue
-        if verdict == Verdict.AC.value:
+        if attempt.verdict == Verdict.AC.value:
             return False
-        has_judged_verdict = True
-    return has_judged_verdict
+        if latest_non_ac is None or attempt.submitted_at > latest_non_ac.submitted_at:
+            latest_non_ac = attempt
+    return latest_non_ac is not None and not latest_non_ac.has_feedback
 
 
 async def problem_accepting_set_for_user(

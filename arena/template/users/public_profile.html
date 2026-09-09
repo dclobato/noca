@@ -111,26 +111,9 @@
                     {{ render_icon(icon="workspace_premium") }}
                     Badges
                 </h2>
-                {% if badges %}
-                    <div class="arena-badge-grid">
-                        {% for user_badge in badges %}
-                            {% set metadata = badge_metadata.get(user_badge.badge.value) %}
-                            {% if metadata %}
-                                <article class="arena-badge-item">
-                                    <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
-                                         alt="{{ metadata.label }} badge"
-                                         class="arena-badge-image"
-                                         width="96"
-                                         height="96">
-                                    <h3 class="arena-badge-name">{{ metadata.label }}</h3>
-                                    <p class="arena-badge-description">{{ metadata.description }}</p>
-                                </article>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="arena-empty-state">No badges earned yet.</p>
-                {% endif %}
+                {% with badge_audience="public" %}
+                    {% include "users/_badges_grid.html" %}
+                {% endwith %}
             </aside>
         </div>
     </div>

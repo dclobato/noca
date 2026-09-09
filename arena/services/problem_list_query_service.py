@@ -15,10 +15,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-from arena.models.arena_problems import ArenaCategory
+from arena.models.arena_problems import ArenaCategory, ArenaCollection
 from shared.db_schema.arena import arena_problem_categories as _categories_table
 from shared.db_schema.arena import arena_problem_category_map as _category_map_table
 from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
+from shared.db_schema.arena import arena_problems as _problems_table
 from shared.db_schema.arena import arena_test_cases as _test_cases_table
 
 
@@ -29,6 +30,54 @@ class ProblemListCategory:
     name: str
     color: str
     foreground_color: str
+
+
+@dataclass(frozen=True)
+class ProblemListCollection:
+    """Collection fields rendered by the admin and public problem lists."""
+
+    name: str
+    slug: str
+
+
+async def collections_by_problem_id(
+    session: AsyncSession,
+    problem_ids: list[str],
+) -> dict[str, ProblemListCollection]:
+    """Return the collection of each problem on one page, keyed by problem UUID.
+
+    A problem has at most one collection, so this maps to a single value rather
+    than a list. Problems with no collection are simply absent from the result.
+
+    Args:
+        session: Active async database session.
+        problem_ids: Problem UUIDs from the current page.
+
+    Returns:
+        dict[str, ProblemListCollection]: Collections keyed by problem UUID.
+    """
+    if not problem_ids:
+        return {}
+
+    statement = (
+        select(_problems_table.c.id, ArenaCollection)
+        .join(ArenaCollection, ArenaCollection.id == _problems_table.c.collection_id)
+        .options(
+            load_only(
+                ArenaCollection.name,
+                ArenaCollection.slug,
+                raiseload=True,
+            )
+        )
+        .where(_problems_table.c.id.in_(problem_ids))
+    )
+    return {
+        problem_id: ProblemListCollection(
+            name=collection.name,
+            slug=collection.slug,
+        )
+        for problem_id, collection in (await session.execute(statement)).all()
+    }
 
 
 async def categories_by_problem_id(

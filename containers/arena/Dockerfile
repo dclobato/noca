@@ -35,6 +35,7 @@ COPY scripts/arena/categorias-simples-en.txt    /app/scripts/arena/categorias-si
 COPY scripts/arena/categorias-simples-pt.txt    /app/scripts/arena/categorias-simples-pt.txt
 COPY scripts/arena/copy_legal_docs.py           /app/scripts/arena/copy_legal_docs.py
 COPY scripts/arena/create_arena_admin.py        /app/scripts/arena/create_arena_admin.py
+COPY scripts/arena/reconcile_arena_solvers.py   /app/scripts/arena/reconcile_arena_solvers.py
 COPY scripts/arena/seed_arena_user.py           /app/scripts/arena/seed_arena_user.py
 COPY scripts/arena/upsert_arena_affiliation.py  /app/scripts/arena/upsert_arena_affiliation.py
 COPY scripts/arena/upsert_arena_categories.py   /app/scripts/arena/upsert_arena_categories.py

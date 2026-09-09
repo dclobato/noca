@@ -892,6 +892,20 @@ async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders
 ) -> None:
     """Earned badges render with full info; unearned badges appear as locked placeholders."""
     user = await _create_arena_user(session)
+    problem_id = await _create_progress_problem(
+        session,
+        user,
+        title="Badge Anchor Problem",
+        rating=10,
+        arena_number=8127,
+    )
+    submission_id = await _create_submission_row(
+        session,
+        user=user,
+        problem_id=problem_id,
+        status=JudgmentStatus.DONE,
+        verdict=Verdict.AC,
+    )
     now = datetime.now(UTC)
     session.add_all(
         [
@@ -906,6 +920,7 @@ async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders
                 user_id=user.id,
                 badge=ArenaBadge.ONE_SHOT,
                 awarded_at=now,
+                submission_id=submission_id,
             ),
         ]
     )
@@ -927,6 +942,8 @@ async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders
     assert "/static/img/badges/oneshot.png" in response.text
     assert 'width="96"' in response.text
     assert 'height="96"' in response.text
+    assert f'href="http://testserver/submissions/{submission_id}"' in response.text
+    assert response.text.count("View awarding submission") == 1
     # Unearned badges render as locked placeholders, not with their real names.
     assert "Full Clear" not in response.text
     assert "missing_badge.png" in response.text
@@ -1228,6 +1245,86 @@ async def test_public_profile_viewer_renders_opted_in_user(session: AsyncSession
     assert f"/profile/{user.id}/submission-heatmap.json" in response.text
     assert "arena-submission-heatmap.js" in response.text
     assert f"/profile/{user.id}/statistics.json" in response.text
+
+
+@pytest.mark.asyncio
+async def test_public_profile_badges_link_only_to_enabled_problems(session: AsyncSession) -> None:
+    """Public badge provenance exposes enabled problems but never submissions."""
+    user = await _create_arena_user(session)
+    user.ranking_visible = True
+    user.public_profile = True
+
+    visible_problem_id = await _create_progress_problem(
+        session,
+        user,
+        title="Visible Badge Problem",
+        rating=10,
+        arena_number=8128,
+    )
+    await session.execute(arena_problems.update().where(arena_problems.c.id == visible_problem_id).values(enabled=True))
+    visible_submission_id = await _create_submission_row(
+        session,
+        user=user,
+        problem_id=visible_problem_id,
+        status=JudgmentStatus.DONE,
+        verdict=Verdict.AC,
+    )
+    hidden_problem_id = await _create_progress_problem(
+        session,
+        user,
+        title="Hidden Badge Problem",
+        rating=20,
+        arena_number=8129,
+    )
+    await session.execute(arena_problems.update().where(arena_problems.c.id == hidden_problem_id).values(enabled=False))
+    hidden_submission_id = await _create_submission_row(
+        session,
+        user=user,
+        problem_id=hidden_problem_id,
+        status=JudgmentStatus.DONE,
+        verdict=Verdict.AC,
+    )
+    session.add_all(
+        [
+            ArenaUserBadge(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                badge=ArenaBadge.ONE_SHOT,
+                awarded_at=datetime.now(UTC),
+                submission_id=visible_submission_id,
+            ),
+            ArenaUserBadge(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                badge=ArenaBadge.BUG_KILLER,
+                awarded_at=datetime.now(UTC),
+                submission_id=hidden_submission_id,
+            ),
+            ArenaUserBadge(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                badge=ArenaBadge.HELLO_WORLD,
+                awarded_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Badge Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{user.id}")
+
+    assert response.status_code == 200
+    assert 'href="http://testserver/problems/8128"' in response.text
+    assert "View problem 8128: Visible Badge Problem" in response.text
+    assert "Hidden Badge Problem" not in response.text
+    assert "/problems/8129" not in response.text
+    assert "/submissions/" not in response.text
+    assert visible_submission_id not in response.text
+    assert hidden_submission_id not in response.text
 
 
 @pytest.mark.asyncio

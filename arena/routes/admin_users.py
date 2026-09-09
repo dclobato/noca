@@ -25,11 +25,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi_flash import FlashDep
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_badges import ArenaUserBadge
+from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_date_helpers import _effective_per_page, _local_midnight_to_utc, _parse_date_param
@@ -191,6 +193,7 @@ async def admin_user_profile(
     if active_tab == "badges":
         badge_result = await session.scalars(
             select(ArenaUserBadge)
+            .options(joinedload(ArenaUserBadge.submission).joinedload(ArenaSubmission.problem))
             .where(ArenaUserBadge.user_id == target.id)
             .order_by(ArenaUserBadge.awarded_at.desc(), ArenaUserBadge.id.desc())
         )

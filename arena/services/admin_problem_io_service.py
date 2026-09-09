@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import (
     ArenaCategory,
+    ArenaCollection,
     ArenaProblem,
     ArenaProblemCustomValidator,
     ArenaSampleInteraction,
@@ -57,7 +58,7 @@ from shared.services.problem_package import (
     build_package,
 )
 from shared.services.problem_package.constants import FORMAT_VERSION
-from shared.services.problem_package.errors import WARN_UNKNOWN_CATEGORIES
+from shared.services.problem_package.errors import WARN_UNKNOWN_CATEGORIES, WARN_UNKNOWN_COLLECTION
 from shared.services.problem_package.journal import journal_root_for
 from shared.services.problem_package.model import (
     PackageImage,
@@ -122,6 +123,7 @@ async def import_problem_package(
 
     warnings = list(package.warnings)
     category_ids = await _resolve_category_ids(session, metadata.categories, warnings)
+    collection_id = await _resolve_collection_id(session, metadata.collection, warnings)
     language, language_source = await _resolve_packaged_language(metadata, statement=package.statement.text)
     image_b64, image_mime = load_staged_image(package.image, image_service)
 
@@ -148,6 +150,7 @@ async def import_problem_package(
         notes=metadata.notes,
         license=metadata.license,
         category_ids=category_ids,
+        collection_id=collection_id,
         statement_language=language,
         expected_difficulty=metadata.expected_difficulty,
         # The package's normalized strategy: version 2 states it, version 1 has it
@@ -247,6 +250,7 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         pids_limit=problem.pids_limit,
         output_limit_in_bytes=problem.output_limit_in_bytes,
         categories=tuple(category.name for category in problem.categories),
+        collection=problem.collection.slug if problem.collection is not None else None,
         sample_testcases=tuple(case.ordinal for case in cases if case.is_sample),
         image=image.member if image is not None else None,
         image_caption=problem.problem_image_caption,
@@ -387,3 +391,44 @@ async def _resolve_category_ids(
             )
         )
     return [row.id for row in rows]
+
+
+async def _resolve_collection_id(
+    session: AsyncSession,
+    collection: str | None,
+    warnings: list[PackageWarning],
+) -> str | None:
+    """Resolve a package's collection slug to an existing ID.
+
+    Matches by slug or by lowercased name, exactly as categories do, and never
+    creates a collection: an import must not invent a taxonomy entry the Arena
+    admin has not defined. An unresolved value leaves the problem unfiled and is
+    reported, rather than failing the whole import.
+
+    Args:
+        session: Active async database session.
+        collection: The package's ``collection`` value, or ``None`` when absent
+            (which is every package written before format version 4).
+        warnings: Accumulator the dropped value is reported through.
+
+    Returns:
+        str | None: The matching collection ID, or ``None`` when unset or unknown.
+    """
+    if collection is None or not collection.strip():
+        return None
+    wanted = collection.strip()
+    result = await session.execute(
+        select(ArenaCollection.id).where(
+            or_(ArenaCollection.slug == normalize_slug(wanted), func.lower(ArenaCollection.name) == wanted.lower())
+        )
+    )
+    resolved = result.scalars().first()
+    if resolved is None:
+        warnings.append(
+            PackageWarning(
+                WARN_UNKNOWN_COLLECTION,
+                f"Collection not defined in this Arena was dropped: {wanted}.",
+            )
+        )
+        return None
+    return str(resolved)

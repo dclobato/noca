@@ -1645,8 +1645,9 @@ mode so it is testable headlessly and shared by both presentations.
 - `onShow(event)` reads the team from `event.relatedTarget`, opens a new load
   *generation*, and fetches the scoped photo. It reads
   `X-NOCA-Team-Image-Kind` before creating the image object URL, so real photos
-  and avatars retain their intrinsic width while the placeholder expands to the
-  projector's `75vw` cap. A request or image-decode failure hides the image in
+  and avatars retain their intrinsic width -- the `fit-content` dialog wraps
+  them, capped at `80vw` -- while the placeholder, which has no useful intrinsic
+  width, expands to that whole cap. A request or image-decode failure hides the image in
   favor of a plain caption rather than leaving broken-image chrome.
 - `onShown()` starts playback inside the click's user activation and resolves one
   of `played` / `blocked` / `unavailable` / `skipped`. A rejected `play()` is

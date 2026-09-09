@@ -45,12 +45,13 @@ from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services import admin_login_history_service
 from arena.services.token_service import ArenaTokenAction
-from shared.db_schema.arena import arena_user_statistics
+from shared.db_schema.arena import arena_problems, arena_submissions, arena_user_statistics
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
-from shared.enumerations import ArenaBadge, ArenaRole
+from shared.enumerations import ArenaBadge, ArenaRole, ProblemValidatorType
 from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailConfig, EmailService
 from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
+from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-user-tests-32bytes!!"
 # Password-confirmed admin actions verify this against the acting admin's hash.
@@ -874,11 +875,58 @@ async def test_admin_user_profile_badges_tab_lists_earned_badges(session: AsyncS
     app = _build_admin_app(session)
     admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
     target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    language = Language(
+        id=f"lang-{uuid.uuid4().hex[:8]}",
+        name="Admin Badge Test Lang",
+        icon="devicon-python-plain",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    problem_id = str(uuid.uuid4())
+    await session.execute(
+        arena_problems.insert().values(
+            id=problem_id,
+            arena_number=9127,
+            title="Admin Badge Problem",
+            owner_id=admin.id,
+            problem_statement="Test problem.",
+            validator_type=ProblemValidatorType.STANDARD,
+        )
+    )
+    submission_id = str(uuid.uuid4())
+    await session.execute(
+        arena_submissions.insert().values(
+            id=submission_id,
+            user_id=target.id,
+            problem_id=problem_id,
+            language_id=language.id,
+            source_code="print(1)\n",
+            source_hash=uuid.uuid4().hex,
+            source_size_bytes=9,
+        )
+    )
     awarded = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
     session.add(
         ArenaUserBadge(id=str(uuid.uuid4()), user_id=target.id, badge=ArenaBadge.HELLO_WORLD, awarded_at=awarded)
     )
-    session.add(ArenaUserBadge(id=str(uuid.uuid4()), user_id=target.id, badge=ArenaBadge.ONE_SHOT, awarded_at=awarded))
+    session.add(
+        ArenaUserBadge(
+            id=str(uuid.uuid4()),
+            user_id=target.id,
+            badge=ArenaBadge.ONE_SHOT,
+            awarded_at=awarded,
+            submission_id=submission_id,
+        )
+    )
     await session.commit()
     request = _make_request(app, f"/admin/users/{target.id}", query="tab=badges")
     flashes: list[tuple[str, object]] = []
@@ -896,6 +944,8 @@ async def test_admin_user_profile_badges_tab_lists_earned_badges(session: AsyncS
     assert response.context["active_tab"] == "badges"
     assert {b.badge for b in response.context["badges"]} == {ArenaBadge.HELLO_WORLD, ArenaBadge.ONE_SHOT}
     assert response.context["badge_metadata"]
+    assert f"/submissions/{submission_id}" in response.body.decode()
+    assert response.body.decode().count("View awarding submission") == 1
 
 
 @pytest.mark.asyncio

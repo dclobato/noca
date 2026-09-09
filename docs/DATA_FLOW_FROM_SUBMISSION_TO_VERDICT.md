@@ -109,6 +109,43 @@ a repeated request never stacks duplicate jobs on either queue.
 Judge-side failures transition the judgment to `FAILED`; they do not become
 contestant verdicts or publish final-verdict events.
 
+An Arena rejudge has a side effect beyond the verdict itself. Every Arena
+judgment that finishes with a verdict or `FAILED` reconciles the submitter's `arena_problem_solvers` row against
+the submissions that are still Accepted, in the judgment's own transaction:
+no Accepted submission remains and the row is deleted, an Accepted one remains
+and `solved_at` moves to the first of them. That table is the input to a
+measurement -- problem difficulty, the `PROBLEMS_*` counts, First Solver's
+ordering, Full Clear, and the profile progress list all read it -- so a
+withdrawn AC must stop counting. Badges themselves are never taken back; see
+[ARENA_BADGES.md](ARENA_BADGES.md).
+
+The same reconciliation runs when a judgment reaches `FAILED`, both on the
+single-judgment path and on the validator-containment path that fails every
+queued judgment for a problem at once. `FAILED` is terminal and produces no
+verdict, so an Accepted judgment superseded for a rejudge that then failed
+would otherwise leave the pair counted as solved with nothing Accepted behind
+it.
+
+The reconciliation runs on every finishing judgment, not only on a non-Accepted
+verdict, because a bulk rejudge supersedes each prior judgment and queues a
+replacement: a submission rejudged to Accepted *again* would otherwise keep a
+`solved_at` copied from a judgment that is now `SUPERSEDED`, since the insert
+path returns early whenever a row already exists. Jobs also settle out of
+submission order, so only a full re-derivation of the pair converges regardless
+of the order results arrive in. Each reconciliation holds a transaction-scoped
+advisory lock on its `(user, problem)` pair, because two results for one pair
+routinely land together during a bulk rejudge and would otherwise each act on a
+partial view.
+
+The aggregate counters are deliberately left alone.
+`arena_problem_ratings.solved_users` and `total_tries_before_solve` are a
+batch-derived cache of the solver rows, rewritten from them by the rating worker
+on every cycle, and the judge writes neither. It cannot: an absent solver row
+does not mean a first solve, because a withdrawn AC deletes the row while
+leaving the counters untouched, so incrementing on the next AC for that pair
+would credit the same user twice. Rows written before this behavior existed are
+corrected once by `scripts/arena/reconcile_arena_solvers.py`.
+
 ## Contests requiring human review
 
 Judges and contest administrators can confirm an autojudge result. UberAdmins

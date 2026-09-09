@@ -25,12 +25,14 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem
+from arena.models.arena_problems import ArenaCategory, ArenaCollection, ArenaProblem, ArenaRatingProblem
 from arena.models.arena_users import ArenaUser
 from arena.services.pagination_service import Pagination, PaginationParams
 from arena.services.problem_list_query_service import (
     ProblemListCategory,
+    ProblemListCollection,
     categories_by_problem_id,
+    collections_by_problem_id,
     test_case_counts_by_problem_id,
 )
 from arena.services.problem_search_service import (
@@ -106,6 +108,7 @@ class ProblemListItem:
     private_tc_count: int
     difficulty: DifficultyDisplay
     categories: list[ProblemListCategory]
+    collection: ProblemListCollection | None
     has_custom_validator: bool
     has_editorial: bool
     editorial_release_policy: ArenaEditorialReleasePolicy
@@ -191,6 +194,34 @@ async def _set_categories(
     session.expire(problem, ["categories"])
 
 
+async def _resolve_collection_id(session: AsyncSession, collection_id: str | None) -> str | None:
+    """Validate a submitted collection ID before it is assigned to a problem.
+
+    Assigning the raw value would let a stale form (a collection deleted between
+    render and submit) or a hand-edited request reach the database and fail as an
+    integrity error, i.e. a 500. Resolving it here turns that into an ordinary
+    form validation error instead.
+
+    Args:
+        session: Active async database session.
+        collection_id: Raw ``collection_id`` form value; blank means "no collection".
+
+    Returns:
+        str | None: The existing collection ID, or ``None`` when unset.
+
+    Raises:
+        ValueError: If a non-blank ID matches no collection.
+    """
+    if collection_id is None or not collection_id.strip():
+        return None
+    normalized = collection_id.strip()
+    query = select(ArenaCollection.id).where(ArenaCollection.id == normalized)
+    resolved = (await session.execute(query)).scalar_one_or_none()
+    if resolved is None:
+        raise ValueError("The selected collection no longer exists.")
+    return str(resolved)
+
+
 def _apply_sort(stmt: Select[Any], sort_by: str, relevance: Any | None = None) -> Select[Any]:
     """Append ORDER BY clause for the given sort key."""
     if sort_by == RELEVANCE_SORT and relevance is not None:
@@ -223,6 +254,7 @@ async def list_problems_paginated(
     search: str = "",
     category_ids: list[str] | None = None,
     category_slugs: list[str] | None = None,
+    collection_id: str | None = None,
     owner_id: str | None = None,
     language: StatementLanguage | None = None,
     enabled: bool | None = None,
@@ -240,6 +272,7 @@ async def list_problems_paginated(
         search: Free-text search applied to arena number, title, statement, source, and author.
         category_ids: Require ANY listed category ID (OR semantics). None = no filter.
         category_slugs: Require ANY listed category slug (OR semantics). None = no filter.
+        collection_id: Restrict to problems filed under this collection. None = no filter.
         owner_id: Restrict to a specific owner (admin-only filter). None = no filter.
         language: Restrict to problems whose statement is in this language. None = no filter.
         enabled: Restrict to enabled (True) or disabled (False) problems. None = no filter.
@@ -326,6 +359,9 @@ async def list_problems_paginated(
         )
         filtered_problem_ids = filtered_problem_ids.where(matching_category.exists())
 
+    if collection_id is not None:
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.collection_id == collection_id)
+
     count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
@@ -355,6 +391,7 @@ async def list_problems_paginated(
     problem_ids = [row.id for row in rows]
 
     categories = await categories_by_problem_id(session, problem_ids)
+    collections = await collections_by_problem_id(session, problem_ids)
     test_case_counts = await test_case_counts_by_problem_id(session, problem_ids)
 
     items: list[ProblemListItem] = []
@@ -370,6 +407,7 @@ async def list_problems_paginated(
                 private_tc_count=private_tc_count,
                 difficulty=difficulty_display(row.rating_value, row.attempted_users, row.expected_difficulty),
                 categories=categories.get(row.id, []),
+                collection=collections.get(row.id),
                 has_custom_validator=row.validator_type is ProblemValidatorType.INTERACTIVE,
                 has_editorial=row.editorial is not None,
                 editorial_release_policy=row.editorial_release_policy,
@@ -458,6 +496,7 @@ async def create_problem(
     notes: str | None,
     category_ids: list[str],
     validator_type: ProblemValidatorType,
+    collection_id: str | None = None,
     license: str | None = None,
     author: str | None = None,
     author_is_owner: bool = True,
@@ -485,6 +524,8 @@ async def create_problem(
             or ``None`` if no image was uploaded.
         image_mime: MIME type from ``ImageProcessingResult.mime_type``, or ``None``.
         image_caption: Optional caption text to display below the image, or ``None``.
+        collection_id: Collection UUID to file the problem under; blank or ``None``
+            leaves it unfiled. Validated, not trusted.
         All other args correspond to form fields.
 
     Returns:
@@ -508,12 +549,15 @@ async def create_problem(
         expected_difficulty,
     )
 
+    resolved_collection_id = await _resolve_collection_id(session, collection_id)
+
     now = _now()
     problem = ArenaProblem(
         id=str(uuid.uuid4()),
         title=title.strip(),
         validator_type=validator_type,
         owner_id=caller_id,
+        collection_id=resolved_collection_id,
         author=None if author_is_owner else author.strip() if author else None,
         author_is_owner=author_is_owner,
         source=source.strip() if source else None,
@@ -561,6 +605,7 @@ async def update_problem(
     clear_image: bool,
     category_ids: list[str],
     license: str | None = None,
+    collection_id: str | None = None,
     author: str | None = None,
     author_is_owner: bool = True,
     statement_language: StatementLanguage | None = None,
@@ -584,6 +629,8 @@ async def update_problem(
         clear_image: When True, removes the existing image even if no new one provided.
         validator_type: Rejected unless it equals the stored strategy. Present so
             a caller that echoes the value back cannot silently change it.
+        collection_id: Collection UUID to file the problem under; blank or ``None``
+            leaves it unfiled. Validated, not trusted.
         All other args correspond to form fields.
 
     Returns:
@@ -610,7 +657,10 @@ async def update_problem(
         editorial,
         expected_difficulty,
     )
+    resolved_collection_id = await _resolve_collection_id(session, collection_id)
+
     problem.title = title.strip()
+    problem.collection_id = resolved_collection_id
     problem.author = None if author_is_owner else author.strip() if author else None
     problem.author_is_owner = author_is_owner
     problem.source = source.strip() if source else None

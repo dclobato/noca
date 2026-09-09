@@ -110,9 +110,11 @@ body.arena-editor-resizing {
     min-width: 32rem;
 }
 
-.arena-output-diff-no {
+.arena-output-diff-table .arena-output-diff-no {
     width: 3rem;
-    color: var(--bs-secondary-color);
+    padding-right: 0.75rem;
+    border-right: 1px solid var(--arena-outline-variant);
+    color: var(--arena-on-surface-variant);
     font-family: var(--noca-font-mono);
     font-variant-numeric: var(--noca-font-variant-numeric-mono);
     text-align: right;
@@ -121,6 +123,7 @@ body.arena-editor-resizing {
 }
 
 .arena-output-diff-cell {
+    padding-left: 0.75rem;
     vertical-align: top;
 }
 
@@ -131,20 +134,21 @@ body.arena-editor-resizing {
     margin: 0;
 }
 
-.arena-output-diff-changed,
-.arena-output-diff-extra {
-    background: var(--bs-danger-bg-subtle);
+.arena-output-diff-changed > .arena-output-diff-cell--actual,
+.arena-output-diff-extra > .arena-output-diff-cell--actual {
+    background-color: var(--bs-danger-bg-subtle);
 }
 
-.arena-output-diff-missing {
-    background: var(--bs-success-bg-subtle);
+.arena-output-diff-changed > .arena-output-diff-cell--expected,
+.arena-output-diff-missing > .arena-output-diff-cell--expected {
+    background-color: var(--bs-success-bg-subtle);
 }
 
-.arena-output-diff-whitespace {
-    background: var(--bs-warning-bg-subtle);
+.arena-output-diff-whitespace > .arena-output-diff-cell {
+    background-color: var(--bs-warning-bg-subtle);
 }
 
-.arena-output-diff-equal {
+.arena-output-diff-equal > .arena-output-diff-cell {
     color: var(--bs-secondary-color);
 }
 

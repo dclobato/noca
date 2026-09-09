@@ -7,21 +7,27 @@
 """Award Arena gamification badges from Accepted submissions.
 
 Owned by the rating worker's badge-assignment loop. :func:`compute_badge_awards`
-evaluates the relevant Accepted submissions and writes rows into the append-only
+evaluates the relevant submissions and writes rows into the mostly append-only
 ``arena_user_badges`` ledger. Every operation is idempotent (unique
 ``(user_id, badge)`` constraint, order-independent streak recompute), so
 reprocessing an AC is harmless. The incremental pass is a performance
 optimization bounded by a watermark; correctness is owned by the periodic
 full-reconcile pass that re-evaluates all AC history.
 
-The ledger is append-only for every badge but CLEAN_CODE, which records a
-*rank* rather than an event and so must also be revoked as faster solvers
-arrive. That reconciliation runs on the full pass only, since ranking a
-problem's population requires having loaded all of it.
+The dynamic CLEAN_CODE and ROCK_CRACKER badges are revoked when their current
+criteria stop holding. CLEAN_CODE reconciles only on a full pass; ROCK_CRACKER
+may award from affected problems incrementally but revokes only from a full
+catalogue view.
+
+Each rule records the submission it fired on in ``arena_user_badges.submission_id``,
+so a badge can answer *what* earned it and not merely *when*. For an event badge
+that is the qualifying AC; for an aggregate badge it is by convention the
+submission that crossed the threshold; CLEAN_CODE records a rank rather than an
+event and stores nothing. See ``docs/ARENA_BADGES.md``.
 
 Data access lives in ``arena_badge_data``, the aggregate rules (streaks,
-problem counts, FULL_CLEAR) in ``arena_badge_rules``, and the dynamic
-CLEAN_CODE rule in ``arena_badge_rules_cleancode``. See
+problem counts, FULL_CLEAR) in ``arena_badge_rules``, and the dynamic rules in
+``arena_badge_rules_cleancode`` and ``arena_badge_rules_rock_cracker``. See
 ``docs/SHARED_SERVICES.md`` and ``docs/ARCHITECTURE_RATING.md`` for the model.
 """
 
@@ -36,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.enumerations import ArenaBadge, Verdict
 from shared.services.arena_badge_data import (
     AcEvent,
+    OwnedBadges,
     PairHistory,
     as_utc,
     award_badge,
@@ -51,9 +58,9 @@ from shared.services.arena_badge_rules import award_full_clear, award_problem_co
 from shared.services.arena_badge_rules_catalogue import (
     award_first_solver,
     award_languages,
-    award_rock_cracker,
 )
 from shared.services.arena_badge_rules_cleancode import reconcile_clean_code
+from shared.services.arena_badge_rules_rock_cracker import reconcile_rock_cracker
 from shared.services.arena_badge_rules_sequences import award_lococoder, award_this_is_the_way
 from shared.services.arena_badge_rules_sets import award_almost_late, award_first_to_hand_in
 
@@ -113,12 +120,27 @@ async def compute_badge_awards(
         awarded += await award_problem_counts(session, events)
         awarded += await award_languages(session, events)
         awarded += await award_first_solver(session, events)
-        awarded += await award_rock_cracker(session, events)
         awarded += await award_first_to_hand_in(session, events)
         awarded += await award_almost_late(session, events, now=now, full_reconcile=full_reconcile)
         awarded += await award_this_is_the_way(session, events)
     if non_ac_events:
         awarded += await award_lococoder(session, non_ac_events)
+    affected_problem_ids = {event.problem_id for event in events}
+    affected_problem_ids.update(event.problem_id for event in non_ac_events)
+    rock_awarded, rock_revoked = await reconcile_rock_cracker(
+        session,
+        full_reconcile=full_reconcile,
+        affected_problem_ids=affected_problem_ids,
+    )
+    awarded += rock_awarded
+    if rock_awarded or rock_revoked:
+        _LOGGER.info(
+            "ROCK_CRACKER reconciled: %d awarded, %d revoked",
+            rock_awarded,
+            rock_revoked,
+        )
+    else:
+        _LOGGER.debug("ROCK_CRACKER reconciliation made no changes")
     if full_reconcile:
         # CLEAN_CODE ranks each problem's whole solver population and revokes, so it
         # runs only here, where the pass has loaded all of it. See
@@ -144,40 +166,44 @@ async def _award_per_ac(
     session: AsyncSession,
     events: list[AcEvent],
     history: PairHistory,
-    owned: dict[str, set[ArenaBadge]],
+    owned: OwnedBadges,
 ) -> int:
-    """Award the per-submission badges for every event in chronological order."""
+    """Award the per-submission badges for every event in chronological order.
+
+    Events arrive in chronological order, so the first grant of a badge is the
+    earliest qualifying AC -- which is the submission the badge is anchored to.
+    """
     awarded = 0
 
-    async def grant(user_id: str, badge: ArenaBadge) -> None:
+    async def grant(user_id: str, badge: ArenaBadge, submission_id: str) -> None:
         nonlocal awarded
-        held = owned.setdefault(user_id, set())
-        if badge in held:
+        held = owned.setdefault(user_id, {})
+        if held.get(badge) is not None:
             return
-        if await award_badge(session, user_id, badge):
+        if await award_badge(session, user_id, badge, submission_id):
             awarded += 1
-        held.add(badge)
+        held[badge] = submission_id
 
     for event in events:
         tz = pytz.timezone(timezone_name(event))
         local = as_utc(event.created_at).astimezone(tz)
-        await grant(event.user_id, ArenaBadge.HELLO_WORLD)
+        await grant(event.user_id, ArenaBadge.HELLO_WORLD, event.submission_id)
         if _NIGHT_START_HOUR <= local.hour < _NIGHT_END_HOUR:
-            await grant(event.user_id, ArenaBadge.NIGHT_WORKER)
+            await grant(event.user_id, ArenaBadge.NIGHT_WORKER, event.submission_id)
         if local.weekday() in _WEEKEND_WEEKDAYS:
-            await grant(event.user_id, ArenaBadge.WEEKEND_WORKER)
+            await grant(event.user_id, ArenaBadge.WEEKEND_WORKER, event.submission_id)
 
         prior = _submissions_before(history.get((event.user_id, event.problem_id), []), event)
         if not prior:
-            await grant(event.user_id, ArenaBadge.ONE_SHOT)
+            await grant(event.user_id, ArenaBadge.ONE_SHOT, event.submission_id)
         if sum(1 for _, _, v in prior if v == Verdict.WA.value) >= _NEVER_GIVE_UP_WA:
-            await grant(event.user_id, ArenaBadge.NEVER_GIVE_UP)
+            await grant(event.user_id, ArenaBadge.NEVER_GIVE_UP, event.submission_id)
         if any(v in (Verdict.TLE.value, Verdict.MLE.value) for _, _, v in prior):
-            await grant(event.user_id, ArenaBadge.BIT_SCRUBBER)
+            await grant(event.user_id, ArenaBadge.BIT_SCRUBBER, event.submission_id)
         if prior and prior[-1][2] == Verdict.RE.value:
-            await grant(event.user_id, ArenaBadge.BUG_KILLER)
+            await grant(event.user_id, ArenaBadge.BUG_KILLER, event.submission_id)
         if prior and prior[-1][2] == Verdict.PE.value:
-            await grant(event.user_id, ArenaBadge.TRIMMER)
+            await grant(event.user_id, ArenaBadge.TRIMMER, event.submission_id)
     return awarded
 
 

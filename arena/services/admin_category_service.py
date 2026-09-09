@@ -1,15 +1,18 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Admin-facing Arena category management service."""
+"""Admin-facing Arena category management service.
+
+Field rules (name, slug, badge color) are shared with collections and live in
+:mod:`arena.services.taxonomy_validation`. ``normalize_slug`` is re-exported
+here because callers outside this module already import it from this path.
+"""
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from dataclasses import dataclass
 
 from sqlalchemy import Select, func, select
@@ -17,65 +20,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import ArenaCategory
 from arena.services.pagination_service import Pagination, PaginationParams
+from arena.services.taxonomy_validation import (
+    normalize_slug,
+    validate_color,
+    validate_required_text,
+    validate_slug,
+)
 from shared.db_schema.arena import arena_problem_category_map
 
-_MAX_FIELD_LENGTH = 128
-_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
-_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-# Stop words removed before building a slug so that prepositions and articles
-# do not inflate URL length.  The set covers common Portuguese function words
-# plus their direct English equivalents (useful for mixed-language category names).
-_SLUG_STOP_WORDS: frozenset[str] = frozenset(
-    {
-        # Portuguese articles
-        "a",
-        "o",
-        "as",
-        "os",
-        "um",
-        "uma",
-        # Portuguese prepositions & contractions
-        "de",
-        "do",
-        "da",
-        "dos",
-        "das",
-        "em",
-        "no",
-        "na",
-        "nos",
-        "nas",
-        "por",
-        "para",
-        "com",
-        "pelo",
-        "pela",
-        "pelos",
-        "pelas",
-        # Portuguese conjunctions / pronouns
-        "e",
-        "ou",
-        "se",
-        # English articles / prepositions / conjunctions
-        "the",
-        "an",
-        "and",
-        "or",
-        "of",
-        "in",
-        "on",
-        "for",
-        "to",
-        "from",
-        "with",
-        "by",
-        "at",
-        # English copula
-        "is",
-        "are",
-    }
-)
+__all__ = [
+    "DEFAULT_SORT",
+    "VALID_SORTS",
+    "CategoryFormData",
+    "CategoryListItem",
+    "create_category",
+    "delete_category",
+    "get_category",
+    "get_problem_count",
+    "list_categories_paginated",
+    "normalize_slug",
+    "update_category",
+    "validate_category_data",
+]
 
 DEFAULT_SORT = "name_asc"
 VALID_SORTS = frozenset({"name_asc", "name_desc", "problems_asc", "problems_desc"})
@@ -96,36 +62,6 @@ class CategoryListItem:
 
     category: ArenaCategory
     problem_count: int
-
-
-def normalize_slug(value: str) -> str:
-    """Normalize text into the same lowercase hyphen slug used by contest forms.
-
-    Diacritics are stripped, stop words (Portuguese + English) are removed, and
-    the remaining tokens are joined with hyphens.  This keeps slugs concise while
-    preserving all semantically meaningful words.
-
-    Args:
-        value: Raw slug or human-readable name.
-
-    Returns:
-        str: URL-safe, stop-word-free slug.
-    """
-    normalized = unicodedata.normalize("NFD", value.lower())
-    without_marks = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
-    tokens = re.sub(r"[^a-z0-9]+", " ", without_marks).split()
-    words = [t for t in tokens if t not in _SLUG_STOP_WORDS]
-    return "-".join(words)
-
-
-def _validate_required_text(value: str, field_name: str) -> str:
-    """Strip and validate a required 128-character category field."""
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError(f"{field_name} is required.")
-    if len(stripped) > _MAX_FIELD_LENGTH:
-        raise ValueError(f"{field_name} must be at most {_MAX_FIELD_LENGTH} characters.")
-    return stripped
 
 
 async def _ensure_name_unique(session: AsyncSession, name: str, *, exclude_id: str | None = None) -> None:
@@ -169,16 +105,9 @@ async def validate_category_data(
     Raises:
         ValueError: If any field is invalid or not unique.
     """
-    normalized_name = _validate_required_text(name, "Name")
-    normalized_slug = normalize_slug(_validate_required_text(slug, "Slug"))
-    if len(normalized_slug) > _MAX_FIELD_LENGTH:
-        raise ValueError(f"Slug must be at most {_MAX_FIELD_LENGTH} characters.")
-    if not _SLUG_PATTERN.fullmatch(normalized_slug):
-        raise ValueError("Slug must contain lowercase letters, numbers, and single hyphens only.")
-
-    normalized_color = _validate_required_text(color, "Color").lower()
-    if not _COLOR_PATTERN.fullmatch(normalized_color):
-        raise ValueError("Color must be a 6-digit hex value like #6c757d.")
+    normalized_name = validate_required_text(name, "Name")
+    normalized_slug = validate_slug(slug)
+    normalized_color = validate_color(color)
 
     await _ensure_name_unique(session, normalized_name, exclude_id=exclude_id)
     await _ensure_slug_unique(session, normalized_slug, exclude_id=exclude_id)

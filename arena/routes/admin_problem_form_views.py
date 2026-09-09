@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.models.arena_problems import ArenaProblem, ArenaSampleInteraction
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_judgment_urls import with_query
-from arena.services import admin_problem_service
+from arena.services import admin_collection_service, admin_problem_service
 from arena.services.admin_problem_tc_service import TestCaseView
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
@@ -237,6 +237,7 @@ def problem_list_url(
     sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = None,
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -254,6 +255,8 @@ def problem_list_url(
         params["sort_by"] = sort_by
     if owner_id:
         params["owner_id"] = owner_id
+    if collection:
+        params["collection"] = collection
     if language:
         params["language"] = language
     if enabled:
@@ -279,6 +282,7 @@ def problem_edit_url(
     sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = None,
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -298,6 +302,8 @@ def problem_edit_url(
         params["sort_by"] = sort_by
     if owner_id:
         params["owner_id"] = owner_id
+    if collection:
+        params["collection"] = collection
     if language:
         params["language"] = language
     if enabled:
@@ -356,6 +362,7 @@ def form_fields(
     problem_statement: str,
     editorial: str,
     category_ids: list[str],
+    collection_id: str = "",
     image_caption: str,
     notes: str = "",
     license: str = "",
@@ -377,6 +384,7 @@ def form_fields(
         "problem_statement": problem_statement,
         "editorial": editorial,
         "category_ids": category_ids,
+        "collection_id": collection_id,
         "image_caption": image_caption,
         "notes": notes,
         "license": license,
@@ -448,6 +456,7 @@ def return_state(
     sort_by: str,
     owner_id: str,
     category_slugs: list[str] | None,
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -460,6 +469,7 @@ def return_state(
         "sort_by": sort_by,
         "owner_id": owner_id,
         "category_slugs": category_slugs or [],
+        "collection": collection,
         "language": language,
         "enabled": enabled,
         "editorial": editorial,
@@ -572,6 +582,7 @@ def render_problem_form(
     form: dict[str, Any],
     cats_data: list[dict[str, str]],
     back_url: str,
+    all_collections: list[Any] | None = None,
     state: dict[str, Any],
     current_user: ArenaUser,
     validator_type: ProblemValidatorType | None = None,
@@ -624,6 +635,7 @@ def render_problem_form(
         "is_edit_allowed": True,
         "form": form,
         "selected_cats_data": cats_data,
+        "all_collections": all_collections or [],
         "back_url": back_url,
         "return_state": state,
         "current_user": current_user,
@@ -656,8 +668,19 @@ async def edit_form_extras(
     problem: ArenaProblem,
     current_user: ArenaUser,
     session: AsyncSession,
-) -> tuple[list[Any], ArenaUser | None]:
-    """Load categories and admin-only owner data for the definition editor."""
+) -> tuple[list[Any], list[Any], ArenaUser | None]:
+    """Load categories, collections, and admin-only owner data for the editor.
+
+    Args:
+        problem: The problem being edited.
+        current_user: The acting user; the owner is loaded only for admins.
+        session: Active async database session.
+
+    Returns:
+        tuple[list[Any], list[Any], ArenaUser | None]: All categories, all
+        collections, and the problem's owner when the caller is an admin.
+    """
     all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
+    all_collections = await admin_collection_service.list_collections(session)
     problem_owner = await session.get(ArenaUser, problem.owner_id) if is_admin(current_user) else None
-    return all_categories, problem_owner
+    return all_categories, all_collections, problem_owner

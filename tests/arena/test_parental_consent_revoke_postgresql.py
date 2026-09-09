@@ -46,6 +46,7 @@ from arena.services.user_service import revoke_parental_consent
 from shared.db_schema import security_events
 from shared.enumerations import ArenaRole
 from tests.arena._parental_consent_helpers import minor_date_of_birth
+from tests.conftest import skip_unless_schema_at_head
 
 _USER_ID = "00000000-0000-4000-8000-0000000c0nc0"
 _BLOCK_PROBE_SECONDS = 0.75
@@ -63,6 +64,7 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
             connection = await engine.connect()
         except Exception as exc:  # noqa: BLE001 -- drivers raise their own unwrapped errors
             pytest.skip(f"PostgreSQL at {safe_url} is unavailable for tests: {exc}")
+        await skip_unless_schema_at_head(connection, safe_url)
         await connection.close()
         yield engine
     finally:

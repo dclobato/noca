@@ -13,7 +13,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
-from functools import partial
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -458,8 +458,18 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 # The browser suite is matched by path rather than by a marker because its skips
 # include a *collection*-level `importorskip`, which produces a report with no
 # markers on it at all.
-_SANCTIONED_SKIP_MARKERS = frozenset({"real_docker", "real_openai", "real_ipqualityscore"})
-_SANCTIONED_SKIP_PREFIXES = ("tests/browser/",)
+# A skip is sanctioned only when this environment genuinely cannot run the test.
+# The two third-party groups qualify exactly when their credential is absent:
+# with a key configured, a skip means the test failed to run and must be seen.
+# `real_docker` is not sanctioned: CI has a daemon and pulls the judge images,
+# so those eight must run. The browser checks are, by path: they are a smoke
+# check aimed at a populated instance, and their data-dependent skips ("no
+# problem to open", "no test case") describe a fixture gap CI does not fill.
+_CREDENTIAL_GATED_SKIP_MARKERS = {
+    "real_openai": "NOCA_AI_OPENAI_API_KEY",
+    "real_ipqualityscore": "NOCA_IPQUALITYSCORE_APIKEY",
+}
+_SANCTIONED_SKIP_PREFIXES: tuple[str, ...] = ("tests/browser/",)
 _REQUIREMENT_DISABLED_VALUES = frozenset({"", "0", "false", "no"})
 
 _unsanctioned_skips: dict[str, str] = {}
@@ -481,11 +491,28 @@ def full_suite_is_required(environ: Mapping[str, str]) -> bool:
     return bool(environ.get("CI"))
 
 
-def skip_is_sanctioned(nodeid: str, markers: Iterable[str]) -> bool:
-    """Return whether this skip is one of the four sanctioned groups."""
+def skip_is_sanctioned(
+    nodeid: str,
+    markers: Iterable[str],
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Return whether this skip is one the environment genuinely cannot avoid.
+
+    Args:
+        nodeid: The test's node id.
+        markers: The markers applied to the test.
+        environ: Environment to read credentials from; defaults to the process's.
+
+    Returns:
+        bool: True when the skip is sanctioned here.
+    """
     if any(nodeid.startswith(prefix) for prefix in _SANCTIONED_SKIP_PREFIXES):
         return True
-    return bool(_SANCTIONED_SKIP_MARKERS.intersection(markers))
+    env = os.environ if environ is None else environ
+    marker_set = set(markers)
+    return any(
+        marker in marker_set and not env.get(variable) for marker, variable in _CREDENTIAL_GATED_SKIP_MARKERS.items()
+    )
 
 
 def _skip_reason(report: Any) -> str:
@@ -548,3 +575,80 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "_SANCTIONED_SKIP_MARKERS in tests/conftest.py. "
         "Set NOCA_REQUIRE_FULL_SUITE to an empty value to allow skipping."
     )
+
+
+# ── PostgreSQL schema guard ───────────────────────────────────────────────────
+# The four PostgreSQL-backed tests run against a database nobody migrates as
+# part of ordinary work, so it drifts behind `alembic head` silently. Until this
+# guard existed, that surfaced as `relation "..." does not exist` from whichever
+# query first touched a new table -- a failure that names the symptom and hides
+# the cause. A stale schema is the same class of problem as an unreachable
+# server (the environment is not ready), so it skips the same way, and the skip
+# is deliberately left unsanctioned: CI migrates this database, so a stale one
+# there is a real defect and must fail the session.
+
+
+@lru_cache(maxsize=1)
+def alembic_heads() -> tuple[str, ...]:
+    """Return the migration head revisions this checkout defines.
+
+    Returns:
+        tuple[str, ...]: Every head revision, usually exactly one.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    repo_root = Path(__file__).resolve().parents[1]
+    config = Config(str(repo_root / "alembic.ini"))
+    # Pin the location rather than trusting the working directory: pytest may be
+    # invoked from anywhere, and a relative script_location would resolve wrong.
+    config.set_main_option("script_location", str(repo_root / "migrations"))
+    return tuple(ScriptDirectory.from_config(config).get_heads())
+
+
+def stale_schema_reason(current: str | None, heads: tuple[str, ...], safe_url: str) -> str | None:
+    """Return why this database cannot be used, or ``None`` when it is current.
+
+    Args:
+        current: The database's ``alembic_version.version_num``, or ``None``
+            when the table does not exist (never migrated).
+        heads: The head revisions this checkout defines.
+        safe_url: Connection URL with the password already redacted.
+
+    Returns:
+        str | None: An actionable skip reason, or ``None`` when at head.
+    """
+    if current is not None and current in heads:
+        return None
+    at = f"revision {current}" if current else "no alembic_version table (never migrated)"
+    want = " or ".join(heads) if heads else "unknown"
+    # Name the role too: these tests connect as NOCA_DB_USER, and migrating as a
+    # different role leaves the new tables owned by that role and unreadable here.
+    return (
+        f"PostgreSQL at {safe_url} is at {at}, but this checkout is at {want}. "
+        f"Migrate it as the same role the tests use: "
+        f"NOCA_DB_USER=$NOCA_DB_USER NOCA_DB_NAME=$NOCA_DB_NAME uv run alembic upgrade head"
+    )
+
+
+async def skip_unless_schema_at_head(connection: Any, safe_url: str) -> None:
+    """Skip the calling test unless the connected database is at head.
+
+    Args:
+        connection: An open SQLAlchemy async connection.
+        safe_url: Connection URL with the password already redacted.
+    """
+    from sqlalchemy import text
+
+    try:
+        result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+        current = result.scalar()
+    except Exception:  # noqa: BLE001 -- a missing table raises the driver's own error
+        current = None
+    finally:
+        # The read autobegins a transaction. Leave the connection exactly as it
+        # was found, or the caller's own `begin()` raises InvalidRequestError.
+        await connection.rollback()
+    reason = stale_schema_reason(current, alembic_heads(), safe_url)
+    if reason is not None:
+        pytest.skip(reason)

@@ -7,13 +7,13 @@
  */
 
 /*
- * Arena category slug policy, used by both Arena category forms
- * (admin-category-list.js and admin-category-form.js).
+ * Slug policy for Arena's flat taxonomies -- categories and collections -- used
+ * by admin-taxonomy-list.js and admin-taxonomy-form.js.
  *
  * The mechanical transform lives in shared/static/js/slugify.js; this file adds
  * only the stop-word set.  The preview must agree with what the server stores,
- * so the set mirrors _SLUG_STOP_WORDS / normalize_slug() in
- * arena/services/admin_category_service.py.  Keep the two in sync: a divergence
+ * so the set mirrors SLUG_STOP_WORDS / normalize_slug() in
+ * arena/services/taxonomy_validation.py.  Keep the two in sync: a divergence
  * shows the author one slug and saves another.
  *
  * Requires shared/static/js/slugify.js to be loaded first.
@@ -41,5 +41,5 @@
   const slugify = (value) =>
     window.NocaSlug?.slugify(value, { stopWords: SLUG_STOP_WORDS }) ?? String(value ?? "");
 
-  window.NocaCategorySlug = { slugify };
+  window.NocaTaxonomySlug = { slugify };
 })();

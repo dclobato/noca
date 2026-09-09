@@ -80,15 +80,6 @@ subsume the cross-process locking gap.
 
 [Open `web` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open)
 
-## Arena badges
-
-Gamification awards badges but does not record what earned them. Two paired
-items would change that: storing the submission that awarded each badge in the
-ledger, and then showing it on the Arena profiles — the problem on the public
-profile, the submission itself on the owner's private one.
-
-[Open `rating` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=60&state=open)
-
 ## Editable email templates
 
 Every outbound message is a Jinja template compiled into the image, so changing
@@ -171,13 +162,8 @@ NOCA-native approach.
 
 ## Arena ideas
 
-Two recorded ideas, neither an accepted contract. A *collection* property on
-Arena problems — one event or course per problem (ICPC, Maratona SBC, InterIF,
-Iniciantes), alongside the N categories a problem already carries — with a
-second browser grouped by collection and still filterable by category inside
-one; the issue itself is openly unconvinced that a collection is meaningfully
-different from a category. And a Telegram bot, both for pushing notifications
-to users and as a second-factor device.
+One recorded idea, not an accepted contract: a Telegram bot, both for pushing
+notifications to users and as a second-factor device.
 
 [Open `arena` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=51&state=open)
 

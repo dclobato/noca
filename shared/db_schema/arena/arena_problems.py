@@ -38,6 +38,28 @@ from .._base import _created_at_column, _id_column, _updated_at_column, metadata
 
 _artifact_generation_type = BigInteger().with_variant(Integer, "sqlite")
 
+arena_collections = Table(
+    "arena_collections",
+    metadata,
+    _id_column(),
+    Column(
+        "name",
+        String(128),
+        nullable=False,
+        unique=True,
+        comment="Human-readable collection name shown to users, e.g. 'Maratona SBC'.",
+    ),
+    Column(
+        "slug",
+        String(128),
+        nullable=False,
+        unique=True,
+        comment="URL-safe identifier for the collection (lowercase, hyphens).",
+    ),
+    _created_at_column(),
+    _updated_at_column(),
+)
+
 arena_problem_categories = Table(
     "arena_problem_categories",
     metadata,
@@ -136,6 +158,14 @@ arena_problems = Table(
         nullable=False,
         index=True,
         comment="User responsible for creating and managing the problem.",
+    ),
+    Column(
+        "collection_id",
+        String(36),
+        ForeignKey("arena_collections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Optional collection (event or class) this problem belongs to; at most one.",
     ),
     Column(
         "author",

@@ -49,6 +49,7 @@ from arena.dependencies.problem_export_rate_limit import arena_problem_export_ra
 from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_users import ArenaUser
 from arena.services import (
+    admin_collection_service,
     admin_problem_interaction_service,
     admin_problem_io_service,
     arena_favorite_service,
@@ -157,6 +158,7 @@ def _problem_detail_url(
     back_sort_by: str,
     back_category_slugs: list[str],
     back_language: str = "",
+    back_collection_slug: str = "",
 ) -> str:
     """Build a problem detail URL preserving back-state query params.
 
@@ -168,6 +170,8 @@ def _problem_detail_url(
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
         back_language: Statement-language filter to restore.
+        back_collection_slug: Collection scope to restore. Scalar, so unlike the
+            category slugs it needs no ``doseq`` pass of its own.
 
     Returns:
         str: URL for the problem detail page with back-state params attached.
@@ -181,6 +185,8 @@ def _problem_detail_url(
         params["back_language"] = back_language
     if back_sort_by and back_sort_by != problem_browse_service.DEFAULT_SORT:
         params["back_sort_by"] = back_sort_by
+    if back_collection_slug:
+        params["back_collection_slug"] = back_collection_slug
     base_url = str(request.url_for("arena_problem_detail", arena_number=arena_number))
     qs = urlencode(params)
     cat_qs = urlencode({"back_category_slugs": back_category_slugs}, doseq=True)
@@ -196,6 +202,7 @@ def _problem_list_back_url(
     back_sort_by: str,
     back_category_slugs: list[str],
     back_language: str = "",
+    back_collection_slug: str = "",
 ) -> str:
     """Reconstruct the problem list URL from the back-state query params.
 
@@ -206,6 +213,7 @@ def _problem_list_back_url(
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
         back_language: Statement-language filter to restore.
+        back_collection_slug: Collection scope to restore.
 
     Returns:
         str: Fully-qualified URL for the problem list with state restored.
@@ -219,6 +227,8 @@ def _problem_list_back_url(
         params["language"] = back_language
     if back_sort_by and back_sort_by != problem_browse_service.DEFAULT_SORT:
         params["sort_by"] = back_sort_by
+    if back_collection_slug:
+        params["collection"] = back_collection_slug
     base_url = str(request.url_for("arena_problem_list"))
     qs = urlencode(params)
     cat_qs = urlencode({"category_slugs": back_category_slugs}, doseq=True)
@@ -232,6 +242,7 @@ async def arena_problem_list(
     search: str = "",
     sort_by: str | None = None,
     category_slugs: list[str] | None = Query(None),
+    collection: str = "",
     language: str = "",
     # Deliberately unbounded here rather than a bounded PageNumber: this public
     # list has always been forgiving about the page (?page=0 shows page one), and
@@ -247,11 +258,16 @@ async def arena_problem_list(
     (25 per page).  This is the one Arena content page that remains public; it
     renders for both logged-in users and guests.
 
+    Categories OR together; the collection scope ANDs with them, so
+    "InterIF problems about trees or graphs" is expressible.
+
     Args:
         request: The current HTTP request.
         search: Hybrid search over number, title, statement, source, and author.
         sort_by: Column sort key (relevance while searching; otherwise number_asc).
         category_slugs: Category slugs for OR-based filtering.
+        collection: Slug of the collection to scope the list to. A blank value means
+            "no scope"; an unknown one is a 404 rather than an empty, unnamed page.
         language: Statement-language filter; an unknown value means "all languages".
         page: 1-based page number.
         current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
@@ -261,17 +277,25 @@ async def arena_problem_list(
     effective_page = parse_page(page)
     effective_language = safe_statement_language(language)
 
+    # Resolve the scope once, here: the header needs the row anyway, and an
+    # unknown slug must 404 rather than render an empty page under no name.
+    scoped_collection = await admin_collection_service.get_collection_by_slug(session, collection)
+    if collection.strip() and scoped_collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
     pagination = await problem_browse_service.list_enabled_problems_paginated(
         session,
         page=effective_page,
         per_page=25,
         search=search,
         category_slugs=category_slugs or None,
+        collection_id=scoped_collection.id if scoped_collection else None,
         language=effective_language,
         sort_by=effective_sort,
         user_id=current_user.id if current_user else None,
     )
     all_categories = await problem_browse_service.get_all_categories(session)
+    all_collections = await problem_browse_service.get_all_collections(session)
 
     # Build the query-string fragment that detail links carry back to the list,
     # so the "Back to list" button can reconstruct the exact filtered/sorted state.
@@ -280,6 +304,8 @@ async def arena_problem_list(
         back_params["back_search"] = search
     if effective_language is not None:
         back_params["back_language"] = effective_language.value
+    if scoped_collection is not None:
+        back_params["back_collection_slug"] = scoped_collection.slug
     back_params_qs = urlencode(back_params)
     if category_slugs:
         back_params_qs += "&" + urlencode({"back_category_slugs": category_slugs}, doseq=True)
@@ -297,6 +323,8 @@ async def arena_problem_list(
                 "sort_was_explicit": sort_by in problem_browse_service.VALID_SORTS,
                 "selected_category_slugs": set(category_slugs or []),
                 "all_categories": all_categories,
+                "all_collections": all_collections,
+                "scoped_collection": scoped_collection,
                 "language": effective_language.value if effective_language else "",
                 "statement_languages": list(StatementLanguage),
                 "page": effective_page,
@@ -315,6 +343,7 @@ async def arena_problem_detail(
     back_sort_by: str = problem_browse_service.DEFAULT_SORT,
     back_category_slugs: list[str] = Query(default=[]),
     back_language: str = "",
+    back_collection_slug: str = "",
     continue_submission: str | None = Query(default=None, alias="continue"),
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
@@ -337,6 +366,7 @@ async def arena_problem_detail(
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
         back_language: Statement-language filter to restore.
+        back_collection_slug: Collection scope to restore on the way back.
         continue_submission: Optional submission UUID whose source code should
             pre-fill the editor.  Silently ignored if the submission does not
             belong to the current user or targets a different problem.
@@ -445,6 +475,7 @@ async def arena_problem_detail(
         back_sort_by=back_sort_by,
         back_category_slugs=back_category_slugs,
         back_language=back_language,
+        back_collection_slug=back_collection_slug,
     )
     rating_history_url = str(request.url_for("arena_problem_rating_history_public", arena_number=arena_number))
     difficulty = difficulty_display(
@@ -468,7 +499,17 @@ async def arena_problem_detail(
         and solved_at is None
     )
 
-    prev_number, next_number = await problem_browse_service.get_adjacent_problem_numbers(session, arena_number)
+    # The arrows walk the list the reader came from, so they take the same
+    # back-state the "Back to list" button does. An unknown collection slug here
+    # simply means no scope: a bad back-param must not 404 a valid problem.
+    back_collection = await admin_collection_service.get_collection_by_slug(session, back_collection_slug)
+    prev_number, next_number = await problem_browse_service.get_adjacent_problem_numbers(
+        session,
+        arena_number,
+        category_slugs=back_category_slugs or None,
+        collection_id=back_collection.id if back_collection else None,
+        language=safe_statement_language(back_language),
+    )
     prev_problem_url: str | None = None
     next_problem_url: str | None = None
     if prev_number is not None:
@@ -480,6 +521,7 @@ async def arena_problem_detail(
             back_sort_by=back_sort_by,
             back_category_slugs=back_category_slugs,
             back_language=back_language,
+            back_collection_slug=back_collection_slug,
         )
     if next_number is not None:
         next_problem_url = _problem_detail_url(
@@ -490,6 +532,7 @@ async def arena_problem_detail(
             back_sort_by=back_sort_by,
             back_category_slugs=back_category_slugs,
             back_language=back_language,
+            back_collection_slug=back_collection_slug,
         )
 
     templates = request.app.state.arena_templates
@@ -515,6 +558,7 @@ async def arena_problem_detail(
                 "back_search": back_search,
                 "back_sort_by": back_sort_by,
                 "back_category_slugs": back_category_slugs,
+                "back_collection_slug": back_collection_slug,
                 "rating_history_url": rating_history_url,
                 "difficulty": difficulty,
                 "prefill_source_code": prefill_source_code,

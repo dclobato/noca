@@ -1,34 +1,69 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared badge catalogue for the public, owner, and admin profile audiences.
+  Callers must set badge_audience to "public", "owner", or "admin".
 #}
-<div class="py-4">
-    {% set earned_ids = badges | map(attribute='badge.value') | list %}
-    <div class="arena-badge-grid">
-        {% for badge_key, metadata in badge_metadata.items() %}
-            {% if badge_key in earned_ids %}
-                <article class="arena-badge-item">
-                    <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
-                         alt="{{ metadata.label }} badge"
-                         class="arena-badge-image"
-                         width="96"
-                         height="96">
-                    <h2 class="arena-badge-name">{{ metadata.label }}</h2>
-                    <p class="arena-badge-description">{{ metadata.description }}</p>
-                </article>
-            {% else %}
-                <article class="arena-badge-item arena-badge-item--locked">
-                    <img src="{{ request.url_for('arena_static_img', path='badges/missing_badge.png') }}"
-                         alt="Locked badge"
-                         class="arena-badge-image arena-badge-image--locked"
-                         width="96"
-                         height="96">
-                    <h2 class="arena-badge-name">???</h2>
-                </article>
+{% macro earned_badge(user_badge, metadata, audience) %}
+    <article class="arena-badge-item">
+        <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
+             alt="{{ metadata.label }} badge"
+             class="arena-badge-image"
+             width="96"
+             height="96">
+        {% if audience == "public" %}
+            <h3 class="arena-badge-name">{{ metadata.label }}</h3>
+        {% else %}
+            <h2 class="arena-badge-name">{{ metadata.label }}</h2>
+        {% endif %}
+        <p class="arena-badge-description">{{ metadata.description }}</p>
+        {% if user_badge.submission %}
+            {% if audience in ["owner", "admin"] %}
+                <a href="{{ request.url_for('arena_submission_detail', submission_id=user_badge.submission.id) }}"
+                   class="arena-badge-provenance">View awarding submission</a>
+            {% elif audience == "public" and user_badge.submission.problem.enabled %}
+                <a href="{{ request.url_for('arena_problem_detail', arena_number=user_badge.submission.problem.arena_number) }}"
+                   class="arena-badge-provenance">View problem {{ user_badge.submission.problem.arena_number }}: {{ user_badge.submission.problem.title }}</a>
             {% endif %}
-        {% endfor %}
+        {% endif %}
+    </article>
+{% endmacro %}
+{% macro locked_badge() %}
+    <article class="arena-badge-item arena-badge-item--locked">
+        <img src="{{ request.url_for('arena_static_img', path='badges/missing_badge.png') }}"
+             alt="Locked badge"
+             class="arena-badge-image arena-badge-image--locked"
+             width="96"
+             height="96">
+        <h2 class="arena-badge-name">???</h2>
+    </article>
+{% endmacro %}
+{% if badge_audience == "public" %}
+    {% if badges %}
+        <div class="arena-badge-grid">
+            {% for user_badge in badges %}
+                {% set metadata = badge_metadata.get(user_badge.badge.value) %}
+                {% if metadata %}{{ earned_badge(user_badge, metadata, badge_audience) }}{% endif %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="arena-empty-state">No badges earned yet.</p>
+    {% endif %}
+{% elif badge_audience in ["owner", "admin"] %}
+    <div class="py-4">
+        <div class="arena-badge-grid">
+            {% for badge_key, metadata in badge_metadata.items() %}
+                {% set user_badge = badges | selectattr('badge.value', 'equalto', badge_key) | first %}
+                {% if user_badge %}
+                    {{ earned_badge(user_badge, metadata, badge_audience) }}
+                {% else %}
+                    {{ locked_badge() }}
+                {% endif %}
+            {% endfor %}
+        </div>
     </div>
-</div>
+{% endif %}

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,6 +18,7 @@ from shared.db_schema.arena import arena_user_badges as arena_user_badges_table
 from shared.enumerations import ArenaBadge
 
 if TYPE_CHECKING:
+    from arena.models.arena_submissions import ArenaSubmission
     from arena.models.arena_users import ArenaUser
 
 
@@ -29,8 +30,13 @@ class ArenaUserBadge(ArenaBase):
         user_id: FK to arena_users.
         badge: The earned badge identifier.
         awarded_at: Timestamp when the badge was awarded.
+        submission_id: FK to the submission that earned the badge, or None when
+            the badge has no single awarding submission (CLEAN_CODE), no anchor
+            can be derived under today's data, or the row predates the column and
+            no reconcile has re-derived it yet.
         created_at: Record creation timestamp.
         user: Back-reference to the owning ArenaUser.
+        submission: The awarding submission, when one is recorded.
     """
 
     __table__ = arena_user_badges_table
@@ -39,10 +45,16 @@ class ArenaUserBadge(ArenaBase):
     user_id: Mapped[str]
     badge: Mapped[ArenaBadge]
     awarded_at: Mapped[datetime]
+    submission_id: Mapped[str | None]
     created_at: Mapped[datetime]
 
     user: Mapped[ArenaUser] = relationship(
         "ArenaUser",
         back_populates="badges",
         foreign_keys=[arena_user_badges_table.c.user_id],
+    )
+    submission: Mapped[ArenaSubmission | None] = relationship(
+        "ArenaSubmission",
+        foreign_keys=[arena_user_badges_table.c.submission_id],
+        lazy="select",
     )

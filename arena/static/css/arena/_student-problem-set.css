@@ -65,7 +65,8 @@
     overflow-wrap: anywhere;
 }
 .arena-student-problem-set-problems,
-.arena-student-problem-set-results { padding-top: var(--arena-gutter); }
+.arena-student-problem-set-results,
+.arena-student-problem-set-feedback { padding-top: var(--arena-gutter); }
 .arena-student-problem-set-problems:last-child { padding-bottom: var(--arena-gutter); }
 .arena-student-problem-set-section-heading {
     display: flex;
@@ -195,6 +196,17 @@
     gap: 0.5rem;
     margin: 0 var(--arena-gutter) var(--arena-gutter);
 }
+.arena-student-problem-set-feedback {
+    margin-top: var(--arena-gutter);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-feedback-body {
+    margin: 0 var(--arena-gutter) var(--arena-gutter);
+    padding: var(--arena-space-md);
+    background-color: var(--arena-surface-container-low);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius-md);
+}
 
 @media (max-width: 991.98px) {
     .arena-student-problem-set-table-wrapper { overflow: visible; }
@@ -276,5 +288,6 @@
     .arena-student-problem-set-table-wrapper { margin-inline: var(--arena-space-md); }
     .arena-student-problem-set-rating,
     .arena-student-problem-set-summary,
-    .arena-student-problem-set-pending { margin-inline: var(--arena-space-md); }
+    .arena-student-problem-set-pending,
+    .arena-student-problem-set-feedback-body { margin-inline: var(--arena-space-md); }
 }

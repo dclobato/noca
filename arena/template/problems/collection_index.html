@@ -1,0 +1,58 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Collections{% endblock %}
+{% block nav_collections %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="collections_bookmark") }}
+                    Collections
+                </h1>
+            </div>
+            <p class="text-muted small">
+                A collection groups the problems of one event or one class. Pick a
+                collection to browse only its problems &mdash; the category filter
+                still narrows the list inside it.
+            </p>
+            <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-3">
+                <div class="col">
+                    <a href="{{ request.url_for("arena_problem_list") }}"
+                       class="arena-card h-100 d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="apps") }}</span>
+                        <div>
+                            <div class="fw-semibold">All collections</div>
+                            <div class="text-muted small">Browse the whole catalogue, unscoped.</div>
+                        </div>
+                    </a>
+                </div>
+                {% for collection in collections %}
+                    <div class="col">
+                        <a href="{{ request.url_for("arena_problem_list") }}?collection={{ collection.slug }}"
+                           class="arena-card h-100 d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                            <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="collections_bookmark") }}</span>
+                            <div>
+                                <div class="fw-semibold">{{ collection.name }}</div>
+                                <div class="text-muted small">
+                                    {{ collection.problem_count }} problem{{ 's' if collection.problem_count != 1 else '' }}
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                {% else %}
+                    <div class="col-12">
+                        <p class="arena-empty-state mb-0">No collections defined yet.</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

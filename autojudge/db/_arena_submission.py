@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,16 +10,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
 from typing import cast
 
-from sqlalchemy import delete, func, or_, select, true, update
+from sqlalchemy import delete, or_, select, true, update
 
+from autojudge.db._arena_solver import _ArenaSolverMixin
 from autojudge.db._base import (
     JUDGMENT_DISPATCHABLE_STATUSES,
     RESULT_VOLATILE_COLUMNS,
     AttemptClaim,
-    _DatabaseBase,
     _utcnow,
 )
 from autojudge.runtime_utils import decode_for_text_column
@@ -31,8 +30,6 @@ from autojudge.types import (
     QueuedArenaSubmission,
     RecoverableArenaSubmissionJob,
 )
-from shared.db_schema.arena import arena_problem_ratings as _arena_problem_rating
-from shared.db_schema.arena import arena_problem_solvers as _arena_problem_solver
 from shared.db_schema.arena import arena_problems as _arena_problem
 from shared.db_schema.arena import arena_submission_interactive_attempts as _arena_submission_interactive_attempt
 from shared.db_schema.arena import arena_submission_judgments as _arena_submission_judgment
@@ -41,7 +38,6 @@ from shared.db_schema.arena import arena_submissions as _arena_submission
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
 from shared.enumerations import ArenaNotificationKind, JudgmentStatus, ProblemValidatorType, Verdict
 from shared.services.arena_notification_service import create_arena_notification
-from shared.services.arena_query_helpers import is_excluded_from_problem_rating
 from shared.services.testcase_files import get_testcase_path
 from shared.tc_zip import normalize_testcase_bytes
 
@@ -54,7 +50,7 @@ _DISPATCHABLE_STATUSES = (*(status.value for status in JUDGMENT_DISPATCHABLE_STA
 logger = logging.getLogger(__name__)
 
 
-class _ArenaSubmissionMixin(_DatabaseBase):
+class _ArenaSubmissionMixin(_ArenaSolverMixin):
     """Worker-side Arena submission database operations."""
 
     async def get_arena_submission_for_judging(self, judgment_id: str) -> QueuedArenaSubmission:
@@ -239,12 +235,17 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         max_memory_kb: int | None = None,
         max_output_bytes: int | None = None,
     ) -> None:
-        """Persist the final Arena verdict and update first-solve stats.
+        """Persist the final Arena verdict and reconcile the pair's solver row.
 
         Fenced on this attempt's claim, so a verdict is only ever written by the
         attempt that owns the judgment. Without the fence a stalled attempt
         finishing late would overwrite its replacement's verdict, and its
         notification and first-solve accounting would run a second time.
+
+        The solver reconciliation runs on every finishing judgment, not only on
+        an Accepted verdict: a rejudge can withdraw an AC, and a rejudge to AC again leaves
+        a ``solved_at`` copied from a superseded judgment. See
+        :meth:`~autojudge.db._arena_solver._ArenaSolverMixin.reconcile_arena_solver`.
 
         Args:
             submission: The judged Arena submission payload.
@@ -278,8 +279,9 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         if result.rowcount == 0:
             await self._conn.rollback()
             raise JudgmentOwnershipLost(f"Arena judgment {submission.judgment_id} was claimed by another attempt")
-        if verdict == Verdict.AC:
-            await self._record_first_arena_solve(submission, now)
+        await self.reconcile_arena_solver(
+            submission.user_id, submission.problem_id, verdict_is_ac=verdict == Verdict.AC
+        )
         await create_arena_notification(
             self._conn,
             user_id=submission.user_id,
@@ -315,6 +317,11 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         — a judgment claimed by *another* attempt is that attempt's to finish,
         while an unclaimed one (the job failed before dispatch could stamp it)
         is legitimately ours to fail. A fenced-out call is a logged no-op.
+
+        A judgment that reaches ``FAILED`` is terminal and produced no verdict,
+        so the submitter's solver row is reconciled here too. Without it, an
+        Accepted judgment superseded for a rejudge that then failed would leave
+        the pair counted as solved with no Accepted submission behind it.
 
         Args:
             judgment_id: UUID of the Arena judgment.
@@ -353,6 +360,8 @@ class _ArenaSubmissionMixin(_DatabaseBase):
                 judgment_id,
                 error_message,
             )
+        else:
+            await self.reconcile_arena_solvers_for_judgments([judgment_id])
         await self._conn.commit()
 
     async def insert_arena_test_result(
@@ -463,48 +472,3 @@ class _ArenaSubmissionMixin(_DatabaseBase):
                 )
             )
         return cases
-
-    async def _record_first_arena_solve(self, submission: QueuedArenaSubmission, solved_at: datetime) -> None:
-        """Record personal first solve and participant-only aggregate solve stats."""
-        existing = await self._conn.execute(
-            select(_arena_problem_solver.c.problem_id).where(
-                _arena_problem_solver.c.problem_id == submission.problem_id,
-                _arena_problem_solver.c.user_id == submission.user_id,
-            )
-        )
-        if existing.scalar_one_or_none() is not None:
-            return
-
-        tries = await self._conn.scalar(
-            select(func.count())
-            .select_from(_arena_submission)
-            .where(
-                _arena_submission.c.problem_id == submission.problem_id,
-                _arena_submission.c.user_id == submission.user_id,
-                _arena_submission.c.created_at
-                <= select(_arena_submission.c.created_at)
-                .where(_arena_submission.c.id == submission.submission_id)
-                .scalar_subquery(),
-            )
-        )
-        await self._conn.execute(
-            _arena_problem_solver.insert().values(
-                problem_id=submission.problem_id,
-                user_id=submission.user_id,
-                solved_at=solved_at,
-            )
-        )
-        owner_id = await self._conn.scalar(
-            select(_arena_problem.c.owner_id).where(_arena_problem.c.id == submission.problem_id)
-        )
-        # The problem owner never inflates the aggregate solve stats.
-        if is_excluded_from_problem_rating(submission.user_id, owner_id):
-            return
-        await self._conn.execute(
-            update(_arena_problem_rating)
-            .where(_arena_problem_rating.c.problem_id == submission.problem_id)
-            .values(
-                solved_users=_arena_problem_rating.c.solved_users + 1,
-                total_tries_before_solve=_arena_problem_rating.c.total_tries_before_solve + int(tries or 0),
-            )
-        )

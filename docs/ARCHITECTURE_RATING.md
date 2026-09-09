@@ -32,28 +32,68 @@ batch rather than the whole submission history — and a parallel per-user stati
 distribution snapshots stored in `arena_user_statistics` and read by the Arena
 public profile page. A third independent loop (`run_badge_assignment_loop`, on its
 own `NOCA_RATING_BADGE_INTERVAL`
-timer) awards Arena gamification badges from Accepted submissions
+timer) awards Arena gamification badges from submission and catalogue state
 (`shared.services.arena_badges`): each cycle runs a cheap incremental pass bounded by a
-watermark, and periodically a full reconciliation pass re-evaluates all Accepted history
-so dynamic badges (CLEAN_CODE) and late data stay correct.
+watermark, and periodically a full reconciliation pass re-evaluates all relevant
+history so dynamic badges (CLEAN_CODE and ROCK_CRACKER) and late data stay correct.
 
 ## Badges
 
-Arena gamification adds the `arena_user_badges` table to the shared schema: an
-append-only ledger of which badge each Arena user has earned (`ArenaBadge` enum)
-and when (`awarded_at`), with a unique `(user_id, badge)` constraint so a badge is
-awarded to a user at most once. The award logic that inserts rows is owned by the
+Arena gamification adds the `arena_user_badges` table to the shared schema: a
+mostly append-only set of badges each Arena user currently holds (`ArenaBadge`
+enum), when each row was awarded (`awarded_at`), and what earned it
+(`submission_id`). A unique `(user_id, badge)` constraint permits at most one
+current row; dynamic badges can be deleted and awarded again later. The
+award logic that inserts rows is owned by the
 rating worker's badge-assignment loop (`shared.services.arena_badges`); the Arena
-ORM exposes the ledger through `ArenaUser.badges`. Streak badges are backed by the
+ORM exposes the ledger through `ArenaUser.badges`, and each row's awarding
+submission through `ArenaUserBadge.submission`. Streak badges are backed by the
 `arena_users.current_streak` / `longest_streak` / `last_ac_date` columns the loop
 recomputes, and the loop tracks its incremental watermark plus last full
-reconciliation in the singleton `arena_badge_cycle_state` table. Badge families
+reconciliation in the singleton `arena_badge_cycle_state` table.
+
+`submission_id` is a nullable FK to `arena_submissions` with `ON DELETE SET
+NULL`, so deleting a submission clears the anchor instead of deleting the badge
+it earned. It is nullable for three reasons beyond that: CLEAN_CODE has no single
+awarding submission, a set-scoped badge whose problem set was deleted can no
+longer have one derived, and a row written before the column existed keeps
+`NULL` until a reconcile re-derives it. A cleared anchor is refilled by the next
+reconcile rather than staying `NULL`, since nothing distinguishes it from a row
+that was never anchored. See [Which submission earned a
+badge](ARENA_BADGES.md#which-submission-earned-a-badge) for what each rule
+records and why the backfill is best-effort. Badge families
 cover per-submission recovery, solve streaks, distinct solved-problem counts,
 distinct-language counts per problem, first-solver and problem-set hand-in
 positions, latest on-time problem-set solves after deadlines, non-AC bursts,
 unbroken distinct-AC runs, and dynamic low-solve-rate problem solves.
 
+ROCK_CRACKER derives its solve rate directly from authoritative data rather than
+`arena_problem_ratings`: distinct raw submitters are attempted users, current
+`arena_problem_solvers` rows are solved users, and both exclude the problem
+owner. Incremental cycles evaluate complete populations for problems named by
+either their AC or non-AC event batches and only award. Full cycles aggregate
+the whole catalogue and revoke users outside the complete qualifying set. A
+surviving row keeps its existing submission anchor; a revoked badge that is
+earned again receives a fresh row, timestamp, and current qualifying anchor.
+
 ## Problem difficulty
+
+Difficulty is computed over the users who **currently** hold an Accepted
+submission. `rate_all_problems()` starts each problem by rewriting
+`arena_problem_ratings.solved_users` and `total_tries_before_solve` from
+`arena_problem_solvers` (`_recompute_stats_for_problem`), and the judge keeps
+that table in step with the live verdicts on every Arena judgment that finishes
+with a verdict or `FAILED`, so a
+rejudge that withdraws an AC removes the solver and the next cycle recomputes
+difficulty without them. Those two counters are therefore a batch-derived cache
+of the solver rows rather than an independently maintained tally, and the judge
+writes neither of them: an absent solver row does not mean a first solve, since
+a withdrawn AC deletes the row and leaves the counters alone, so a later AC for
+the same pair would credit the user twice. Between cycles the two counters
+therefore lag the solver rows. The only surface reading them in the meantime is
+the AC-rate percentage on the problem browse list; the displayed difficulty is
+written solely by this cycle and does not move until it runs.
+
 
 The rating worker's problem-difficulty cycle (`rate_all_problems()`) ends by
 snapshotting a 20-bin histogram of the catalogue's current difficulty

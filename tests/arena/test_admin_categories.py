@@ -226,9 +226,9 @@ async def test_admin_category_list_renders_for_admin(session: AsyncSession) -> N
     assert response.status_code == 200
     assert "Graphs" in response.text
     assert "graphs" in response.text
-    assert 'data-category-color="#0d6efd"' in response.text
+    assert 'data-swatch-color="#0d6efd"' in response.text
     assert "arena_admin_category_edit" not in response.text
-    assert "data-category-delete-button" in response.text
+    assert "data-taxonomy-delete-button" in response.text
 
 
 @pytest.mark.asyncio
@@ -277,7 +277,7 @@ async def test_admin_category_create_edit_delete_flow(session: AsyncSession) -> 
             follow_redirects=False,
         )
     assert edit_page.status_code == 200
-    assert "data-category-delete-button" in edit_page.text
+    assert "data-taxonomy-delete-button" in edit_page.text
     assert update.status_code == 303
     await session.refresh(category)
     assert category.name == "DP"

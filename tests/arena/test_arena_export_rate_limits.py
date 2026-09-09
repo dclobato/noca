@@ -37,6 +37,7 @@ from arena.routes import (
     admin_problem_io,
     problem_sets_full_report,
     problem_sets_report,
+    problem_sets_student_feedback,
 )
 from shared.enumerations import ArenaRole
 
@@ -49,6 +50,16 @@ _EXPECTED: tuple[tuple[Any, str, Guard], ...] = (
     (problem_sets_full_report.router, "arena_class_full_report_csv", arena_teacher_report_rate_limit),
     (problem_sets_report.router, "arena_class_problem_set_report", arena_teacher_report_rate_limit),
     (problem_sets_report.router, "arena_class_problem_set_report_student", arena_teacher_report_rate_limit),
+    (
+        problem_sets_student_feedback.router,
+        "arena_class_problem_set_student_feedback_save",
+        arena_teacher_report_rate_limit,
+    ),
+    (
+        problem_sets_student_feedback.router,
+        "arena_class_problem_set_student_feedback_remove",
+        arena_teacher_report_rate_limit,
+    ),
 )
 
 

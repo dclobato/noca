@@ -46,18 +46,29 @@ from the admin export routes.
 ## Format version
 
 ```json
-{ "format_version": 3 }
+{ "format_version": 4 }
 ```
 
-Every package written by this build carries `format_version: 3`. On import:
+Every package written by this build carries `format_version: 4`. On import:
 
 - an **absent** key means version 1, the format that predates the key;
-- explicit `1`, `2`, and `3` are all accepted;
+- explicit `1`, `2`, `3`, and `4` are all accepted;
 - **any other value** fails *before* any other metadata is interpreted, with a message naming the
   supported versions.
 
 Checking the version first is deliberate: interpreting half of a package's metadata under
 assumptions the package never agreed to is worse than refusing it.
+
+### What version 4 changes
+
+Version 4 adds one optional key, `collection`: the slug of the Arena collection — an event
+(ICPC, Maratona SBC, InterIF) or a class (Iniciantes, Expressões regulares) — the problem is
+filed under. A problem belongs to at most one, so the value is a single slug, not an array.
+
+The key is **absent in every earlier version**, which reads as "unfiled", so a version 3
+package imports unchanged. It was a version bump rather than a silent addition precisely
+because a version 3 package promises a fixed set of keys: writing a new one while still
+declaring `format_version: 3` would break that promise for any consumer that trusts it.
 
 ### What version 3 changes
 
@@ -269,7 +280,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
@@ -289,6 +300,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
   "pids_limit": 64,
   "output_limit_in_bytes": 65536,
   "categories": ["sample", "math"],
+  "collection": null,
   "sample_testcases": [1, 3],
   "image": "image.png",
   "image_caption": "A red square.",
@@ -316,7 +328,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 | Field | Type | Required | Default when absent | Description |
 | --- | --- | --- | --- | --- |
-| `format_version` | integer | no | `1` | Must be `1`, `2`, or `3` when present. New exports write `3`. |
+| `format_version` | integer | no | `1` | Must be `1`, `2`, `3`, or `4` when present. New exports write `4`. |
 | `validator_type` | `"standard"`\|`"interactive"` | **yes on v2** | derived on v1 | The validation strategy. Required in version 2; derived from `custom_validator` presence in version 1, where the key is ignored if present. `"checker"` parses but is rejected as unsupported. |
 | `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
 | `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
@@ -333,6 +345,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 | `pids_limit` | integer ≥ 1 | no | `64` | cgroup `pids` limit. |
 | `output_limit_in_bytes` | integer ≥ 1 | no | `65536` | Max stdout bytes. **Never null**: both problem tables make the column NOT NULL. |
 | `categories` | array of strings | no | `[]` | Sequence preserved in the package. |
+| `collection` | string or null | no | `null` | Slug of the collection the problem is filed under; at most one. Added in version 4. Arena only: Contest writes `null`. |
 | `sample_testcases` | array of integers | no | `[]` | Which **source** ordinals are public. See below. |
 | `image` | filename string \| null | no | auto-detect | When set, the named member must exist. |
 | `image_caption` | string \| null | no | `null` | Max **512** characters. |
@@ -712,7 +725,7 @@ reader resolves on its own but the operator should know about is a structured wa
 as a flash on the import page.
 
 Warnings: `macos_metadata`, `orphan_explanation`, `ignored_interactive_output`,
-`interactions_dropped`, `unknown_categories`, `disallowed_language_limits`,
+`interactions_dropped`, `unknown_categories`, `unknown_collection`, `disallowed_language_limits`,
 `integrity_manifest_missing`, `undeclared_editorial`,
 `validator_extension_mismatch`.
 
@@ -732,6 +745,7 @@ invalid value is an error.
 | `title`, `author`, `notes` | yes | yes | — | — |
 | `time_limit_ms`, `memory_limit_kb`, `pids_limit`, `output_limit_in_bytes` | yes | yes | — | — |
 | `categories` | yes (creates unknown) | yes (drops unknown) | unknown categories | — |
+| `collection` | no | **yes** (drops unknown) | — | **`collection`** |
 | `sample_testcases` | yes | yes | — | — |
 | `image`, `image_caption` | yes | yes | — | — |
 | statement, explanations, interactions, validator | yes | yes | — | — |
@@ -810,7 +824,7 @@ noca-sample-problem-a-plus-b.zip
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
@@ -825,6 +839,7 @@ noca-sample-problem-a-plus-b.zip
   "pids_limit": 64,
   "output_limit_in_bytes": 1048576,
   "categories": ["sample", "math"],
+  "collection": null,
   "sample_testcases": [1],
   "image": null,
   "image_caption": null,
@@ -871,7 +886,7 @@ my-contest-problem.zip
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "validator_type": "standard",
   "title": "Geometry Maze",
   "author": "Jane Doe",
@@ -882,6 +897,7 @@ my-contest-problem.zip
   "pids_limit": 64,
   "output_limit_in_bytes": 1048576,
   "categories": ["geometry", "graph"],
+  "collection": null,
   "sample_testcases": [1],
   "image": "image.png",
   "image_caption": "Figure 1. The maze layout.",
@@ -909,7 +925,7 @@ number-guessing.zip
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "validator_type": "interactive",
   "title": "Number Guessing",
   "author": "Jane Doe",
@@ -921,6 +937,7 @@ number-guessing.zip
   "pids_limit": 64,
   "output_limit_in_bytes": 65536,
   "categories": ["interactive", "search"],
+  "collection": null,
   "sample_testcases": [],
   "custom_validator": {"language_id": "python3", "source_file": "validator/validator.py"}
 }

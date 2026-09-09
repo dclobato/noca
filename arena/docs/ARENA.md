@@ -11,7 +11,7 @@ The currently implemented surface is strongest in these areas:
 
 - account lifecycle and authentication
 - user profile, security, location, and affiliation management
-- admin management of users, categories, affiliations, problems, and test cases
+- admin management of users, categories, collections, affiliations, problems, and test cases
 - public problem browsing and sample test-case download
 - rating computation infrastructure and rating-history visualization
 
@@ -59,6 +59,7 @@ The app then includes routers from:
 - `problems`
 - `affiliations`
 - `admin_categories`
+- `admin_collections`
 - `admin_users`
 - `admin_affiliations`
 - `admin_problems`
@@ -308,6 +309,7 @@ profile.
 |---|---|
 | Affiliation management | `/admin/affiliations`, `/admin/affiliations/new`, `/admin/affiliations/{id}/edit`, `/admin/affiliations/{id}/delete` |
 | Category management | `/admin/categories`, `/admin/categories/new`, `/admin/categories/{id}/edit`, `/admin/categories/{id}/delete` |
+| Collection management | `/admin/collections`, `/admin/collections/new`, `/admin/collections/{id}/edit`, `/admin/collections/{id}/delete` |
 | User management | `/admin/users`, `/admin/users/{id}`, plus role/activation/password/photo/2FA/name/location/affiliation actions |
 | Problem management | `/admin/problems`, `/admin/problems/new`, `/admin/problems/{id}/edit`, `/admin/problems/{id}/toggle-enabled` |
 | Test case management | add/edit/delete test cases and ZIP replace under `/admin/problems/{problem_id}/testcases/*` |
@@ -368,9 +370,10 @@ The Arena admin area is already substantial:
 - user profile inspection with direct moderation actions
 - affiliation CRUD with name/URL/country/subdivision validation, optional logo upload (1:1 crop, max 2 MB), and explicit user-detach on delete
 - category CRUD with validated slugs/colors and linked-problem counts
-- problem list with search, owner filter, category filter, rating sort, and enable/disable toggle
+- collection CRUD with the same validation and filed-problem counts
+- problem list with search, owner filter, category filter, collection filter, rating sort, and enable/disable toggle
 - problem form with separate owner and author metadata, optional public license, markdown statement
-  editor, LaTeX and Mermaid support, optional image upload, and category assignment
+  editor, LaTeX and Mermaid support, optional image upload, and category and collection assignment
 - per-problem rating-history chart
 - test case CRUD plus ZIP bulk replace
 
@@ -394,8 +397,10 @@ The Arena admin area is already substantial:
 | `pagination_service.py` | reusable pagination primitives |
 | `admin_user_service.py` | admin-side user listing and moderation actions |
 | `admin_category_service.py` | category validation and CRUD |
+| `admin_collection_service.py` | collection validation and CRUD |
+| `taxonomy_validation.py` | slug, color, and length rules; slug and length are shared by categories and collections, color is category-only |
 | `admin_affiliation_service.py` | affiliation validation and CRUD with explicit user-detach on delete |
-| `admin_problem_service.py` | problem CRUD, filtering, category binding, and owner lookup |
+| `admin_problem_service.py` | problem CRUD, filtering, category and collection binding, and owner lookup |
 | `admin_problem_tc_service.py` | test case CRUD and ZIP replacement |
 | `problem_tc_export_service.py` | ZIP export of sample test cases |
 | `session_service.py` | sliding login-session token rotation and safe login redirects |
@@ -435,6 +440,7 @@ Notable user fields already in use:
 
 | Table | Notes |
 |---|---|
+| `arena_collections` | flat collection taxonomy (events and classes): name and slug only, no badge color; a problem has at most one, through `arena_problems.collection_id` (`ON DELETE SET NULL`) |
 | `arena_problem_categories` | flat category taxonomy with color badges |
 | `arena_problem_category_map` | many-to-many problem/category link |
 | `arena_problems` | public number, limits, statement, optional editor-only editorial with a release policy (`never`/`always`/`after_ac`, default `never`, not yet enforced), owner, author, license, image, and enabled flag |
@@ -450,6 +456,7 @@ Important problem-model behavior:
 - statement content is validated as Arena-safe markdown
 - problem images are optional and stored inline as base64 + MIME type
 - categories are replace-updated through the junction table
+- the collection is a single validated foreign key, resolved before assignment so a stale form is a field error rather than an integrity error
 
 ### Submission and judging tables
 

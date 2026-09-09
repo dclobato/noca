@@ -13,12 +13,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_badges import ArenaUserBadge
+from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_user_google_identity import ArenaUserGoogleIdentity
 from arena.models.arena_users import ArenaUser
 from arena.routes.user_profile_api import router as profile_api_router
@@ -255,6 +257,7 @@ async def arena_user_profile(
     elif active_tab == "badges":
         badge_result = await session.scalars(
             select(ArenaUserBadge)
+            .options(joinedload(ArenaUserBadge.submission).joinedload(ArenaSubmission.problem))
             .where(ArenaUserBadge.user_id == current_user.id)
             .order_by(ArenaUserBadge.awarded_at.desc(), ArenaUserBadge.id.desc())
         )

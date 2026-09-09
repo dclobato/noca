@@ -52,7 +52,7 @@ from arena.routes.auth_throttle import (
     reset_verification_throttle,
     throttled_response,
 )
-from arena.services import admin_problem_service, rejudge_service
+from arena.services import admin_collection_service, admin_problem_service, rejudge_service
 from arena.services.pagination_service import parse_page
 from arena.services.statement_language_service import (
     safe_statement_language,
@@ -87,6 +87,7 @@ async def admin_problem_list(
     sort_by: str | None = None,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -101,12 +102,17 @@ async def admin_problem_list(
     effective_enabled = parse_enabled_filter(enabled)
     effective_editorial = parse_editorial_filter(editorial)
 
+    # Unknown slug means "no such scope"; the admin list simply shows nothing
+    # filtered rather than 404ing, because it is reached from a filter form.
+    scoped_collection = await admin_collection_service.get_collection_by_slug(session, collection)
+
     pagination = await admin_problem_service.list_problems_paginated(
         session,
         page=parse_page(page),
         per_page=per_page_value,
         search=search,
         category_slugs=category_slugs or [],
+        collection_id=scoped_collection.id if scoped_collection else None,
         owner_id=owner_id if (is_adm and owner_id) else None,
         language=effective_language,
         enabled=effective_enabled,
@@ -117,6 +123,7 @@ async def admin_problem_list(
     )
     owners = await admin_problem_service.list_owners(session) if is_adm else []
     all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
+    all_collections = await admin_collection_service.list_collections(session)
     templates = request.app.state.arena_templates
     return html_response(
         templates.TemplateResponse(
@@ -139,6 +146,8 @@ async def admin_problem_list(
                 "editorial_policy_colors": EDITORIAL_POLICY_COLORS,
                 "owners": owners,
                 "all_categories": all_categories,
+                "all_collections": all_collections,
+                "selected_collection_slug": scoped_collection.slug if scoped_collection else "",
                 "current_user": current_user,
                 "is_admin": is_adm,
             },
@@ -157,6 +166,7 @@ async def admin_problem_new(
     sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -181,6 +191,7 @@ async def admin_problem_new(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        collection=collection,
         language=language,
         enabled=enabled,
         editorial=editorial,
@@ -197,6 +208,7 @@ async def admin_problem_new(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        collection=collection,
         language=language,
         enabled=enabled,
         editorial=editorial,
@@ -219,9 +231,11 @@ async def admin_problem_new(
             editorial="",
             editorial_release_policy=ArenaEditorialReleasePolicy.NEVER.value,
             category_ids=[],
+            collection_id="",
             image_caption="",
         ),
         cats_data=[],
+        all_collections=await admin_collection_service.list_collections(session),
         back_url=back_url,
         state=return_state(
             page=page,
@@ -230,6 +244,7 @@ async def admin_problem_new(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            collection=collection,
             language=language,
             enabled=enabled,
             editorial=editorial,
@@ -255,6 +270,7 @@ async def admin_problem_edit(
     sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    collection: str = "",
     language: str = "",
     enabled: str = "",
     editorial: str = "",
@@ -275,7 +291,7 @@ async def admin_problem_edit(
         # The stale "?tab=" that named the moved pane has nothing to say on the
         # judgment page it moved to, so it is dropped rather than carried forward.
         return RedirectResponse(url=judgment_page_url(request, problem_id, moved, query=""), status_code=303)
-    all_categories, problem_owner = await edit_form_extras(problem, current_user, session)
+    all_categories, all_collections, problem_owner = await edit_form_extras(problem, current_user, session)
     selected_ids = [cat.id for cat in problem.categories]
     safe_next = safe_next_path(next)
     back_url = safe_next or problem_list_url(
@@ -286,6 +302,7 @@ async def admin_problem_edit(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        collection=collection,
         language=language,
         enabled=enabled,
         editorial=editorial,
@@ -308,6 +325,7 @@ async def admin_problem_edit(
             editorial=problem.editorial or "",
             editorial_release_policy=problem.editorial_release_policy.value,
             category_ids=selected_ids,
+            collection_id=problem.collection_id or "",
             image_caption=problem.problem_image_caption or "",
             notes=problem.notes or "",
             license=problem.license or "",
@@ -315,6 +333,7 @@ async def admin_problem_edit(
             expected_difficulty=str(problem.expected_difficulty) if problem.expected_difficulty is not None else "",
         ),
         cats_data=selected_cats_data(all_categories, selected_ids),
+        all_collections=all_collections,
         back_url=back_url,
         next_url=safe_next,
         state=return_state(
@@ -324,6 +343,7 @@ async def admin_problem_edit(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            collection=collection,
             language=language,
             enabled=enabled,
             editorial=editorial,
@@ -345,6 +365,7 @@ async def admin_problem_toggle_enabled(
     sort_by: str = Query(admin_problem_service.DEFAULT_SORT),
     owner_id: str = Query(""),
     category_slugs: list[str] | None = Query(None),
+    collection: str = Query(""),
     language: str = Query(""),
     enabled: str = Query(""),
     editorial: str = Query(""),
@@ -373,6 +394,7 @@ async def admin_problem_toggle_enabled(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            collection=collection,
             language=language,
             enabled=enabled,
             editorial=editorial,
@@ -446,6 +468,7 @@ async def admin_problem_delete(
     sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     owner_id: str = Form(""),
     category_slugs: list[str] = Form(default=[]),
+    collection: str = Form(""),
     language: str = Form(""),
     enabled: str = Form(""),
     editorial: str = Form(""),
@@ -504,6 +527,7 @@ async def admin_problem_delete(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            collection=collection,
             language=language,
             enabled=enabled,
             editorial=editorial,

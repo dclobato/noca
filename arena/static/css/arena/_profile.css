@@ -211,6 +211,14 @@
     line-height: 1.4;
 }
 
+.arena-badge-provenance {
+    margin-top: 0.5rem;
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
 .arena-badge-item--locked .arena-badge-name {
     color: var(--arena-on-surface-variant);
 }

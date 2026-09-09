@@ -10,6 +10,12 @@
 {% block title_suffix %}&mdash; {{ detail.name }}{% endblock %}
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_registered %}active{% endblock %}
+{% block extra_head %}
+    {% if detail.feedback %}
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+    {% endif %}
+{% endblock %}
 {% block content %}
     <div class="container-fluid px-0 px-md-3 py-3 arena-student-problem-set-page">
         <div class="arena-card arena-student-problem-set-card mb-3">
@@ -104,6 +110,21 @@
                     </table>
                 </div>
             </section>
+            {% if detail.feedback %}
+                <section class="arena-student-problem-set-feedback"
+                         aria-labelledby="student-problem-set-feedback-heading">
+                    <div class="arena-student-problem-set-section-heading">
+                        <h2 class="arena-student-problem-set-section-title"
+                            id="student-problem-set-feedback-heading">
+                            {{ render_icon(icon="rate_review") }}
+                            Overall feedback
+                        </h2>
+                    </div>
+                    <div class="arena-student-problem-set-feedback-body noca-markdown"
+                         data-noca-markdown="problem-set-feedback-src"></div>
+                    <script id="problem-set-feedback-src" type="text/plain">{{ detail.feedback.feedback_text | e }}</script>
+                </section>
+            {% endif %}
             {% if detail.is_due %}
                 <section class="arena-student-problem-set-results"
                          aria-labelledby="student-problem-set-results-heading">
@@ -154,5 +175,12 @@
     </div>
 {% endblock %}
 {% block extra_script %}
+    {% if detail.feedback %}
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"></script>
+    {% endif %}
     <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"></script>
 {% endblock %}

@@ -41,6 +41,7 @@ def _problem_detail_url(
     back_search: str,
     back_sort_by: str,
     back_category_slugs: list[str],
+    back_collection_slug: str = "",
 ) -> str:
     """Build the problem detail redirect URL with list-return parameters."""
     params: dict[str, str] = {}
@@ -50,6 +51,8 @@ def _problem_detail_url(
         params["back_search"] = back_search
     if back_sort_by and back_sort_by != _DEFAULT_SORT:
         params["back_sort_by"] = back_sort_by
+    if back_collection_slug:
+        params["back_collection_slug"] = back_collection_slug
     base_url = str(request.url_for("arena_problem_detail", arena_number=arena_number))
     scalar_query = urlencode(params)
     category_query = urlencode(
@@ -73,6 +76,7 @@ async def arena_problem_problem_set_add(
     back_search: Annotated[str, Form()] = "",
     back_sort_by: Annotated[str, Form()] = _DEFAULT_SORT,
     back_category_slugs: Annotated[list[str] | None, Form()] = None,
+    back_collection_slug: Annotated[str, Form()] = "",
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -84,6 +88,7 @@ async def arena_problem_problem_set_add(
         back_search=back_search,
         back_sort_by=back_sort_by,
         back_category_slugs=back_category_slugs or [],
+        back_collection_slug=back_collection_slug,
     )
     now = datetime.now(UTC)
     try:

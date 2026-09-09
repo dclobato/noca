@@ -280,12 +280,11 @@ async def test_removed_member_excluded(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_ac_counts_include_already_reviewed_submissions(session: AsyncSession) -> None:
-    """A non-AC submission that already has teacher feedback still counts as needing it.
+async def test_non_ac_counts_exclude_already_reviewed_submissions(session: AsyncSession) -> None:
+    """A student whose latest non-AC attempt already has feedback is not counted.
 
-    The "needs feedback" count reflects whether the student has solved the
-    problem yet (any AC submission), not whether feedback has been given
-    before — the badge stays on until an AC lands.
+    The "needs feedback" count flags students who are stuck *and* waiting: no AC
+    yet, and nobody has replied to their most recent attempt.
     """
     teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
     student_a = await _make_user(session)
@@ -307,7 +306,39 @@ async def test_non_ac_counts_include_already_reviewed_submissions(session: Async
     await session.flush()
 
     counts = await svc.get_non_ac_counts_for_set(session, actor_id=teacher.id, actor_role=teacher.role, set_id=set_id)
-    assert counts == {problem.id: 2}
+    assert counts == {problem.id: 1}
+
+
+@pytest.mark.asyncio
+async def test_non_ac_counts_include_resubmission_after_feedback(session: AsyncSession) -> None:
+    """Submitting again after feedback, still without an AC, counts the student anew."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    student = await _make_user(session)
+    language = await _make_language(session)
+    arena_class = await _make_class(session, teacher)
+    await _enroll(session, arena_class, student, status=ArenaClassMembershipStatus.ACTIVE)
+    problem = await _make_problem(session, teacher)
+    set_id = await _accepting_set(session, teacher, arena_class, problems=[problem])
+
+    reviewed_submission = await _submit(
+        session,
+        user=student,
+        problem=problem,
+        language=language,
+        set_id=set_id,
+        verdict=Verdict.WA,
+        submitted_at=NOW - timedelta(minutes=5),
+    )
+    await upsert_teacher_feedback(
+        session, submission_id=reviewed_submission.id, teacher_id=teacher.id, feedback_text="Fix the off-by-one."
+    )
+    await _submit(
+        session, user=student, problem=problem, language=language, set_id=set_id, verdict=Verdict.WA, submitted_at=NOW
+    )
+    await session.flush()
+
+    counts = await svc.get_non_ac_counts_for_set(session, actor_id=teacher.id, actor_role=teacher.role, set_id=set_id)
+    assert counts == {problem.id: 1}
 
 
 @pytest.mark.asyncio

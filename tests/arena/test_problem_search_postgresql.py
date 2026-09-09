@@ -37,6 +37,7 @@ from shared.db_schema.arena import (
     arena_users,
 )
 from shared.enumerations import ArenaRole, ProblemValidatorType
+from tests.conftest import skip_unless_schema_at_head
 
 
 @pytest_asyncio.fixture
@@ -59,6 +60,7 @@ async def postgres_search_session() -> AsyncIterator[AsyncSession]:
             # Broad by design, as in the Valkey fixtures: the driver raises its own
             # unwrapped errors (bad password, missing database) alongside OSError.
             pytest.skip(f"PostgreSQL at {safe_url} is unavailable for tests: {exc}")
+        await skip_unless_schema_at_head(connection, safe_url)
         try:
             transaction = await connection.begin()
             async with AsyncSession(bind=connection, expire_on_commit=False) as session:

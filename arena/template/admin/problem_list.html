@@ -82,8 +82,8 @@
                                                    value="{{ cat.slug }}"
                                                    {% if cat.slug in selected_category_slugs %}checked{% endif %}>
                                             <span class="badge rounded-pill"
-                                                  style="background:{{ cat.color }};
-                                                         color:{{ cat.foreground_color }}">{{ cat.name }}</span>
+                                                  data-swatch-color="{{ cat.color }}"
+                                                  data-swatch-foreground="{{ cat.foreground_color }}">{{ cat.name }}</span>
                                         </label>
                                     </div>
                                 {% else %}
@@ -92,6 +92,20 @@
                             </div>
                         </div>
                     </div>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="collection">Collection</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="collection"
+                            name="collection">
+                        <option value="">All collections</option>
+                        {% for coll in all_collections %}
+                            <option value="{{ coll.slug }}"
+                                    {% if selected_collection_slug == coll.slug %}selected{% endif %}>
+                                {{ coll.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div>
                     <label class="form-label form-label-sm mb-1" for="language">Language</label>
@@ -142,7 +156,7 @@
                 </div>
                 {% if sort_was_explicit %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or language or selected_enabled or selected_editorial or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
+                {% set _filters_active = search or language or selected_collection_slug or selected_enabled or selected_editorial or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
                 {% with clear_url=request.url_for("arena_admin_problem_list"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
@@ -201,6 +215,7 @@
                                     {% endif %}
                                 </a>
                             </th>
+                            <th>Collection</th>
                             <th>Categories</th>
                             <th class="text-end column-width-shrink">TCs</th>
                             <th class="text-center column-width-shrink">Editorial</th>
@@ -233,10 +248,17 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if row.collection %}
+                                        {{ row.collection.name }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     {% for cat in row.categories %}
                                         <span class="badge rounded-pill me-1"
-                                              style="background:{{ cat.color }};
-                                                     color:{{ cat.foreground_color }}">{{ cat.name }}</span>
+                                              data-swatch-color="{{ cat.color }}"
+                                              data-swatch-foreground="{{ cat.foreground_color }}">{{ cat.name }}</span>
                                     {% endfor %}
                                 </td>
                                 <td class="text-end column-width-shrink">{{ row.public_tc_count }}/{{ row.private_tc_count }}</td>
@@ -333,6 +355,7 @@
     </div>
 {% endblock %}
 {% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='swatch-color.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-problem-list.js') }}?v={{ app_version }}"></script>
 {% endblock %}

@@ -38,10 +38,12 @@ from arena.dependencies.problem_export_rate_limit import PROBLEM_EXPORT_LIMITER
 from arena.dependencies.user_read_rate_limit import USER_READ_LIMITER
 from arena.models.arena_problems import ArenaProblem
 from arena.routes.admin_announcements import router as arena_admin_announcements_router
+from arena.routes.admin_collections import router as arena_admin_collections_router
 from arena.routes.admin_dashboard_lockouts import router as arena_admin_dashboard_lockouts_router
 from arena.routes.announcements import router as arena_announcements_router
 from arena.routes.auth_common import AUTH_RATE_LIMITER, SIGNUP_RATE_LIMITER, SIGNUP_REQUEST_RATE_LIMITER
 from arena.routes.presence import router as arena_presence_router
+from arena.routes.problem_collections import router as arena_problem_collections_router
 from arena.services.ai_review_request_service import AI_REVIEW_RATE_LIMITER
 from arena.services.geocode_service import GEOCODE_USER_RATE_LIMITER
 from arena.services.required_announcement_cache import invalidate_required_announcements_cache
@@ -123,6 +125,12 @@ def mount_arena_base_routes(app: FastAPI) -> None:
     # The admin-dashboard sub-nav also resolves the lockouts page on every page it
     # appears on, so that router is part of the floor for the same reason.
     app.include_router(arena_admin_dashboard_lockouts_router)
+    # The main nav resolves the collection index on every page, and the admin
+    # sub-nav resolves collection management on every admin page, so both routers
+    # join the floor rather than being stubbed in every test app that renders
+    # _base.html.
+    app.include_router(arena_problem_collections_router)
+    app.include_router(arena_admin_collections_router)
 
 
 @pytest.fixture

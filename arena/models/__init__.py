@@ -16,12 +16,19 @@ from .arena_classes import (
     ArenaClassRegistrationRequest,
 )
 from .arena_notifications import ArenaNotification
+from .arena_problem_set_feedback import ArenaProblemSetStudentFeedback
 from .arena_problem_set_snapshots import (
     ArenaProblemSetProblemSnapshot,
     ArenaProblemSetUserSnapshot,
 )
 from .arena_problem_sets import ArenaProblemSet
-from .arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem, ArenaTestCase
+from .arena_problems import (
+    ArenaCategory,
+    ArenaCollection,
+    ArenaProblem,
+    ArenaRatingProblem,
+    ArenaTestCase,
+)
 from .arena_submissions import (
     ArenaSubmission,
     ArenaSubmissionAIReview,
@@ -46,8 +53,10 @@ __all__ = [
     "ArenaNotification",
     "ArenaProblemSet",
     "ArenaProblemSetProblemSnapshot",
+    "ArenaProblemSetStudentFeedback",
     "ArenaProblemSetUserSnapshot",
     "ArenaCategory",
+    "ArenaCollection",
     "ArenaProblem",
     "ArenaRatingProblem",
     "ArenaSubmission",

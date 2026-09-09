@@ -21,9 +21,14 @@ from sqlalchemy import Select, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
-from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem
+from arena.models.arena_problems import ArenaCategory, ArenaCollection, ArenaProblem, ArenaRatingProblem
 from arena.services.pagination_service import Pagination, PaginationParams, clamp_page
-from arena.services.problem_list_query_service import ProblemListCategory, categories_by_problem_id
+from arena.services.problem_list_query_service import (
+    ProblemListCategory,
+    ProblemListCollection,
+    categories_by_problem_id,
+    collections_by_problem_id,
+)
 from arena.services.problem_search_service import prepare_problem_search
 from shared.db_schema.arena import arena_affiliations as _affiliations_table
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
@@ -54,6 +59,21 @@ class AuthorInfo:
     affiliation_name: str | None
     affiliation_country_code: str | None
     affiliation_subdivision_code: str | None
+
+
+@dataclass(frozen=True)
+class CollectionCard:
+    """One collection as rendered on the public collection index page.
+
+    Attributes:
+        name: Human-readable collection name.
+        slug: URL-safe identifier used as the ``collection`` query parameter.
+        problem_count: Number of enabled problems filed under the collection.
+    """
+
+    name: str
+    slug: str
+    problem_count: int
 
 
 # Single source of truth for the public problem-list sort contract; the public
@@ -88,6 +108,7 @@ class PublicProblemListItem:
         difficulty: Evidence-gated difficulty presentation (measured value or
             the unknown state when too few users have attempted the problem).
         categories: Categories linked to this problem.
+        collection: Collection the problem is filed under, or ``None``.
         author_name: Display name of the problem author, or ``None`` if missing.
         is_favorite: Whether the viewing user has favorited this problem.
         ac_rate: Fraction of users who solved the problem (0.0–1.0), or ``None``
@@ -103,12 +124,58 @@ class PublicProblemListItem:
     title: str
     difficulty: DifficultyDisplay
     categories: list[ProblemListCategory]
+    collection: ProblemListCollection | None
     author_name: str | None
     is_favorite: bool = False
     ac_rate: float | None = None
     is_solved: bool = False
     solved: int | None = None
     has_custom_validator: bool = False
+
+
+def _apply_scope_filters(
+    stmt: Select[Any],
+    *,
+    category_slugs: list[str] | None,
+    collection_id: str | None,
+    language: StatementLanguage | None,
+) -> Select[Any]:
+    """Narrow a statement to the problems the catalogue is currently showing.
+
+    Shared by the list and by its prev/next neighbours so the two cannot
+    disagree about which problems are in view: walking out of the filtered set
+    from a problem's detail page is the same bug as showing the wrong rows.
+
+    Args:
+        stmt: A select over ``ArenaProblem``.
+        category_slugs: Require ANY listed slug (OR semantics). None = no filter.
+        collection_id: Restrict to one collection. None = no filter.
+        language: Restrict to one statement language. None = no filter.
+
+    Returns:
+        Select: The statement with the active scope filters applied.
+    """
+    if language is not None:
+        stmt = stmt.where(ArenaProblem.statement_language == language)
+
+    if category_slugs:
+        effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
+        if effective_slugs:
+            # OR semantics: one matching category row is enough to include the problem.
+            matching_category = (
+                select(_cat_map_table.c.category_id)
+                .select_from(_cat_map_table.join(ArenaCategory, _cat_map_table.c.category_id == ArenaCategory.id))
+                .where(
+                    _cat_map_table.c.problem_id == ArenaProblem.id,
+                    ArenaCategory.slug.in_(effective_slugs),
+                )
+            )
+            stmt = stmt.where(matching_category.exists())
+
+    if collection_id is not None:
+        stmt = stmt.where(ArenaProblem.collection_id == collection_id)
+
+    return stmt
 
 
 def _apply_sort(
@@ -160,6 +227,7 @@ async def list_enabled_problems_paginated(
     per_page: int = _PUBLIC_PER_PAGE,
     search: str = "",
     category_slugs: list[str] | None = None,
+    collection_id: str | None = None,
     language: StatementLanguage | None = None,
     sort_by: str = "",
     user_id: str | None = None,
@@ -168,6 +236,8 @@ async def list_enabled_problems_paginated(
 
     Search covers arena number, title, statement, source, and the resolved author name.
     Category filter uses OR semantics: a problem may belong to any selected category.
+    The collection filter is a separate axis and narrows (ANDs with) that set: a
+    problem belongs to at most one collection.
 
     Args:
         session: Active async database session.
@@ -175,6 +245,9 @@ async def list_enabled_problems_paginated(
         per_page: Number of items per page (default 25).
         search: Hybrid search applied to number, title, statement, source, and author name.
         category_slugs: Require ANY listed category slug (OR semantics). None = no filter.
+        collection_id: Restrict to problems filed under this collection. None = no filter.
+            Callers resolve the slug themselves so an unknown one can 404 rather
+            than silently render an empty, unnamed scope.
         language: Restrict to problems whose statement is in this language. None = no filter.
         sort_by: One of the ``VALID_SORTS`` values.
         user_id: When provided, populate ``is_favorite`` for each row.
@@ -191,10 +264,12 @@ async def list_enabled_problems_paginated(
 
     # Keep this statement filter-only. The count must not inherit display
     # joins, aggregates, or correlated projections.
-    filtered_problem_ids = select(ArenaProblem.id).where(ArenaProblem.enabled.is_(True))
-
-    if language is not None:
-        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.statement_language == language)
+    filtered_problem_ids = _apply_scope_filters(
+        select(ArenaProblem.id).where(ArenaProblem.enabled.is_(True)),
+        category_slugs=category_slugs,
+        collection_id=collection_id,
+        language=language,
+    )
 
     if normalized_search:
         search_expressions = await prepare_problem_search(session, normalized_search)
@@ -211,20 +286,6 @@ async def list_enabled_problems_paginated(
             )
             .where(search_expressions.predicate)
         )
-
-    if category_slugs:
-        effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
-        if effective_slugs:
-            # OR semantics: one matching category row is enough to include the problem.
-            matching_category = (
-                select(_cat_map_table.c.category_id)
-                .select_from(_cat_map_table.join(ArenaCategory, _cat_map_table.c.category_id == ArenaCategory.id))
-                .where(
-                    _cat_map_table.c.problem_id == ArenaProblem.id,
-                    ArenaCategory.slug.in_(effective_slugs),
-                )
-            )
-            filtered_problem_ids = filtered_problem_ids.where(matching_category.exists())
 
     count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
@@ -293,6 +354,7 @@ async def list_enabled_problems_paginated(
     rows = list((await session.execute(paginated)).all())
     page_problem_ids = [row.id for row in rows]
     categories = await categories_by_problem_id(session, page_problem_ids)
+    collections = await collections_by_problem_id(session, page_problem_ids)
 
     # Solver counts come from the main query because they can drive global pagination order.
     favorite_ids: set[str] = set()
@@ -332,6 +394,7 @@ async def list_enabled_problems_paginated(
                 title=row.title,
                 difficulty=difficulty_display(row.rating_value, row.attempted_users, row.expected_difficulty),
                 categories=categories.get(row.id, []),
+                collection=collections.get(row.id),
                 author_name=row.author_name,
                 is_favorite=row.id in favorite_ids,
                 ac_rate=ac_rate,
@@ -430,6 +493,7 @@ async def get_enabled_problem_by_number(
         .options(
             contains_eager(ArenaProblem.rating),
             selectinload(ArenaProblem.categories),
+            selectinload(ArenaProblem.collection),
             selectinload(ArenaProblem.test_cases),
             selectinload(ArenaProblem.custom_validator),
         )
@@ -471,6 +535,51 @@ async def get_all_categories(session: AsyncSession) -> list[ArenaCategory]:
     """
     result = await session.execute(select(ArenaCategory).order_by(func.lower(ArenaCategory.name)))
     return list(result.scalars())
+
+
+async def get_all_collections(session: AsyncSession) -> list[ArenaCollection]:
+    """Return all collections ordered by name, for the filter dropdown.
+
+    Args:
+        session: Active async database session.
+
+    Returns:
+        list[ArenaCollection]: All collections sorted alphabetically by name.
+    """
+    result = await session.execute(select(ArenaCollection).order_by(func.lower(ArenaCollection.name)))
+    return list(result.scalars())
+
+
+async def list_collections_with_counts(session: AsyncSession) -> list[CollectionCard]:
+    """Return every collection with its enabled-problem count, for the index page.
+
+    Only ``enabled=True`` problems are counted, matching the rest of this module:
+    a card must not advertise problems the catalogue will not show.
+
+    Args:
+        session: Active async database session.
+
+    Returns:
+        list[CollectionCard]: Collection cards sorted alphabetically by name.
+    """
+    problem_count = func.count(_problems_table.c.id).label("problem_count")
+    query = (
+        select(ArenaCollection, problem_count)
+        .outerjoin(
+            _problems_table,
+            (_problems_table.c.collection_id == ArenaCollection.id) & (_problems_table.c.enabled.is_(True)),
+        )
+        .group_by(ArenaCollection.id)
+        .order_by(func.lower(ArenaCollection.name))
+    )
+    return [
+        CollectionCard(
+            name=collection.name,
+            slug=collection.slug,
+            problem_count=count,
+        )
+        for collection, count in (await session.execute(query)).all()
+    ]
 
 
 async def get_user_problem_status(
@@ -525,21 +634,45 @@ async def get_user_problem_status(
 async def get_adjacent_problem_numbers(
     session: AsyncSession,
     arena_number: int,
+    *,
+    category_slugs: list[str] | None = None,
+    collection_id: str | None = None,
+    language: StatementLanguage | None = None,
 ) -> tuple[int | None, int | None]:
-    """Return the arena_number of the nearest enabled problems before and after the given one.
+    """Return the neighbouring problems within the list the reader came from.
+
+    The filters are the catalogue's own, passed down as the detail page's
+    back-state. Without them the arrows walk out of the filtered set: someone
+    browsing one collection would land on a problem from another, which
+    contradicts the "Back to list" button sitting beside them.
+
+    Ordering is by ``arena_number``, which is the catalogue's default. A list
+    sorted some other way still yields neighbours in number order.
 
     Args:
         session: Active async database session.
         arena_number: The current problem's public arena number.
+        category_slugs: Category slugs the list was filtered by (OR semantics).
+        collection_id: Collection the list was scoped to, already resolved.
+        language: Statement language the list was filtered by.
 
     Returns:
         Tuple of ``(prev_number, next_number)`` where either may be ``None``
-        if no enabled problem exists in that direction.
+        if no problem in scope exists in that direction.
     """
+
+    def _scoped() -> Select[Any]:
+        return _apply_scope_filters(
+            select(ArenaProblem.arena_number).where(ArenaProblem.enabled.is_(True)),
+            category_slugs=category_slugs,
+            collection_id=collection_id,
+            language=language,
+        )
+
     prev_row = (
         await session.execute(
-            select(ArenaProblem.arena_number)
-            .where(ArenaProblem.enabled == True, ArenaProblem.arena_number < arena_number)  # noqa: E712
+            _scoped()
+            .where(ArenaProblem.arena_number < arena_number)
             .order_by(ArenaProblem.arena_number.desc())
             .limit(1)
         )
@@ -547,10 +680,7 @@ async def get_adjacent_problem_numbers(
 
     next_row = (
         await session.execute(
-            select(ArenaProblem.arena_number)
-            .where(ArenaProblem.enabled == True, ArenaProblem.arena_number > arena_number)  # noqa: E712
-            .order_by(ArenaProblem.arena_number.asc())
-            .limit(1)
+            _scoped().where(ArenaProblem.arena_number > arena_number).order_by(ArenaProblem.arena_number.asc()).limit(1)
         )
     ).one_or_none()
 

@@ -233,6 +233,8 @@ def problem_to_package(
         pids_limit=problem.pids_limit,
         output_limit_in_bytes=problem.output_limit_in_bytes,
         categories=tuple(category.name for category in problem.categories),
+        # The contest domain has no collections; the key is still written, as null.
+        collection=None,
         sample_testcases=tuple(case.ordinal for case in cases if case.is_sample),
         image=image.member if image is not None else None,
         image_caption=problem.problem_image_caption,

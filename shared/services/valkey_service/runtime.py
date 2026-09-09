@@ -60,6 +60,8 @@ from shared.services.valkey_service.revelation import (
 
 logger = logging.getLogger(__name__)
 
+_PIPELINE_TTL_CHUNK_SIZE = 500
+
 
 class MailQueueUnavailableError(RuntimeError):
     """Raised when a mail job could not be handed to Valkey (nothing was buffered)."""
@@ -318,6 +320,51 @@ class ValkeyRuntime:
                 self._is_available = False
                 self._schedule_reconnect()
                 logger.warning(f"Valkey counted delete of {len(keys)} keys failed: {str(exc)}")
+                return None
+            raise
+
+    async def ttl_many(self, keys: Sequence[str]) -> list[int | None] | None:
+        """Read TTL seconds through bounded non-transactional pipelines.
+
+        A missing or expired key becomes ``None``. A missing client, recoverable
+        error, malformed reply, or incomplete reply returns ``None`` for the
+        whole operation so security-sensitive callers fail closed.
+        """
+        if not keys:
+            return []
+        client = self._client
+        if client is None:
+            self._is_available = False
+            self._schedule_reconnect()
+            return None
+        ttls: list[int | None] = []
+        try:
+            for offset in range(0, len(keys), _PIPELINE_TTL_CHUNK_SIZE):
+                chunk = keys[offset : offset + _PIPELINE_TTL_CHUNK_SIZE]
+                pipe = client.pipeline(transaction=False)
+                for key in chunk:
+                    pipe.ttl(key)
+                replies = cast(list[Any], await pipe.execute())
+                if len(replies) != len(chunk):
+                    logger.warning(
+                        "Valkey pipelined TTL returned %d values for %d keys",
+                        len(replies),
+                        len(chunk),
+                    )
+                    return None
+                for reply in replies:
+                    if not isinstance(reply, int | str | bytes | bytearray):
+                        logger.warning("Valkey pipelined TTL returned a malformed value")
+                        return None
+                    ttl = int(reply)
+                    ttls.append(ttl if ttl > 0 else None)
+            self._is_available = True
+            return ttls
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                self._is_available = False
+                self._schedule_reconnect()
+                logger.warning("Valkey pipelined TTL over %d keys failed: %s", len(keys), str(exc))
                 return None
             raise
 

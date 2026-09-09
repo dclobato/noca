@@ -58,7 +58,7 @@ Reservo-me o direito de banir qualquer acesso automatizado a meu exclusivo crit�
 
 ### 5.1 Problemas de autoria do controlador
 
-Os Problemas desenvolvidos por mim são disponibilizados sob a licença **CC BY-NC-SA 4.0 (Creative Commons Atribuição-NãoComercial-CompartilhaIgual 4.0 Internacional)**. Você é livre para compartilhar e adaptar o material, inclusive comercialmente, desde que:
+Os Problemas desenvolvidos por mim são disponibilizados sob a licença **CC BY-NC-SA 4.0 (Creative Commons Atribuição-NãoComercial-CompartilhaIgual 4.0 Internacional)**. Você é livre para compartilhar e adaptar o material desde que:
 
 - **Atribuição**: você deve dar o crédito apropriado, prover um link para a licença e indicar se mudanças foram feitas. Você deve fazê-lo em qualquer circunstância razoável, mas de nenhuma maneira que sugira que o licenciante apoia você ou o seu uso.
 - **NãoComercial**: você não pode usar o material para fins comerciais.

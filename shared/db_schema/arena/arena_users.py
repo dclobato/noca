@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Core table definitions for Arena users, backup 2FA codes, and login history."""
+"""Core tables for Arena users, affiliations, throttle hashes, and auth history."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Table,
     Text,
@@ -477,6 +478,77 @@ arena_affiliations = Table(
     ),
     _created_at_column(),
     _updated_at_column(),
+)
+
+arena_throttle_secret_versions = Table(
+    "arena_throttle_secret_versions",
+    metadata,
+    Column(
+        "id",
+        Integer,
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+        comment="Small surrogate key referenced by every throttle-hash row",
+    ),
+    Column(
+        "secret_fingerprint",
+        String(64),
+        nullable=False,
+        unique=True,
+        comment="SHA-256 fingerprint of the JWT secret that derived this generation of hashes",
+    ),
+    Column(
+        "dta_criacao",
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        comment="When this secret generation was first indexed",
+    ),
+)
+
+arena_user_throttle_hashes = Table(
+    "arena_user_throttle_hashes",
+    metadata,
+    Column(
+        "secret_version_id",
+        Integer,
+        ForeignKey(
+            "arena_throttle_secret_versions.id",
+            name="fk_arena_user_throttle_hashes_version",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        comment="Secret generation that derived this hash; dropping the generation drops its rows",
+    ),
+    Column(
+        "identifier_hash",
+        String(64),
+        nullable=False,
+        comment="HMAC-SHA256 account identifier used in Arena authentication throttle keys.",
+    ),
+    Column(
+        "arena_user_id",
+        String(36),
+        ForeignKey(
+            "arena_users.id",
+            name="fk_arena_user_throttle_hashes_user",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        comment="Registered Arena user whose identifier recipe produced this hash.",
+    ),
+    PrimaryKeyConstraint(
+        "secret_version_id",
+        "identifier_hash",
+        "arena_user_id",
+        name="pk_arena_user_throttle_hashes",
+    ),
+    Index(
+        "ix_arena_user_throttle_hashes_user_version",
+        "arena_user_id",
+        "secret_version_id",
+    ),
 )
 
 arena_backup_2fa = Table(

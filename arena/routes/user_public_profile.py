@@ -21,12 +21,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from arena.database import get_db
 from arena.dependencies.auth import require_arena_user
 from arena.dependencies.user_read_rate_limit import arena_user_read_rate_limit
 from arena.models.arena_badges import ArenaUserBadge
+from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_users import ArenaUser
 from arena.services.profile_visibility import can_view_public_profile
 from arena.services.user_stats_service import get_user_statistics
@@ -110,6 +111,7 @@ async def arena_user_profile_public(
 
     badge_result = await session.scalars(
         select(ArenaUserBadge)
+        .options(joinedload(ArenaUserBadge.submission).joinedload(ArenaSubmission.problem))
         .where(ArenaUserBadge.user_id == profile_user.id)
         .order_by(ArenaUserBadge.awarded_at.desc(), ArenaUserBadge.id.desc())
     )

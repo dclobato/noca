@@ -55,6 +55,22 @@
     border-block: 1px solid var(--arena-outline-variant);
     background-color: var(--arena-surface-container-low);
 }
+.arena-problem-set-student-report-feedback {
+    padding: var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+.arena-problem-set-student-report-feedback-form {
+    max-width: 75ch;
+}
+.arena-problem-set-student-report-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    margin-bottom: var(--arena-space-md);
+}
 .arena-problem-set-student-report-section-title {
     margin: 0 0 0.25rem;
     font-size: 1rem;
@@ -284,7 +300,8 @@
     }
     .arena-problem-set-student-report-header,
     .arena-problem-set-student-report-context,
-    .arena-problem-set-student-report-overview {
+    .arena-problem-set-student-report-overview,
+    .arena-problem-set-student-report-feedback {
         padding-inline: var(--arena-space-md);
     }
     .arena-problem-set-student-report-header > .btn {

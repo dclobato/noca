@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,6 +40,18 @@ arena_user_badges = Table(
         default=_utcnow,
         server_default=func.now(),
         comment="Timestamp when the badge was awarded to the user.",
+    ),
+    Column(
+        "submission_id",
+        String(36),
+        ForeignKey("arena_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+        comment=(
+            "FK to arena_submissions. The submission that earned this badge, or NULL when "
+            "it has none (CLEAN_CODE), no anchor can be derived under today's data, or the "
+            "row predates the column and no reconcile has re-derived it yet. Deleting a "
+            "submission clears this rather than the badge; the next reconcile refills it."
+        ),
     ),
     _created_at_column(),
     UniqueConstraint("user_id", "badge", name="uq_arena_user_badges_user_badge"),

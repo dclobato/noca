@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,12 +25,12 @@
                 {% if mode == 'edit' %}
                     <button type="button"
                             class="btn btn-outline-danger btn-sm"
-                            data-category-delete-button
-                            data-category-name="{{ category.name }}"
-                            data-category-count="{{ problem_count }}"
-                            data-category-action="{{ request.url_for('arena_admin_category_delete', category_id=category.id) }}"
-                            data-category-page="{{ page }}"
-                            data-category-per-page="{{ per_page }}">
+                            data-taxonomy-delete-button
+                            data-taxonomy-name="{{ category.name }}"
+                            data-taxonomy-count="{{ problem_count }}"
+                            data-taxonomy-action="{{ request.url_for('arena_admin_category_delete', category_id=category.id) }}"
+                            data-taxonomy-page="{{ page }}"
+                            data-taxonomy-per-page="{{ per_page }}">
                         {{ render_icon(icon="delete") }}
                         Remove
                     </button>
@@ -38,7 +38,7 @@
             </div>
             <form method="post"
                   action="{{ request.url_for("arena_admin_category_create") if mode == 'create' else request.url_for('arena_admin_category_update', category_id=category.id) }}"
-                  data-category-form>
+                  data-taxonomy-form>
                 {% if mode == 'edit' %}
                     <input type="hidden" name="page" value="{{ page }}">
                     <input type="hidden" name="per_page" value="{{ per_page }}">
@@ -49,6 +49,7 @@
                         <input type="text"
                                class="form-control"
                                id="category_name"
+                               data-taxonomy-name-input
                                name="name"
                                value="{{ form.name }}"
                                maxlength="128"
@@ -59,6 +60,7 @@
                         <input type="text"
                                class="form-control"
                                id="category_slug"
+                               data-taxonomy-slug-input
                                name="slug"
                                value="{{ form.slug }}"
                                maxlength="128"
@@ -71,6 +73,7 @@
                             <input type="color"
                                    class="form-control form-control-color"
                                    id="category_color"
+                                   data-taxonomy-color-input
                                    name="color"
                                    value="{{ form.color }}"
                                    required>
@@ -95,17 +98,19 @@
     </div>
     {% if mode == 'edit' %}
         <div class="modal fade"
-             id="category-delete-modal"
+             id="taxonomy-delete-modal"
+             data-taxonomy-delete-count-one="Its link to 1 problem will be removed. The problem remains available."
+             data-taxonomy-delete-count-many="Its links to {count} problems will be removed. The problems remain available."
              tabindex="-1"
-             aria-labelledby="category-delete-modal-title"
+             aria-labelledby="taxonomy-delete-modal-title"
              aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
-                    <form method="post" data-category-delete-form>
+                    <form method="post" data-taxonomy-delete-form>
                         <input type="hidden" name="page" value="{{ page }}">
                         <input type="hidden" name="per_page" value="{{ per_page }}">
                         <div class="modal-header">
-                            <h2 class="modal-title fs-5" id="category-delete-modal-title">Remove category</h2>
+                            <h2 class="modal-title fs-5" id="taxonomy-delete-modal-title">Remove category</h2>
                             <button type="button"
                                     class="btn-close"
                                     data-bs-dismiss="modal"
@@ -113,9 +118,9 @@
                         </div>
                         <div class="modal-body">
                             <p class="mb-1">
-                                Remove <strong data-category-delete-name></strong>?
+                                Remove <strong data-taxonomy-delete-name></strong>?
                             </p>
-                            <p class="text-muted small mb-0" data-category-delete-count></p>
+                            <p class="text-muted small mb-0" data-taxonomy-delete-count></p>
                         </div>
                         <div class="modal-footer">
                             <button type="button"
@@ -131,9 +136,9 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='category-slug.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='admin-category-form.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='taxonomy-slug.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-taxonomy-form.js') }}?v={{ app_version }}"></script>
     {% if mode == 'edit' %}
-        <script src="{{ request.url_for('arena_static_js', path='admin-category-list.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='admin-taxonomy-list.js') }}?v={{ app_version }}"></script>
     {% endif %}
 {% endblock %}

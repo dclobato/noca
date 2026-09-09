@@ -35,11 +35,70 @@ publishes through the same shared service and editor Web uses, with one Arena-on
 control -- the `required` checkbox, chosen once at publication and stored now, whose
 acknowledgment pop-up is a separate feature.
 
+Teachers and Arena administrators can also attach one current Markdown feedback
+message to a student's work across a problem set after that student has made a
+set-tied submission. The record is keyed by problem set and student, and the
+student-facing problem-set detail renders it through the shared Markdown
+pipeline. Each save creates an Arena notification that links back to that detail
+page; deletion withdraws the current message without creating a notification.
+
 When `NOCA_ARENA_GOOGLE_OAUTH_ENABLED` is set, Arena additionally serves Google
 sign-in under `/auth/google` (`arena/routes/auth_google.py` for start, callback,
 link and unlink; `arena/routes/auth_google_complete.py` for the step that collects
 the date of birth and terms Google cannot supply). The trust model, the gate reuse,
 and the placeholder-password decision are described below under [Google sign-in](#google-sign-in).
+
+## Two problem taxonomies: categories and collections
+
+Arena classifies a problem along two deliberately different axes.
+
+**Categories** (`arena_problem_categories` + the `arena_problem_category_map`
+junction) are technique tags. A problem has *many*, and the public filter ORs
+them: selecting `arvores` and `grafos` returns problems in either.
+
+**Collections** (`arena_collections`, plus the nullable
+`arena_problems.collection_id` foreign key) name an *event* -- ICPC, Maratona
+SBC, InterIF -- or a *class* -- Iniciantes, Expressões regulares. A problem
+belongs to **at most one**, which is why the link is a column rather than a
+junction table: the cardinality is then enforced by the database, not by
+application code. The foreign key is `ON DELETE SET NULL`, so deleting a
+collection unfiles its problems instead of deleting them.
+
+The second axis exists because one OR-filter could not express a question users
+actually ask. With only categories, "InterIF problems about trees or graphs" is
+unstatable: `interif OR arvores OR grafos` also returns every Maratona SBC
+problem. The collection scope **ANDs** with the category OR-set, so it narrows
+rather than widens, and the question becomes expressible.
+
+The two axes overlap in the data today and that is intentional. Six of the
+existing category slugs (`icpc`, `ioi`, `obi`, `ncpc`, `maratona-sbc`,
+`interif`) are origins rather than techniques. Introducing collections migrated
+nothing: those categories stay exactly as they are, collections ship empty, and
+they are populated deliberately afterwards, so no existing filter or saved link
+changed meaning on the day the feature landed.
+
+The two axes also differ in how much they carry. A category has a badge color;
+a collection is deliberately just a name and a slug, because a collection names
+one thing and does not need to be told apart at a glance in a row of pills.
+
+What they do share -- slug normalization and its stop-word list, the
+128-character caps -- lives in `arena/services/taxonomy_validation.py`, so a
+change to one axis cannot silently diverge from the other. That module also
+holds the category-only color helpers (the `#RRGGBB` rule and the random badge
+color), alongside the WCAG contrast picker `BadgeColorMixin`
+(`arena/models/mixins.py`); per-row category colors are painted from
+`data-swatch-color` by `shared/static/js/swatch-color.js` rather than by inline
+styles.
+
+Browsing has two entry points. `/problems` is the catalogue, with a
+single-select collection filter beside the category checkboxes. `/collections`
+is a public index of cards -- one per collection plus an "All collections" card
+-- and each card links back into `/problems?collection=<slug>`. The scoped view
+is deliberately the same catalogue page rather than a second listing, so search,
+sort, language, pagination, and the category filter keep working inside a scope
+with no duplicated code. An unknown `collection` slug is a 404 on the public
+list: rendering an empty catalogue under no name would be indistinguishable from
+a collection that genuinely has no problems.
 
 ## Statement language
 
@@ -88,6 +147,43 @@ checkbox therefore bumps `session_version` in the same statement to invalidate
 every affected session at once. The choice is per reset because a terms change
 that merely clarifies wording does not warrant signing an entire user base out
 mid-submission, while one that changes what users consent to does.
+
+## Administrative lockout resolution
+
+Arena authentication throttle keys contain HMAC-SHA256 account identifiers,
+not clear email addresses. The admin lockout dashboard therefore resolves active
+account locks through `arena_user_throttle_hashes`, a materialized forward index
+with a composite primary key over the secret generation, identifier hash, and
+user id. Which secret derived a hash is part of its identity, because rotating
+`JWT_SECRET_KEY` invalidates every hash at once; that generation lives once per
+secret in `arena_throttle_secret_versions` and is referenced by a 4-byte integer
+rather than repeating a 64-character fingerprint on every row, which would
+otherwise make the primary-key index larger than the table it indexes. Dropping
+a generation cascades to its mappings, which is how a rotation retires the old
+hashes. The composite key intentionally permits one hash to map to several
+users: a normalized email for one account can equal a canonical email for
+another account. The UI lists every match deterministically and reports
+unmatched identifiers without attempting to reverse or expose them.
+
+`arena/services/user_throttle_hash_service.py` maintains the index. New-user
+registration writes the user and hash rows in one transaction. Arena startup
+reconciles the index, but is gated: one indexed anti-join asks whether any user
+is missing from the current generation, and a boot that changes nothing stops
+there. Rebuilding unconditionally would rewrite every row on every boot,
+making readiness scale with the user count and producing a table's worth of dead
+tuples per restart. When a rebuild is required -- a backfill after this
+migration, a `JWT_SECRET_KEY` rotation, or a genuine gap -- it streams user
+identities in batches of 1,000, computes each batch's HMACs in a worker thread,
+and commits once, so a user's rows are complete or absent but never partial;
+obsolete generations are deleted only after the replacement is ready. Index
+writes are therefore low-churn, so the table uses the server-wide autovacuum
+defaults.
+
+The dashboard request now scales with active locks rather than registered users.
+It scans Arena lock keys once, obtains TTLs from Valkey through 500-key pipeline
+batches, and resolves account hashes through indexed database queries capped at
+1,000 hashes each. A Valkey failure or incomplete TTL batch makes the list
+unavailable rather than silently presenting a partial or empty result.
 
 ## Reverse-geocoder relay
 

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema.arena import (
     arena_badge_cycle_state,
-    arena_problem_ratings,
     arena_problem_set_problems,
     arena_problem_sets,
     arena_problem_solvers,
@@ -198,37 +197,6 @@ async def test_first_solver_gated_by_ownership_not_role(session: AsyncSession) -
     assert ArenaBadge.FIRST_SOLVER not in await _badges(session, owner)
     assert ArenaBadge.FIRST_SOLVER in await _badges(session, admin)
     assert ArenaBadge.FIRST_SOLVER not in await _badges(session, student)
-
-
-async def test_rock_cracker_awards_solvers_below_solve_rate_threshold(session: AsyncSession) -> None:
-    """Solvers of a problem with solve rate below 20% earn ROCK_CRACKER."""
-    hard_solver = await _new_user(session)
-    easy_solver = await _new_user(session)
-    hard_problem = str(uuid.uuid4())
-    easy_problem = str(uuid.uuid4())
-    await _submit(session, hard_solver, hard_problem, Verdict.AC, _WEEKDAY_NOON)
-    await _submit(session, easy_solver, easy_problem, Verdict.AC, _WEEKDAY_NOON)
-    await session.execute(
-        arena_problem_ratings.insert().values(
-            problem_id=hard_problem,
-            attempted_users=10,
-            solved_users=1,
-            total_tries_before_solve=1,
-        )
-    )
-    await session.execute(
-        arena_problem_ratings.insert().values(
-            problem_id=easy_problem,
-            attempted_users=10,
-            solved_users=2,
-            total_tries_before_solve=2,
-        )
-    )
-
-    await compute_badge_awards(session, full_reconcile=True)
-
-    assert ArenaBadge.ROCK_CRACKER in await _badges(session, hard_solver)
-    assert ArenaBadge.ROCK_CRACKER not in await _badges(session, easy_solver)
 
 
 async def test_first_to_hand_in_requires_problem_set_opt_in(session: AsyncSession) -> None:

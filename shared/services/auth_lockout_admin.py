@@ -40,8 +40,10 @@ cleared first, because they are cheap and are exactly the state that matters
 during an outage, but when Valkey cannot answer the caller is told so rather
 than left believing the shared lock is gone.
 
-``SCAN`` is O(keyspace). This is a rare, password-confirmed admin action, not
-a request-path primitive.
+``SCAN`` is O(keyspace). Unlock discovery is a rare, password-confirmed admin
+action. The lockout overview is the deliberate exception: its admin-only GET
+scans lock keys once per allowed module, then reads their TTLs through bounded
+pipelines. It must not be reused as a general request-path primitive.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from shared.services.auth_rate_limit import _TTL_SCRIPT, hash_identifier
+from shared.services.auth_rate_limit import hash_identifier
 from shared.services.auth_rate_limit_fallback import (
     fallback_lock_ttls_matching,
     reset_all_fallback_limiters_matching,
@@ -67,6 +69,7 @@ __all__ = [
     "UnlockResult",
     "account_identifier_hashes",
     "describe_lockouts",
+    "list_active_lockouts",
     "parse_lockout_key",
     "unlock",
     "unlock_account_hashes",
@@ -101,6 +104,9 @@ class LockoutStoreClient(Protocol):
 
     async def delete_keys_counted(self, keys: Sequence[str]) -> int | None:
         """Delete keys and return the count, or ``None`` when the store cannot answer."""
+
+    async def ttl_many(self, keys: Sequence[str]) -> list[int | None] | None:
+        """Return TTL seconds for ``keys``, or ``None`` when the store cannot answer."""
 
     async def eval(self, script: str, numkeys: int, *args: str) -> object | None:
         """Run a Lua script."""
@@ -276,16 +282,6 @@ async def _discover_keys(store: LockoutStoreClient | None, subject: LockoutSubje
     return list(found)
 
 
-async def _lock_ttl(store: LockoutStoreClient | None, key: str) -> int | None:
-    if store is None:
-        return None
-    result = await store.eval(_TTL_SCRIPT, 1, key)
-    if not isinstance(result, int | str | bytes | bytearray):
-        return None
-    ttl = int(result)
-    return ttl if ttl > 0 else None
-
-
 async def describe_lockouts(store: LockoutStoreClient | None, subject: LockoutSubject) -> list[ActiveLockout]:
     """List the live locks of ``subject`` in Valkey and in this process's fallbacks.
 
@@ -293,15 +289,61 @@ async def describe_lockouts(store: LockoutStoreClient | None, subject: LockoutSu
         LockoutStoreUnavailableError: When Valkey cannot answer. Callers must
             render "status unavailable", never "not locked".
     """
-    ttls: dict[tuple[str, str, str, str], int] = {}
-    for key in await _discover_keys(store, subject):
+    return await _describe_matching_keys(store, await _discover_keys(store, subject), _matcher(subject))
+
+
+async def list_active_lockouts(store: LockoutStoreClient | None, *, modules: Sequence[str]) -> list[ActiveLockout]:
+    """List every live lock in the allowed key modules.
+
+    This is an administrative overview primitive. It scans once per module,
+    then re-parses every result so the broad glob cannot cross a module or
+    include a failure counter.
+
+    Raises:
+        LockoutStoreUnavailableError: When Valkey cannot answer. Callers must
+            present the overview as unavailable rather than as an empty list.
+    """
+    if store is None:
+        raise LockoutStoreUnavailableError()
+    allowed_modules = frozenset(modules)
+
+    def matches(key: str) -> bool:
         parsed = parse_lockout_key(key)
-        if parsed is None or parsed.suffix != "lock":
-            continue
-        ttl = await _lock_ttl(store, key)
-        if ttl is not None:
-            _keep_longest(ttls, parsed, ttl)
-    for key, ttl in fallback_lock_ttls_matching(_matcher(subject)).items():
+        return parsed is not None and parsed.module in allowed_modules and parsed.suffix == "lock"
+
+    found: dict[str, None] = {}
+    for module in modules:
+        keys = await store.scan_keys(f"{LOCKOUT_KEY_PREFIX}:{module}:*:lock")
+        if keys is None:
+            raise LockoutStoreUnavailableError()
+        for key in keys:
+            if matches(key):
+                found.setdefault(key, None)
+    return await _describe_matching_keys(store, list(found), matches)
+
+
+async def _describe_matching_keys(
+    store: LockoutStoreClient | None,
+    keys: Sequence[str],
+    matches: Callable[[str], bool],
+) -> list[ActiveLockout]:
+    """Merge live Valkey and process-local locks accepted by ``matches``."""
+    ttls: dict[tuple[str, str, str, str], int] = {}
+    parsed_keys: list[tuple[str, LockoutKey]] = []
+    for key in keys:
+        parsed = parse_lockout_key(key)
+        if parsed is not None and parsed.suffix == "lock":
+            parsed_keys.append((key, parsed))
+    if parsed_keys:
+        if store is None:
+            raise LockoutStoreUnavailableError()
+        live_ttls = await store.ttl_many([key for key, _parsed in parsed_keys])
+        if live_ttls is None or len(live_ttls) != len(parsed_keys):
+            raise LockoutStoreUnavailableError()
+        for (_key, parsed), ttl in zip(parsed_keys, live_ttls, strict=True):
+            if ttl is not None and ttl > 0:
+                _keep_longest(ttls, parsed, ttl)
+    for key, ttl in fallback_lock_ttls_matching(matches).items():
         parsed = parse_lockout_key(key)
         if parsed is not None and parsed.suffix == "lock":
             _keep_longest(ttls, parsed, ttl)

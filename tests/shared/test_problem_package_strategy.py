@@ -240,7 +240,7 @@ def test_a_v2_package_survives_a_read_write_read_cycle(tmp_path: Path) -> None:
     assert reread.validator is not None
 
 
-def test_a_v2_total_budget_is_converted_when_rewritten_as_v3(tmp_path: Path) -> None:
+def test_a_v2_total_budget_is_converted_when_rewritten(tmp_path: Path) -> None:
     """A rewrite changes the version only after normalizing limit semantics."""
     metadata = _v2(
         language_limits={
@@ -258,7 +258,7 @@ def test_a_v2_total_budget_is_converted_when_rewritten_as_v3(tmp_path: Path) -> 
         destination = build_package(staged.package, tmp_path / "out.zip", profile="full")
 
     written = _written_metadata(destination)
-    assert written["format_version"] == 3
+    assert written["format_version"] == FORMAT_VERSION
     assert written["language_limits"]["python3"]["time_limit_ms"] == 1000
 
 

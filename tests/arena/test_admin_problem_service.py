@@ -464,10 +464,13 @@ async def test_problem_list_uses_page_scoped_enrichment_queries(
         is_admin=False,
     )
 
-    # Four, not five: the interactive marker now comes from the page query's own
-    # validator_type column instead of a separate validator lookup.
-    assert len(sql_statements) == 4
-    count_sql, page_sql, category_sql, test_case_sql = [statement.lower() for statement in sql_statements]
+    # Five: count, page, then one bounded IN-query per enrichment (categories,
+    # collections, test-case counts). The interactive marker adds none of its
+    # own -- it comes from the page query's validator_type column.
+    assert len(sql_statements) == 5
+    count_sql, page_sql, category_sql, collection_sql, test_case_sql = [
+        statement.lower() for statement in sql_statements
+    ]
     assert "arena_problem_ratings" not in count_sql
     assert "arena_test_cases" not in count_sql
     assert "arena_problem_custom_validators" not in count_sql
@@ -480,6 +483,8 @@ async def test_problem_list_uses_page_scoped_enrichment_queries(
     ):
         assert large_column not in page_sql
     assert " in (" in category_sql
+    # Page-scoped, not one query per row: the collection lookup must batch too.
+    assert " in (" in collection_sql
     assert " in (" in test_case_sql
 
     item = pagination.items[0]

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,6 +26,10 @@ from arena.routes.class_route_guards import (
     require_problem_set_manager,
 )
 from arena.services import arena_problem_set_management_service
+from arena.services.arena_problem_set_feedback_service import (
+    get_problem_set_student_feedback,
+    student_has_problem_set_submission,
+)
 from arena.services.arena_problem_set_report_service import (
     StudentProblemGroup,
     get_student_problem_submissions_for_set,
@@ -100,45 +104,23 @@ async def class_problem_set_report(
     )
 
 
-@router.get(
-    "/classes/{class_id}/problem-sets/{set_id}/report/student/{user_id}",
-    response_class=HTMLResponse,
-    name="arena_class_problem_set_report_student",
-    dependencies=[Depends(arena_teacher_report_rate_limit)],
-)
-async def class_problem_set_report_student(
+async def render_student_problem_set_report(
     request: Request,
     class_id: str,
     set_id: str,
     user_id: str,
-    page: str | None = None,
-    sort: str | None = None,
-    direction: str | None = None,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
-    session: AsyncSession = Depends(get_db),
+    page: str | None,
+    sort: str | None,
+    direction: str | None,
+    current_user: ArenaUser | None,
+    session: AsyncSession,
+    feedback_draft: str | None = None,
+    feedback_error: str | None = None,
 ) -> Response:
-    """Render all submissions by one student for the problems in a problem set.
+    """Render the teacher's submission drill-down and overall-feedback editor.
 
-    Accessible to the class teacher and ARENA_ADMINs.  Submissions are grouped
-    by problem (accordion) and ordered newest-first within each group.
-
-    Args:
-        request: Current HTTP request.
-        class_id: UUID of the ``arena_classes`` row.
-        set_id: UUID of the ``arena_problem_sets`` row.
-        user_id: UUID of the ``arena_users`` row for the student.
-        page: Optional pagination context forwarded from the list page.
-        sort: Optional sort context forwarded from the list page.
-        direction: Optional sort direction forwarded from the list page.
-        current_user: Authenticated Arena user, or ``None`` for guests.
-        session: Active database session.
-
-    Returns:
-        HTMLResponse: Student submissions accordion page, or redirect on auth failure.
-
-    Raises:
-        HTTPException: 403 when the caller is not a teacher/admin, 404 when the
-            student or problem set is not found.
+    A validation refusal receives this renderer with the submitted Markdown,
+    avoiding a redirect that would discard a teacher's draft.
     """
     user_or_redirect, class_detail = await require_problem_set_manager(
         request,
@@ -166,6 +148,17 @@ async def class_problem_set_report_student(
     except ArenaProblemSetPermissionError as exc:
         raise HTTPException(status_code=403, detail="Forbidden") from exc
 
+    feedback = await get_problem_set_student_feedback(
+        session,
+        problem_set_id=set_id,
+        student_id=user_id,
+    )
+    can_leave_feedback = await student_has_problem_set_submission(
+        session,
+        problem_set_id=set_id,
+        student_id=user_id,
+    )
+
     templates = request.app.state.arena_templates
     return html(
         templates.TemplateResponse(
@@ -179,6 +172,13 @@ async def class_problem_set_report_student(
                 "user_id": user_id,
                 "student_name": student_name,
                 "groups": groups,
+                "feedback": feedback,
+                "can_leave_feedback": can_leave_feedback,
+                "feedback_draft": feedback_draft,
+                "feedback_error": feedback_error,
+                "page": page or "",
+                "sort": sort or "",
+                "direction": direction or "",
                 "back_url": problem_set_report_url(
                     request,
                     class_id=class_id,
@@ -190,4 +190,35 @@ async def class_problem_set_report_student(
                 "verdict_badge_classes": VERDICT_BADGE_CLASSES,
             },
         )
+    )
+
+
+@router.get(
+    "/classes/{class_id}/problem-sets/{set_id}/report/student/{user_id}",
+    response_class=HTMLResponse,
+    name="arena_class_problem_set_report_student",
+    dependencies=[Depends(arena_teacher_report_rate_limit)],
+)
+async def class_problem_set_report_student(
+    request: Request,
+    class_id: str,
+    set_id: str,
+    user_id: str,
+    page: str | None = None,
+    sort: str | None = None,
+    direction: str | None = None,
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Render all submissions by one student for the problems in a problem set."""
+    return await render_student_problem_set_report(
+        request,
+        class_id=class_id,
+        set_id=set_id,
+        user_id=user_id,
+        page=page,
+        sort=sort,
+        direction=direction,
+        current_user=current_user,
+        session=session,
     )
