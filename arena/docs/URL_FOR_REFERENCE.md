@@ -258,6 +258,7 @@ and summarizes the recent Valkey turnaround statistics above its filters.
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /admin/dashboard` | `arena_admin_dashboard` | — | `admin_dashboard.py` |
+| `GET /admin/dashboard/email-templates` | `arena_admin_dashboard_email_templates` | none; read-only effective template previews and local runtime diagnostics | `admin_dashboard_email_templates.py` |
 | `GET /admin/dashboard/service-status` | `arena_admin_dashboard_service_status` | — | `admin_dashboard.py` |
 | `GET /admin/dashboard/workers` | `arena_admin_dashboard_workers` | — | `admin_dashboard.py` |
 | `POST /admin/dashboard/workers/remove` | `arena_admin_dashboard_worker_remove` | Form: `worker_class`, `worker_id` | `admin_dashboard.py` |

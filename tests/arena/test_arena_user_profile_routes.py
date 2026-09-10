@@ -914,6 +914,7 @@ async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders
                 user_id=user.id,
                 badge=ArenaBadge.HELLO_WORLD,
                 awarded_at=now - timedelta(days=1),
+                submission_id=submission_id,
             ),
             ArenaUserBadge(
                 id=str(uuid.uuid4()),
@@ -943,7 +944,8 @@ async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders
     assert 'width="96"' in response.text
     assert 'height="96"' in response.text
     assert f'href="http://testserver/submissions/{submission_id}"' in response.text
-    assert response.text.count("View awarding submission") == 1
+    # Every earned badge names a submission, because the column cannot be NULL.
+    assert response.text.count("View awarding submission") == 2
     # Unearned badges render as locked placeholders, not with their real names.
     assert "Full Clear" not in response.text
     assert "missing_badge.png" in response.text
@@ -977,12 +979,27 @@ async def test_profile_badges_tab_skips_badges_without_metadata(
 ) -> None:
     """A missing metadata entry should not break the badges tab."""
     user = await _create_arena_user(session)
+    problem_id = await _create_progress_problem(
+        session,
+        user,
+        title="Metadata Gap Problem",
+        rating=10,
+        arena_number=8130,
+    )
+    submission_id = await _create_submission_row(
+        session,
+        user=user,
+        problem_id=problem_id,
+        status=JudgmentStatus.DONE,
+        verdict=Verdict.AC,
+    )
     session.add(
         ArenaUserBadge(
             id=str(uuid.uuid4()),
             user_id=user.id,
             badge=ArenaBadge.ONE_SHOT,
             awarded_at=datetime.now(UTC),
+            submission_id=submission_id,
         )
     )
     await session.commit()
@@ -1305,6 +1322,7 @@ async def test_public_profile_badges_link_only_to_enabled_problems(session: Asyn
                 user_id=user.id,
                 badge=ArenaBadge.HELLO_WORLD,
                 awarded_at=datetime.now(UTC),
+                submission_id=visible_submission_id,
             ),
         ]
     )

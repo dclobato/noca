@@ -140,15 +140,39 @@ Async functions for the full TOTP 2FA lifecycle.
 
 Result types: `TwoFASetupResult`, `TwoFAValidationResult`.
 
-### `email_rendering.py`
+### `arena/email_templates/`
 
-Shared renderer for Arena plain-text email templates. Owns the cached
-`StrictUndefined` Jinja2 environment over `arena/template/emails/` and a single
-`render_email(template_name, **context)` that **always injects `brand_name`** from
-`settings.BRAND_NAME` (email templates render through a standalone environment, so
-the request-time `brand_name` template global is not otherwise available to them).
-The registration, password, security-notification, and class email services all
-render through this helper instead of each defining its own environment.
+Arena's catalogue and packaged defaults for every outbound Arena email. Each
+stable snake-case key maps to one TOML file that contains its subject and
+plain-text body. Catalogue entries declare separate subject/body placeholder
+sets, required placeholders, and sample values. `render_email(key, **context)`
+injects `settings.BRAND_NAME` and delegates grammar, validation, and one-pass
+substitution to `shared/services/email_templates/`.
+
+Conditional prose is prepared before rendering. The class service supplies a
+complete denial-reason line, the security service supplies inflected credit
+nouns and selects one of four complete administrator Google-unlink variants,
+and the signup reputation service supplies display-ready IP and email report
+sections. No Arena email executes Jinja or reads object attributes in a
+template.
+
+A deployment can replace any of that wording without a rebuild: with
+`NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR` set, a key with a file under the root's
+`arena/` namespace renders from that file instead of the packaged default.
+`arena_email_templates()` builds the registry on first use rather than at import,
+so the validation CLI can read this catalogue on a host with no Arena
+configuration, and `validate_email_template_overrides()` is what the lifespan
+calls to refuse a start on an invalid tree. Startup fails closed; a later invalid
+edit is logged and the last valid version keeps sending. See
+[SHARED_SERVICES.md](../../docs/SHARED_SERVICES.md).
+
+`GET /admin/dashboard/email-templates` is read-only visibility for the same
+process registry: it renders declared sample values, reports the effective
+source and `based_on` state, and shows a retained runtime error without reading
+or validating the override tree a second time. Its diagnostics are replica-local.
+Each key is rendered on its own, so a template that cannot render is reported in
+its own row rather than failing the page, and retained errors name the file
+rather than its path on the host.
 
 ### `arena_class_email_service.py`
 
@@ -156,8 +180,8 @@ Best-effort email notifications for Arena class membership and registration even
 are async, send email only after the caller has committed the database change, and take the
 `actor_key` / `tier` of whoever caused the email (the requesting student, or the acting teacher
 or admin) for the shared email budget. Delivery failures -- a spent budget included -- are caught
-and logged; they never roll back or raise to the caller. Templates are plain-text Jinja2 files
-in `arena/template/emails/` rendered through `email_rendering.render_email` (`StrictUndefined`).
+and logged; they never roll back or raise to the caller. Subjects and bodies render from the
+module catalogue through the constrained shared renderer.
 
 | Function | Recipient | Trigger |
 |----------|-----------|---------|
@@ -171,7 +195,7 @@ in `arena/template/emails/` rendered through `email_rendering.render_email` (`St
 
 ### `user_security_notification_service.py`
 
-Single home for all Arena security event email notifications. All functions are async and return `True` on successful delivery; callers log warnings on failure but do not block the request flow. The self-service ones charge the user's own email budget; the `admin_*` ones take the acting `admin_id` and charge that administrator's budget. Templates are plain-text Jinja2 files in `arena/template/emails/`.
+Single home for all Arena security event email notifications. All functions are async and return `True` on successful delivery; callers log warnings on failure but do not block the request flow. The self-service ones charge the user's own email budget; the `admin_*` ones take the acting `admin_id` and charge that administrator's budget. Complete subjects and bodies come from `arena/email_templates/`.
 
 | Function | Description |
 |----------|-------------|
@@ -253,7 +277,8 @@ after the signup response. The signup IP is **always** persisted to
 can be scored later by the backfill script; when `NOCA_IPQUALITYSCORE_APIKEY` is set,
 the blocking IPQualityScore IP and email lookups run in a worker thread, the snapshot
 is updated with fraud scores plus the full JSON reports, and every `ARENA_ADMIN` is
-emailed a report (`new_user_reputation.jinja2`). All failures are logged and swallowed
+emailed the `new_user_reputation` catalogue entry. Python converts both optional
+reputation objects into display-ready text before rendering. All failures are logged and swallowed
 so the flow can never affect the already-created account.
 
 | Function | Description |
@@ -296,7 +321,7 @@ change, date-of-birth change — bumps `consent_generation`, so a link is invali
 next transition of any kind. That single mechanism closes replay (a used link cannot revoke
 twice) and strips authority from a **former** guardian once the address changes.
 
-**Why the link ships only after the grant.** `parental_consent_confirmed.jinja2` is the
+**Why the link ships only after the grant.** The `parental_consent_confirmed` email is the
 sole carrier. A link placed in the consent *invitation* could never work: before the grant
 it fails the consent check, and after it the epoch is already stale — there is no window in
 between. The invitation therefore carries only wording about the right to withdraw. The

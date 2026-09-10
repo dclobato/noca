@@ -4,6 +4,38 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [21.2.0] - 2026-09-10
+
+### ⚠ Breaking Changes
+
+- **rating:** Every badge must name the submission that earned it
+
+  migration 202609100002 deletes badge rows that name no
+  submission before applying the constraint. On production that is 8 rows;
+  CLEAN_CODE's 3 return anchored on the next reconciliation and the other 5
+  are revocations that should already have happened.
+  
+  Verified against a production copy: the migration removed exactly those 8
+  rows, one full reconcile brought CLEAN_CODE back anchored (341 rows, zero
+  NULL anchors), the three NIGHT_WORKER holders who no longer qualify are
+  gone, and two further passes reported ins=0 upd=0 del=0 in
+  pg_stat_user_tables.
+
+### Features
+
+- **[BREAKING]** **rating:** Every badge must name the submission that earned it
+- **email:** Add constrained template catalogues
+- **email:** Let a deployment override templates from a mounted directory
+- **email:** Show administrators which template is actually in effect
+
+### Bug Fixes
+
+- **rating:** Reconcile badges fully on the startup cycle
+- **scripts:** Stop scripts/web/ shadowing the real web package
+- **scripts:** Disarm the shadowing trap instead of dodging it once
+
+
+
 ## [21.1.0] - 2026-09-09
 
 ### Features

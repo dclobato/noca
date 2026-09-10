@@ -1,0 +1,21 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "You already have a {brand_name} account"
+body = """
+Hello,
+
+Someone tried to create a {brand_name} account with this email address, but an
+account already exists for it.
+
+If this was you, there is no need to sign up again. You can:
+
+  - Log in: {login_url}
+  - Reset your password if you forgot it: {reset_url}
+
+If this was not you, you can safely ignore this message. Your account remains
+unchanged and no action is required.
+"""

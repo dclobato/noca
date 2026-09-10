@@ -18,7 +18,7 @@ replay (a used link cannot revoke twice) and what strips authority from a **form
 guardian once the address is changed.
 
 **The link ships only after consent is granted**, in
-``parental_consent_confirmed.jinja2``. A link minted before the grant could never work: it
+the ``parental_consent_confirmed`` email template. A link minted before the grant could never work: it
 would fail the consent check while consent is pending, and its generation would be stale
 the moment the grant bumped the counter. So the consent invitation itself carries only
 wording about the right, never a link.
@@ -36,9 +36,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.config import settings
+from arena.email_templates import render_email
 from arena.models.arena_users import ArenaUser
-from arena.services.email_rendering import render_email
 from arena.services.token_service import (
     _PARENTAL_REVOKE_TIMEOUT,
     ArenaTokenAction,
@@ -206,16 +205,16 @@ async def send_consent_confirmed_email(
     """
     if not usuario.email_responsavel_legal:
         return False
-    body = render_email(
-        "parental_consent_confirmed.jinja2",
+    email_content = render_email(
+        "parental_consent_confirmed",
         nome=usuario.nome,
         revoke_url=build_revocation_url(url_base, mint_revocation_token(usuario, jwt_service)),
     )
     result = await email_service.send_email(
         to_email=usuario.email_responsavel_legal,
         to_name="Parent or legal guardian",
-        subject=f"Consent confirmed for {settings.BRAND_NAME} account",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success
@@ -246,12 +245,12 @@ async def send_consent_revoked_email(
     to_email = usuario.email_responsavel_legal if recipient == "guardian" else usuario.email_normalizado
     if not to_email:
         return False
-    body = render_email("parental_consent_revoked.jinja2", nome=usuario.nome)
+    email_content = render_email("parental_consent_revoked", nome=usuario.nome)
     result = await email_service.send_email(
         to_email=to_email,
         to_name="Parent or legal guardian" if recipient == "guardian" else usuario.nome,
-        subject=f"{settings.BRAND_NAME} account suspended",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success

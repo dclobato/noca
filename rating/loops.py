@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -310,11 +310,20 @@ async def run_badge_assignment_loop(
     Independent of the rating chain: it runs on its own timer (``BADGE_INTERVAL``).
     Each cycle runs the cheap incremental pass; ``compute_badge_awards`` derives
     whether a full reconciliation is due from the durable
-    ``arena_badge_cycle_state.last_reconciled_at`` (so a process restart does not
-    force one), running it at most every ``reconcile_interval_seconds``. The full
-    pass ignores the watermark and re-evaluates all AC history, keeping CLEAN_CODE
-    dynamic and repairing anything the incremental path missed. Failures are
-    logged and the loop keeps running.
+    ``arena_badge_cycle_state.last_reconciled_at``, running it at most every
+    ``reconcile_interval_seconds``. The full pass ignores the watermark and
+    re-evaluates all AC history, keeping CLEAN_CODE dynamic, filling anchors that
+    are still NULL, and repairing anything the incremental path missed. Failures
+    are logged and the loop keeps running.
+
+    ``run_immediately`` forces that first cycle to be a full reconciliation rather
+    than an incremental pass, which is the whole point of asking for work at
+    startup: the same flag makes the rating and statistics loops recompute
+    everything, and a restart is normally a deploy -- the one moment when the
+    derivation rules themselves may have changed and the ledger has to be
+    re-derived rather than merely extended. Deriving the mode from
+    ``last_reconciled_at`` alone would leave a deploy waiting up to
+    ``reconcile_interval_seconds`` for rules it already shipped.
 
     Args:
         session_factory: Async session factory for database access.
@@ -323,8 +332,10 @@ async def run_badge_assignment_loop(
         logger: Logger instance for cycle reporting.
         lookback_seconds: Overlap subtracted from the incremental watermark.
         reconcile_interval_seconds: Minimum seconds between full reconciliations.
-        run_immediately: When True, skip the initial interval wait.
+        run_immediately: When True, skip the initial interval wait and make that
+            first cycle a full reconciliation.
     """
+    force_full_reconcile = run_immediately
     if not run_immediately:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
@@ -334,12 +345,18 @@ async def run_badge_assignment_loop(
             async with session_factory() as session:
                 count = await compute_badge_awards(
                     session,
+                    full_reconcile=force_full_reconcile or None,
                     reconcile_interval_seconds=reconcile_interval_seconds,
                     lookback_seconds=lookback_seconds,
                     now=datetime.now(UTC),
                 )
                 await session.commit()
-            logger.info("Badge assignment cycle complete (%d badges awarded)", count)
+            logger.info(
+                "Badge assignment cycle complete (%d badges awarded, %s pass)",
+                count,
+                "full" if force_full_reconcile else "incremental/auto",
+            )
+            force_full_reconcile = False
         except OSError as exc:
             logger.warning("Badge assignment cycle skipped — DB unreachable: %s", exc)
         except Exception:

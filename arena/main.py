@@ -39,6 +39,7 @@ from arena.config import settings
 from arena.database import create_engine, create_session_factory
 from arena.dependencies.access_control import enforce_arena_authentication
 from arena.dependencies.required_announcements import load_pending_required_announcement
+from arena.email_templates import arena_email_templates, validate_email_template_overrides
 from arena.error_handlers import register_error_handlers
 from arena.image_upload_limits import arena_image_upload_rules
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
@@ -47,6 +48,7 @@ from arena.routes.admin_announcements import router as arena_admin_announcements
 from arena.routes.admin_categories import router as arena_admin_categories_router
 from arena.routes.admin_collections import router as arena_admin_collections_router
 from arena.routes.admin_dashboard import router as arena_admin_dashboard_router
+from arena.routes.admin_dashboard_email_templates import router as arena_admin_dashboard_email_templates_router
 from arena.routes.admin_dashboard_history import router as arena_admin_dashboard_history_router
 from arena.routes.admin_dashboard_lockouts import router as arena_admin_dashboard_lockouts_router
 from arena.routes.admin_dashboard_security import router as arena_admin_dashboard_security_router
@@ -276,6 +278,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         logger.info("Public problem package caches disabled (NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH unset)")
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
+    # Fails closed, and before anything expensive: an override tree is the one
+    # thing every replica validates identically, so a typo in a published
+    # template stops the deploy instead of reaching only the replicas that
+    # happened to reread the file. Warming the registry here also moves a broken
+    # packaged default from the first send to startup.
+    if settings.EMAIL_TEMPLATE_OVERRIDE_DIR is None:
+        logger.info("Email template overrides disabled (NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR unset)")
+    else:
+        logger.info("Email template override directory: %s", settings.EMAIL_TEMPLATE_OVERRIDE_DIR / "arena")
+    validate_email_template_overrides()
+    arena_email_templates()
 
     await wait_for_db(settings.db_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     await wait_for_valkey(settings.valkey_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
@@ -660,6 +673,7 @@ app.include_router(arena_admin_categories_router)
 app.include_router(arena_admin_collections_router)
 app.include_router(arena_admin_announcements_router)
 app.include_router(arena_admin_dashboard_router)
+app.include_router(arena_admin_dashboard_email_templates_router)
 app.include_router(arena_admin_dashboard_history_router)
 app.include_router(arena_admin_dashboard_lockouts_router)
 app.include_router(arena_admin_dashboard_security_router)

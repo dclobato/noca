@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from arena.services.email_rendering import render_email as _render
+from arena.email_templates import render_email
 from shared.services.email_budget import EmailTier
 from shared.services.email_service import EmailService
 
@@ -53,8 +53,8 @@ async def send_class_registration_request_email(
         ``True`` when the provider reports successful delivery.
     """
     try:
-        body = _render(
-            "class_registration_request.jinja2",
+        email = render_email(
+            "class_registration_request",
             teacher_name=teacher_name,
             student_name=student_name,
             class_name=class_name,
@@ -63,8 +63,8 @@ async def send_class_registration_request_email(
         result = await email_service.send_email(
             to_email=teacher_email,
             to_name=teacher_name,
-            subject=f'New registration request for "{class_name}"',
-            text_body=body,
+            subject=email.subject,
+            text_body=email.body,
             actor_key=actor_key,
             tier=tier,
         )
@@ -101,8 +101,8 @@ async def send_class_registration_approved_email(
         ``True`` when the provider reports successful delivery.
     """
     try:
-        body = _render(
-            "class_registration_approved.jinja2",
+        email = render_email(
+            "class_registration_approved",
             student_name=student_name,
             class_name=class_name,
             class_url=class_url,
@@ -110,8 +110,8 @@ async def send_class_registration_approved_email(
         result = await email_service.send_email(
             to_email=student_email,
             to_name=student_name,
-            subject=f'Registration approved: "{class_name}"',
-            text_body=body,
+            subject=email.subject,
+            text_body=email.body,
             actor_key=actor_key,
             tier=tier,
         )
@@ -148,17 +148,17 @@ async def send_class_registration_denied_email(
         ``True`` when the provider reports successful delivery.
     """
     try:
-        body = _render(
-            "class_registration_denied.jinja2",
+        email = render_email(
+            "class_registration_denied",
             student_name=student_name,
             class_name=class_name,
-            denial_reason=denial_reason or "",
+            denial_reason_line=f"Reason: {denial_reason}" if denial_reason else "",
         )
         result = await email_service.send_email(
             to_email=student_email,
             to_name=student_name,
-            subject=f'Registration denied: "{class_name}"',
-            text_body=body,
+            subject=email.subject,
+            text_body=email.body,
             actor_key=actor_key,
             tier=tier,
         )
@@ -195,8 +195,8 @@ async def send_class_membership_added_email(
         ``True`` when the provider reports successful delivery.
     """
     try:
-        body = _render(
-            "class_membership_added.jinja2",
+        email = render_email(
+            "class_membership_added",
             student_name=student_name,
             class_name=class_name,
             class_url=class_url,
@@ -204,8 +204,8 @@ async def send_class_membership_added_email(
         result = await email_service.send_email(
             to_email=student_email,
             to_name=student_name,
-            subject=f'You have been added to "{class_name}"',
-            text_body=body,
+            subject=email.subject,
+            text_body=email.body,
             actor_key=actor_key,
             tier=tier,
         )
@@ -240,16 +240,16 @@ async def send_class_membership_removed_email(
         ``True`` when the provider reports successful delivery.
     """
     try:
-        body = _render(
-            "class_membership_removed.jinja2",
+        email = render_email(
+            "class_membership_removed",
             student_name=student_name,
             class_name=class_name,
         )
         result = await email_service.send_email(
             to_email=student_email,
             to_name=student_name,
-            subject=f'You have been removed from "{class_name}"',
-            text_body=body,
+            subject=email.subject,
+            text_body=email.body,
             actor_key=actor_key,
             tier=tier,
         )

@@ -233,11 +233,21 @@ for path in "${ENV_FILES[@]}"; do
 done
 FILESYSTEM_CONFIG_PATHS+=("${COMPOSE_FILE#"$PROJECT_DIR/"}")
 readonly FILESYSTEM_CONFIG_PATHS
-readonly FILESYSTEM_DATA_PATHS=(problem_statements problem_testcases email_log)
-readonly FILESYSTEM_PATHS=("${FILESYSTEM_DATA_PATHS[@]}" "${FILESYSTEM_CONFIG_PATHS[@]}")
-for path in "${FILESYSTEM_PATHS[@]}"; do
+readonly REQUIRED_DATA_PATHS=(problem_statements problem_testcases email_log)
+# Email template overrides are host state a deployment may simply not have: the
+# feature is opt-in (NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR) and the directory is never
+# seeded, so its absence is a normal install rather than a broken one. It is
+# archived when it exists, because losing it silently reverts every customized
+# email to the wording that ships in the image.
+readonly OPTIONAL_DATA_PATHS=(email_overrides)
+for path in "${REQUIRED_DATA_PATHS[@]}" "${FILESYSTEM_CONFIG_PATHS[@]}"; do
     [[ -e "$PROJECT_DIR/$path" ]] || die "Required backup path is missing: $PROJECT_DIR/$path"
 done
+FILESYSTEM_DATA_PATHS=("${REQUIRED_DATA_PATHS[@]}")
+for path in "${OPTIONAL_DATA_PATHS[@]}"; do
+    [[ -d "$PROJECT_DIR/$path" ]] && FILESYSTEM_DATA_PATHS+=("$path")
+done
+readonly FILESYSTEM_DATA_PATHS
 
 mkdir -p -- "$BACKUP_ROOT"
 exec 9>"$BACKUP_ROOT/.backup.lock"

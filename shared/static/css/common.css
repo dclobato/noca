@@ -563,6 +563,21 @@ code:not(pre code) {
     font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
 }
 
+/* Plain-text email samples are rendered by the shared constrained-template
+   registry and shown in both admin modules. Preserve their line breaks while
+   allowing long sample URLs and tokens to wrap instead of overflowing. */
+.noca-email-template-preview {
+    max-block-size: 24rem;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--bs-tertiary-bg);
+}
+
 /* Interactive validator transcript (shared by web review and arena detail pages).
    A label column, then the raw protocol line flush left. The two sides are told
    apart by the row tint: the contestant's turns are blue, the validator's are the

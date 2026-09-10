@@ -2128,8 +2128,13 @@ Do not reimplement:
 
 ## `user_credentials_email_service.py`
 
+This service composes credential messages through Web's constrained template
+catalogue, then delegates their delivery to the shared email service.
+
 Purpose:
 - compose and send contest user, UberAdmin, and animator operator credential emails
+- render both subject and body through the Web catalogue in
+  `web/email_templates/`
 
 Main types:
 - `CredentialEmailContent`
@@ -2149,7 +2154,27 @@ Notes:
   when the message went to the mailer rather than out the door, and
   `budget_exceeded` (with `retry_after_seconds`) when the budget refused it --
   the batch route stops at the first such result
-- body template follows the NOCA credentials plain-text structure used by admin routes
+- each packaged default is a TOML subject/body unit keyed by its filename stem;
+  the shared constrained renderer validates its placeholder contract and
+  injects `brand_name`, while `sender_name` remains explicitly declared per key
+- the credentials templates mark login URLs, usernames, passwords, and the
+  animator token as required, so an edited unit cannot silently omit them --
+  including in a deployment's own override, which is validated against the same
+  contract
+- `GET /uberadmin/email-templates` is the read-only view of the same registry:
+  one row per key, each rendered on its own so an unrenderable template is
+  reported rather than failing the page, with retained errors naming the file
+  rather than its path on the host
+- when `NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR` is set, a key with a file under its
+  `web/` namespace renders from that file instead of the packaged default.
+  `web_email_templates()` builds the registry on first use (never at import, so
+  the validation CLI can read this catalogue without Web configuration) and
+  `validate_email_template_overrides()` is what the lifespan calls to refuse a
+  start on an invalid tree. See [SHARED_SERVICES.md](../../docs/SHARED_SERVICES.md)
+- `GET /uberadmin/email-templates` is read-only visibility for the same process
+  registry: it renders declared sample values, reports the effective source and
+  `based_on` state, and shows a retained runtime error without reading or
+  validating the override tree a second time. Its diagnostics are replica-local
 - animator credential content identifies whether the one-time plaintext token is
   global or site-scoped, including the authorized site name, for delivery to the
   administrator who generated it

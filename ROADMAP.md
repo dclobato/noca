@@ -80,29 +80,6 @@ subsume the cross-process locking gap.
 
 [Open `web` issues](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open)
 
-## Editable email templates
-
-Every outbound message is a Jinja template compiled into the image, so changing
-a word in a password-reset mail needs a deployment. The theme has since been
-settled into three phases, and the shape moved: overrides live on the
-deployment's filesystem under the operator's own Git history, not in the
-database, and NOCA never seeds that directory.
-
-The first phase replaces Jinja with one constrained format — a placeholder
-grammar with no expressions, single-line subjects and size limits — behind a
-shared renderer and per-module catalogues, converting every packaged template
-and pulling hardcoded subjects and Python-side display text into it. The second
-adds an optional override directory mounted read-only into Web and Arena,
-validated at startup so a bad file refuses the boot, re-read on change at send
-time with the last valid version retained, plus a validation CLI and the Compose
-and backup integration. The third is optional and read-only: admin pages that
-show which template is in force, whether an override has drifted from the
-shipped default, and previews rendered from sample values — with no save path.
-
-[Open `shared`](https://git.lobato.org:10880/dclobato/noca/issues?labels=49&state=open) ·
-[`web`](https://git.lobato.org:10880/dclobato/noca/issues?labels=50&state=open) ·
-[`arena`](https://git.lobato.org:10880/dclobato/noca/issues?labels=51&state=open)
-
 ## Valkey payload authentication
 
 Every value NOCA writes to Valkey is unauthenticated today, and one of them is

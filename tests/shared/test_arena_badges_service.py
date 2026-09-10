@@ -505,3 +505,66 @@ async def test_watermark_does_not_regress(session: AsyncSession) -> None:
     # A later incremental cycle with no new work must keep the watermark.
     await compute_badge_awards(session, full_reconcile=False, now=_WEEKDAY_NOON + timedelta(hours=1))
     assert await _watermark(session) == high
+
+
+async def test_clean_code_is_anchored_to_the_holders_cleanest_submission(session: AsyncSession) -> None:
+    """The rank has no single qualifying event, so the row names a representative.
+
+    Among the holder's ACs on a qualifying problem, that is the one minimising
+    ``(wall_time, memory, created_at, id)`` -- their cleanest solution.
+    """
+    problem = str(uuid.uuid4())
+    target = await _new_user(session)
+    entries: list[tuple[str, int | None, int | None]] = [(target, 10, 100)]
+    entries += [(await _new_user(session), 1_000, 5_000) for _ in range(19)]
+    await _clean_code_field(session, problem, entries)
+    cleanest = await _submit(
+        session,
+        target,
+        problem,
+        Verdict.AC,
+        _WEEKDAY_NOON + timedelta(hours=1),
+        wall_ms=8,
+        memory_kb=90,
+    )
+
+    await compute_badge_awards(session, full_reconcile=True)
+
+    assert (
+        await session.execute(
+            select(arena_user_badges.c.submission_id).where(
+                arena_user_badges.c.user_id == target,
+                arena_user_badges.c.badge == ArenaBadge.CLEAN_CODE.value,
+            )
+        )
+    ).scalar_one() == cleanest
+
+
+async def test_clean_code_anchor_follows_the_holders_cleaner_solution(session: AsyncSession) -> None:
+    """A held row is re-anchored when a cleaner solution by the holder arrives."""
+    problem = str(uuid.uuid4())
+    target = await _new_user(session)
+    entries: list[tuple[str, int | None, int | None]] = [(target, 10, 100)]
+    entries += [(await _new_user(session), 1_000, 5_000) for _ in range(19)]
+    await _clean_code_field(session, problem, entries)
+    await compute_badge_awards(session, full_reconcile=True)
+
+    cleaner = await _submit(
+        session,
+        target,
+        problem,
+        Verdict.AC,
+        _WEEKDAY_NOON + timedelta(hours=1),
+        wall_ms=4,
+        memory_kb=50,
+    )
+    await compute_badge_awards(session, full_reconcile=True)
+
+    assert (
+        await session.execute(
+            select(arena_user_badges.c.submission_id).where(
+                arena_user_badges.c.user_id == target,
+                arena_user_badges.c.badge == ArenaBadge.CLEAN_CODE.value,
+            )
+        )
+    ).scalar_one() == cleaner

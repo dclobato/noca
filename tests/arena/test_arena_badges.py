@@ -17,7 +17,9 @@ from sqlalchemy.orm import selectinload
 
 from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
-from shared.enumerations import ArenaBadge, ArenaRole
+from shared.db_schema.arena import arena_problems, arena_submissions
+from shared.enumerations import ArenaBadge, ArenaRole, ProblemValidatorType
+from web.models.language import Language
 
 
 async def _create_user(session: AsyncSession) -> ArenaUser:
@@ -51,10 +53,66 @@ async def _create_user(session: AsyncSession) -> ArenaUser:
     return user
 
 
+async def _create_submission(session: AsyncSession, user: ArenaUser) -> str:
+    """Persist a submission a badge can name; return its id.
+
+    ``arena_user_badges.submission_id`` is ``NOT NULL``, so every badge in these
+    tests needs real work to point at.
+
+    Args:
+        session: Async database session.
+        user: The submitting user.
+
+    Returns:
+        str: The new submission's id.
+    """
+    language = Language(
+        id=f"lang-{uuid.uuid4().hex[:8]}",
+        name="Badge Test Lang",
+        icon="devicon-c-plain",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="source.c",
+        artifact_path="/sandbox/a.out",
+        artifact_is_source=False,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    problem_id = str(uuid.uuid4())
+    await session.execute(
+        arena_problems.insert().values(
+            id=problem_id,
+            arena_number=int(uuid.uuid4().int % 1_000_000_000) + 1,
+            title=f"Badge Problem {uuid.uuid4().hex[:8]}",
+            owner_id=user.id,
+            problem_statement="Test problem.",
+            validator_type=ProblemValidatorType.STANDARD,
+        )
+    )
+    submission_id = str(uuid.uuid4())
+    await session.execute(
+        arena_submissions.insert().values(
+            id=submission_id,
+            user_id=user.id,
+            problem_id=problem_id,
+            language_id=language.id,
+            source_code="int main(){}",
+            source_hash=uuid.uuid4().hex,
+            source_size_bytes=12,
+        )
+    )
+    return submission_id
+
+
 @pytest.mark.asyncio
 async def test_badge_relationship_round_trips(session: AsyncSession) -> None:
     """Badges added to a user load back through the relationship."""
     user = await _create_user(session)
+    submission_id = await _create_submission(session, user)
     awarded = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
     session.add(
         ArenaUserBadge(
@@ -62,6 +120,7 @@ async def test_badge_relationship_round_trips(session: AsyncSession) -> None:
             user_id=user.id,
             badge=ArenaBadge.HELLO_WORLD,
             awarded_at=awarded,
+            submission_id=submission_id,
         )
     )
     session.add(
@@ -70,6 +129,7 @@ async def test_badge_relationship_round_trips(session: AsyncSession) -> None:
             user_id=user.id,
             badge=ArenaBadge.ONE_SHOT,
             awarded_at=awarded,
+            submission_id=submission_id,
         )
     )
     await session.flush()
@@ -88,6 +148,7 @@ async def test_badge_relationship_round_trips(session: AsyncSession) -> None:
 async def test_badge_is_unique_per_user(session: AsyncSession) -> None:
     """The same badge cannot be awarded to one user twice."""
     user = await _create_user(session)
+    submission_id = await _create_submission(session, user)
     awarded = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
     session.add(
         ArenaUserBadge(
@@ -95,6 +156,7 @@ async def test_badge_is_unique_per_user(session: AsyncSession) -> None:
             user_id=user.id,
             badge=ArenaBadge.FULL_CLEAR,
             awarded_at=awarded,
+            submission_id=submission_id,
         )
     )
     await session.flush()
@@ -104,6 +166,7 @@ async def test_badge_is_unique_per_user(session: AsyncSession) -> None:
             user_id=user.id,
             badge=ArenaBadge.FULL_CLEAR,
             awarded_at=awarded,
+            submission_id=submission_id,
         )
     )
     with pytest.raises(IntegrityError):

@@ -9,12 +9,16 @@
 Both badges here are earned by a run of submissions rather than by one, so each
 is anchored to the submission that closed the run: the AC that made the streak
 15 problems long, and the third non-Accepted verdict inside the 90-second window.
+
+Both return the badges they derive rather than writing them. On a full pass the
+walk covers all history, so the run that closed *first* is the one named, which
+is what makes the anchor stable across passes.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.db_schema.arena import arena_submission_judgments as _judgments
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.enumerations import ArenaBadge, JudgmentStatus, Verdict
-from shared.services.arena_badge_data import AcEvent, NonAcEvent, as_utc, award_badge
+from shared.services.arena_badge_data import AcEvent, NonAcEvent, as_utc
+from shared.services.arena_badge_writer import BadgeAwards
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 _THIS_IS_THE_WAY_RUN = 15
@@ -30,14 +35,14 @@ _LOCOCODER_COUNT = 3
 _LOCOCODER_WINDOW_SECONDS = 90
 
 
-async def award_this_is_the_way(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award THIS_IS_THE_WAY for a 15-AC run over distinct problems.
+async def award_this_is_the_way(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive THIS_IS_THE_WAY for a 15-AC run over distinct problems.
 
     Anchored to the 15th AC of the run -- the submission that completed it.
     """
     user_ids = {e.user_id for e in events}
     if not user_ids:
-        return 0
+        return {}
 
     active = active_arena_judgment_subquery()
     rows = (
@@ -67,7 +72,6 @@ async def award_this_is_the_way(session: AsyncSession, events: list[AcEvent]) ->
         )
     ).all()
 
-    awarded = 0
     run_problems: dict[str, set[str]] = defaultdict(set)
     run_lengths: dict[str, int] = defaultdict(int)
     qualified: dict[str, str] = {}
@@ -87,24 +91,23 @@ async def award_this_is_the_way(session: AsyncSession, events: list[AcEvent]) ->
         if run_lengths[row.user_id] >= _THIS_IS_THE_WAY_RUN:
             qualified[row.user_id] = row.id
 
-    for user_id, submission_id in qualified.items():
-        if await award_badge(session, user_id, ArenaBadge.THIS_IS_THE_WAY, submission_id):
-            awarded += 1
-    return awarded
+    return {(user_id, ArenaBadge.THIS_IS_THE_WAY): submission_id for user_id, submission_id in qualified.items()}
 
 
-async def award_lococoder(session: AsyncSession, events: list[NonAcEvent]) -> int:
-    """Award LOCO_CODER for 3 non-AC verdicts on one problem within 90 seconds.
+def lococoder_awards(events: list[NonAcEvent]) -> BadgeAwards:
+    """Derive LOCO_CODER for 3 non-AC verdicts on one problem within 90 seconds.
 
     Anchored to the third submission in the window -- the one that closed it.
     Unlike every other badge, that submission is not Accepted, which is exactly
-    what the badge records.
+    what the badge records. A user who closed a window on several problems is
+    anchored to the earliest such submission.
     """
     grouped: dict[tuple[str, str], list[NonAcEvent]] = defaultdict(list)
     for event in events:
         grouped[(event.user_id, event.problem_id)].append(event)
 
-    awarded = 0
+    awards: BadgeAwards = {}
+    closed: dict[str, tuple[datetime, str]] = {}
     window = timedelta(seconds=_LOCOCODER_WINDOW_SECONDS)
     for (user_id, _), rows in grouped.items():
         recent: deque[NonAcEvent] = deque()
@@ -113,7 +116,9 @@ async def award_lococoder(session: AsyncSession, events: list[NonAcEvent]) -> in
             while as_utc(row.created_at) - as_utc(recent[0].created_at) > window:
                 recent.popleft()
             if len(recent) >= _LOCOCODER_COUNT:
-                if await award_badge(session, user_id, ArenaBadge.LOCO_CODER, row.submission_id):
-                    awarded += 1
+                key = (as_utc(row.created_at), row.submission_id)
+                if user_id not in closed or key < closed[user_id]:
+                    closed[user_id] = key
+                    awards[(user_id, ArenaBadge.LOCO_CODER)] = row.submission_id
                 break
-    return awarded
+    return awards

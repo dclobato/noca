@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import logging
 
+from arena.email_templates import render_email
 from arena.models.arena_users import ArenaUser
-from arena.services.email_rendering import render_email as _render_email_template
 from shared.services.email_budget import EmailTier
 from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailService
+from shared.services.email_templates import RenderedEmail
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,7 @@ logger = logging.getLogger(__name__)
 async def _notify(
     usuario: ArenaUser,
     email_service: EmailService,
-    subject: str,
-    body: str,
+    email_content: RenderedEmail,
     *,
     actor_key: str,
     tier: EmailTier,
@@ -38,8 +38,7 @@ async def _notify(
     Args:
         usuario: Recipient Arena user.
         email_service: Configured email delivery service.
-        subject: Message subject line.
-        body: Rendered plain-text body.
+        email_content: Rendered subject and plain-text body.
         actor_key: Budget identity of the actor causing this email.
         tier: Budget tier of that actor.
 
@@ -50,13 +49,13 @@ async def _notify(
         result = await email_service.send_email(
             to_email=usuario.email,
             to_name=usuario.nome,
-            subject=subject,
-            text_body=body,
+            subject=email_content.subject,
+            text_body=email_content.body,
             actor_key=actor_key,
             tier=tier,
         )
     except EmailProviderError as exc:
-        logger.warning("Notification email %r to user %s failed: %s", subject, usuario.id, exc)
+        logger.warning("Notification email %r to user %s failed: %s", email_content.subject, usuario.id, exc)
         return False
     return result.success
 
@@ -71,10 +70,8 @@ async def send_password_changed_email(usuario: ArenaUser, email_service: EmailSe
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("password_changed.jinja2", nome=usuario.nome)
-    return await _notify(
-        usuario, email_service, "Your Arena password was changed", body, actor_key=f"user:{usuario.id}", tier="user"
-    )
+    email_content = render_email("password_changed", nome=usuario.nome)
+    return await _notify(usuario, email_service, email_content, actor_key=f"user:{usuario.id}", tier="user")
 
 
 async def send_google_linked_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -91,12 +88,11 @@ async def send_google_linked_email(usuario: ArenaUser, email_service: EmailServi
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("google_account_linked.jinja2", nome=usuario.nome)
+    email_content = render_email("google_account_linked", nome=usuario.nome)
     return await _notify(
         usuario,
         email_service,
-        "A Google account was linked to your account",
-        body,
+        email_content,
         actor_key=f"user:{usuario.id}",
         tier="user",
     )
@@ -112,12 +108,11 @@ async def send_google_unlinked_email(usuario: ArenaUser, email_service: EmailSer
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("google_account_unlinked.jinja2", nome=usuario.nome)
+    email_content = render_email("google_account_unlinked", nome=usuario.nome)
     return await _notify(
         usuario,
         email_service,
-        "Your linked Google account was removed",
-        body,
+        email_content,
         actor_key=f"user:{usuario.id}",
         tier="user",
     )
@@ -133,10 +128,8 @@ async def send_2fa_enabled_email(usuario: ArenaUser, email_service: EmailService
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("2fa_enabled.jinja2", nome=usuario.nome)
-    return await _notify(
-        usuario, email_service, "Two-factor authentication enabled", body, actor_key=f"user:{usuario.id}", tier="user"
-    )
+    email_content = render_email("2fa_enabled", nome=usuario.nome)
+    return await _notify(usuario, email_service, email_content, actor_key=f"user:{usuario.id}", tier="user")
 
 
 async def send_2fa_disabled_self_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -149,10 +142,8 @@ async def send_2fa_disabled_self_email(usuario: ArenaUser, email_service: EmailS
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("2fa_disabled_self.jinja2", nome=usuario.nome)
-    return await _notify(
-        usuario, email_service, "Two-factor authentication disabled", body, actor_key=f"user:{usuario.id}", tier="user"
-    )
+    email_content = render_email("2fa_disabled_self", nome=usuario.nome)
+    return await _notify(usuario, email_service, email_content, actor_key=f"user:{usuario.id}", tier="user")
 
 
 async def send_backup_code_used_email(
@@ -170,16 +161,15 @@ async def send_backup_code_used_email(
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template(
-        "backup_code_used.jinja2",
+    email_content = render_email(
+        "backup_code_used",
         nome=usuario.nome,
         remaining=str(remaining),
     )
     return await _notify(
         usuario,
         email_service,
-        "A backup code was used to access your account",
-        body,
+        email_content,
         actor_key=f"user:{usuario.id}",
         tier="user",
     )
@@ -196,10 +186,8 @@ async def send_admin_2fa_disabled_email(usuario: ArenaUser, email_service: Email
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("admin_2fa_disabled.jinja2", nome=usuario.nome)
-    return await _notify(
-        usuario, email_service, "Two-factor authentication disabled", body, actor_key=f"user:{admin_id}", tier="admin"
-    )
+    email_content = render_email("admin_2fa_disabled", nome=usuario.nome)
+    return await _notify(usuario, email_service, email_content, actor_key=f"user:{admin_id}", tier="admin")
 
 
 async def send_admin_google_unlinked_email(
@@ -227,17 +215,17 @@ async def send_admin_google_unlinked_email(
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template(
-        "admin_google_unlinked.jinja2",
-        nome=usuario.nome,
-        password_reset_url=password_reset_url,
-        account_inactive=account_inactive,
-    )
+    state = "inactive" if account_inactive else "reset" if password_reset_url else "password"
+    if account_inactive and password_reset_url:
+        state = "inactive_reset"
+    context = {"nome": usuario.nome}
+    if password_reset_url is not None:
+        context["password_reset_url"] = password_reset_url
+    email_content = render_email(f"admin_google_unlinked_{state}", **context)
     return await _notify(
         usuario,
         email_service,
-        "Your linked Google account was removed",
-        body,
+        email_content,
         actor_key=f"user:{admin_id}",
         tier="admin",
     )
@@ -259,10 +247,8 @@ async def send_admin_password_change_required_email(
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template("admin_password_change_required.jinja2", nome=usuario.nome)
-    return await _notify(
-        usuario, email_service, "Password change required", body, actor_key=f"user:{admin_id}", tier="admin"
-    )
+    email_content = render_email("admin_password_change_required", nome=usuario.nome)
+    return await _notify(usuario, email_service, email_content, actor_key=f"user:{admin_id}", tier="admin")
 
 
 async def send_ai_credits_topped_up_email(
@@ -285,17 +271,18 @@ async def send_ai_credits_topped_up_email(
     Returns:
         ``True`` when the provider reports successful delivery.
     """
-    body = _render_email_template(
-        "ai_credits_topped_up.jinja2",
+    email_content = render_email(
+        "ai_credits_topped_up",
         nome=usuario.nome,
         quantity=str(quantity),
+        quantity_credit_noun="credit" if quantity == 1 else "credits",
         balance=str(balance),
+        balance_credit_noun="credit" if balance == 1 else "credits",
     )
     return await _notify(
         usuario,
         email_service,
-        "AI review credits added to your account",
-        body,
+        email_content,
         actor_key=f"user:{admin_id}",
         tier="admin",
     )

@@ -1,0 +1,18 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "Two-factor authentication disabled"
+body = """
+Hello {nome},
+
+An Arena administrator disabled two-factor authentication on your account.
+Your existing sessions were also signed out.
+
+For your account security, sign in and set up two-factor authentication again
+as soon as possible.
+
+If you did not expect this change, contact an Arena administrator immediately.
+"""

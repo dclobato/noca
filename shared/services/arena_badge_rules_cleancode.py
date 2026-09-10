@@ -4,13 +4,22 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""The dynamic CLEAN_CODE badge rule: top-5% ranking with revocation.
+"""The dynamic CLEAN_CODE badge rule: top-5% ranking, re-derived every full pass.
 
-CLEAN_CODE is one of the badges a user can stop deserving. Unlike the dynamic
-solve-rate criterion for ROCK_CRACKER, CLEAN_CODE records a *rank*, and that
-rank moves as faster solvers arrive. It is consequently reconciled rather than awarded:
+CLEAN_CODE records a *rank*, and that rank moves as faster solvers arrive, so
 :func:`reconcile_clean_code` re-derives the whole holder set from all Accepted
-history on the full-reconcile pass and both inserts and deletes.
+history on the full-reconcile pass rather than awarding incrementally.
+
+Qualification is per problem: a user is in the band when their best time and
+their best memory on one problem both fall inside its top 5%. Those two minima
+are taken per axis and can come from different submissions, so the badge row
+names a **representative** submission rather than "the one that qualified you":
+among the user's ACs on a qualifying problem, the one minimising
+``(wall_time, memory, created_at, id)``, and the same comparison across several
+qualifying problems. It is deterministic, re-derives identically every pass, and
+points at the holder's cleanest solution. A qualifier with no AC carrying both
+measurements has no representative and therefore no badge -- the ledger holds no
+row that names nothing.
 
 Ranking lives here as pure functions over already-loaded rows so the thresholds,
 the tie rule, and the minimum population are testable without a database.
@@ -21,13 +30,18 @@ from __future__ import annotations
 import math
 from bisect import bisect_right
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import ArenaBadge
-from shared.services.arena_badge_data import award_badge, fetch_all_ac_metrics, revoke_badge_except
+from shared.services.arena_badge_data import as_utc, fetch_all_ac_metrics
+from shared.services.arena_badge_writer import BadgeAwards
+
+# Ordering key for a candidate anchor: cleanest first, then oldest, then id.
+_Representative = tuple[int, int, datetime, str]
 
 _CLEAN_CODE_PERCENTILE = 0.05
 _CLEAN_CODE_MIN_SOLVERS = 20
@@ -109,37 +123,58 @@ def clean_code_qualifiers(rows: list[Row[Any]]) -> set[str]:
     return by_time & by_memory
 
 
-async def reconcile_clean_code(session: AsyncSession) -> tuple[int, int]:
-    """Re-derive CLEAN_CODE across the whole catalogue, awarding and revoking.
+def representative_submission(rows: list[Row[Any]]) -> _Representative | None:
+    """Return the cleanest AC among ``rows``, or ``None`` when none is measurable.
+
+    Only a row carrying *both* measurements can represent the badge, since a row
+    missing one has not been shown to sit inside that band at all.
+
+    Args:
+        rows: A user's Accepted rows for one problem.
+
+    Returns:
+        The ordering key of the chosen submission, whose last element is the
+        submission id, or ``None`` when no row carries both metrics.
+    """
+    candidates = [
+        (row.max_wall_time_ms, row.max_memory_kb, as_utc(row.created_at), row.submission_id)
+        for row in rows
+        if row.max_wall_time_ms is not None and row.max_memory_kb is not None
+    ]
+    return min(candidates) if candidates else None
+
+
+async def reconcile_clean_code(session: AsyncSession) -> BadgeAwards:
+    """Re-derive the whole CLEAN_CODE holder set from all Accepted history.
 
     CLEAN_CODE is a *dynamic* badge: a solution that ranked in a problem's
     top 5% falls out of it as faster solvers arrive, and a problem below the
     minimum solver count ranks nobody at all. It is therefore evaluated only on
     the full-reconcile pass, over every Accepted submission rather than the
-    cycle's touched problems — an incremental pass cannot rank a population it
+    cycle's touched problems -- an incremental pass cannot rank a population it
     did not load, and must not revoke on a partial view.
 
     Args:
         session: Active async session (transaction owned by the caller).
 
     Returns:
-        Tuple of (rows inserted, rows revoked).
+        Every current qualifier mapped to their representative submission.
     """
     rows_by_problem: dict[str, list[Row[Any]]] = defaultdict(list)
     for row in await fetch_all_ac_metrics(session):
         rows_by_problem[row.problem_id].append(row)
 
-    qualifiers: set[str] = set()
+    best: dict[str, _Representative] = {}
     for problem_rows in rows_by_problem.values():
-        qualifiers |= clean_code_qualifiers(problem_rows)
-
-    awarded = 0
-    for user_id in qualifiers:
-        # No submission id: CLEAN_CODE is a rank held across several problems at
-        # once, and its qualifying set is rewritten on every reconcile, so any
-        # single anchor captured at award time would be wrong by the next pass.
-        # The row stays NULL by design; see docs/ARENA_BADGES.md.
-        if await award_badge(session, user_id, ArenaBadge.CLEAN_CODE):
-            awarded += 1
-    revoked = await revoke_badge_except(session, ArenaBadge.CLEAN_CODE, qualifiers)
-    return awarded, revoked
+        qualifiers = clean_code_qualifiers(problem_rows)
+        if not qualifiers:
+            continue
+        by_user: dict[str, list[Row[Any]]] = defaultdict(list)
+        for row in problem_rows:
+            if row.user_id in qualifiers:
+                by_user[row.user_id].append(row)
+        for user_id, user_rows in by_user.items():
+            candidate = representative_submission(user_rows)
+            if candidate is not None and (user_id not in best or candidate < best[user_id]):
+                best[user_id] = candidate
+    return {(user_id, ArenaBadge.CLEAN_CODE): candidate[3] for user_id, candidate in best.items()}

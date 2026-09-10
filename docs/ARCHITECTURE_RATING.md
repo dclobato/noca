@@ -36,45 +36,60 @@ timer) awards Arena gamification badges from submission and catalogue state
 (`shared.services.arena_badges`): each cycle runs a cheap incremental pass bounded by a
 watermark, and periodically a full reconciliation pass re-evaluates all relevant
 history so dynamic badges (CLEAN_CODE and ROCK_CRACKER) and late data stay correct.
+`NOCA_RATING_COMPUTE_ON_STARTUP` makes that startup cycle a full reconciliation
+rather than an incremental pass, on the same reasoning as the rating and
+statistics loops it also applies to: a restart is normally a deploy, the one
+moment when the award rules themselves may have changed and the ledger has to be
+re-derived rather than merely extended. Without it a deploy waits up to
+`NOCA_RATING_BADGE_RECONCILE_INTERVAL` for rules it has already shipped.
 
 ## Badges
 
-Arena gamification adds the `arena_user_badges` table to the shared schema: a
-mostly append-only set of badges each Arena user currently holds (`ArenaBadge`
-enum), when each row was awarded (`awarded_at`), and what earned it
-(`submission_id`). A unique `(user_id, badge)` constraint permits at most one
-current row; dynamic badges can be deleted and awarded again later. The
-award logic that inserts rows is owned by the
-rating worker's badge-assignment loop (`shared.services.arena_badges`); the Arena
-ORM exposes the ledger through `ArenaUser.badges`, and each row's awarding
-submission through `ArenaUserBadge.submission`. Streak badges are backed by the
-`arena_users.current_streak` / `longest_streak` / `last_ac_date` columns the loop
-recomputes, and the loop tracks its incremental watermark plus last full
+Arena gamification adds the `arena_user_badges` table to the shared schema: the
+set of badges each Arena user currently holds (`ArenaBadge` enum), when each row
+was awarded (`awarded_at`), and what earned it (`submission_id`). A unique
+`(user_id, badge)` constraint permits at most one current row. The rating
+worker's badge-assignment loop (`shared.services.arena_badges`) owns every write;
+the Arena ORM exposes the ledger through `ArenaUser.badges`, and each row's
+awarding submission through `ArenaUserBadge.submission`. Streak badges are backed
+by the `arena_users.current_streak` / `longest_streak` / `last_ac_date` columns
+the loop recomputes, and the loop tracks its incremental watermark plus last full
 reconciliation in the singleton `arena_badge_cycle_state` table.
 
-`submission_id` is a nullable FK to `arena_submissions` with `ON DELETE SET
-NULL`, so deleting a submission clears the anchor instead of deleting the badge
-it earned. It is nullable for three reasons beyond that: CLEAN_CODE has no single
-awarding submission, a set-scoped badge whose problem set was deleted can no
-longer have one derived, and a row written before the column existed keeps
-`NULL` until a reconcile re-derives it. A cleared anchor is refilled by the next
-reconcile rather than staying `NULL`, since nothing distinguishes it from a row
-that was never anchored. See [Which submission earned a
-badge](ARENA_BADGES.md#which-submission-earned-a-badge) for what each rule
-records and why the backfill is best-effort. Badge families
-cover per-submission recovery, solve streaks, distinct solved-problem counts,
-distinct-language counts per problem, first-solver and problem-set hand-in
-positions, latest on-time problem-set solves after deadlines, non-AC bursts,
-unbroken distinct-AC runs, and dynamic low-solve-rate problem solves.
+The table is **derived, not accumulated**. `submission_id` is `NOT NULL` with an
+`ON DELETE CASCADE` FK to `arena_submissions`, so no row can name nothing and
+deleting a submission deletes the badges that named it. Every rule family returns
+its complete qualifying set as a `(user, badge) -> submission` mapping, and
+`shared.services.arena_badge_writer` turns that mapping into the minimum set of
+statements that makes the table match it: insert what is missing, re-anchor a
+surviving row whose canonical submission moved, revoke what nothing derives. Only
+the full-reconcile pass may revoke or re-anchor — an incremental pass sees a
+subset of history and would delete every badge it did not look at — and a pass
+over an unchanged database issues no statement at all. Because it is now rewritten
+rather than appended to, the table carries per-table autovacuum storage parameters
+(migration `202609100002`) and an index on `submission_id` so the cascade does not
+scan.
+
+See [Which submission earned a badge](ARENA_BADGES.md#which-submission-earned-a-badge)
+for what each rule names and how a badge with several possible witnesses picks
+one, and [Badges are reconciled, not
+accumulated](ARENA_BADGES.md#badges-are-reconciled-not-accumulated) for the
+revocation triggers. Badge families cover per-submission recovery, solve streaks,
+distinct solved-problem counts, distinct-language counts per problem, first-solver
+and problem-set hand-in positions, latest on-time problem-set solves after
+deadlines, non-AC bursts, unbroken distinct-AC runs, and dynamic low-solve-rate
+problem solves.
 
 ROCK_CRACKER derives its solve rate directly from authoritative data rather than
 `arena_problem_ratings`: distinct raw submitters are attempted users, current
 `arena_problem_solvers` rows are solved users, and both exclude the problem
 owner. Incremental cycles evaluate complete populations for problems named by
 either their AC or non-AC event batches and only award. Full cycles aggregate
-the whole catalogue and revoke users outside the complete qualifying set. A
-surviving row keeps its existing submission anchor; a revoked badge that is
-earned again receives a fresh row, timestamp, and current qualifying anchor.
+the whole catalogue and derive the complete qualifying set, so users outside it
+are revoked. A surviving row keeps its identity and `awarded_at` but is
+re-anchored to the earliest-solved problem that qualifies now, since the anchor
+is current evidence rather than a record of the original award; a revoked badge
+that is earned again receives a fresh row and timestamp.
 
 ## Problem difficulty
 

@@ -916,7 +916,13 @@ async def test_admin_user_profile_badges_tab_lists_earned_badges(session: AsyncS
     )
     awarded = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
     session.add(
-        ArenaUserBadge(id=str(uuid.uuid4()), user_id=target.id, badge=ArenaBadge.HELLO_WORLD, awarded_at=awarded)
+        ArenaUserBadge(
+            id=str(uuid.uuid4()),
+            user_id=target.id,
+            badge=ArenaBadge.HELLO_WORLD,
+            awarded_at=awarded,
+            submission_id=submission_id,
+        )
     )
     session.add(
         ArenaUserBadge(
@@ -945,7 +951,8 @@ async def test_admin_user_profile_badges_tab_lists_earned_badges(session: AsyncS
     assert {b.badge for b in response.context["badges"]} == {ArenaBadge.HELLO_WORLD, ArenaBadge.ONE_SHOT}
     assert response.context["badge_metadata"]
     assert f"/submissions/{submission_id}" in response.body.decode()
-    assert response.body.decode().count("View awarding submission") == 1
+    # Both badges name a submission, because the column cannot be NULL.
+    assert response.body.decode().count("View awarding submission") == 2
 
 
 @pytest.mark.asyncio

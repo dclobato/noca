@@ -474,6 +474,67 @@ caller as a delivery failure -- nothing is buffered in the process, so the UI
 never claims a message is queued when it is not. **Without a running mailer,
 queued mail simply waits and is dropped at the TTL.**
 
+### Email template overrides
+
+Subjects and bodies ship inside the image as TOML files (`web/email_templates/`
+and `arena/email_templates/`). A deployment that wants different wording
+publishes its own files into a host-managed directory instead of rebuilding:
+Web reads `<dir>/web/<key>.toml`, Arena reads `<dir>/arena/<key>.toml`, and a
+key with no file renders from the packaged default. The directory is never
+seeded, so what an operator sees in it is exactly what that deployment changed.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR` | *(empty)* | Directory holding the `web/` and `arena/` override namespaces. Empty disables overrides entirely. An existing path must be a readable directory; the module reads only its own namespace. |
+
+The variable is not read by the mailer, which receives messages that are
+already rendered, so it lives in the `webarena` layer rather than in `email`.
+
+**Startup fails closed; runtime fails soft.** Every file in the module's
+namespace is validated before the process serves traffic -- a malformed file, an
+undeclared placeholder, an oversized body, or a filename that is not a catalogue
+key each refuse the start, naming the file and the reason. Afterwards a change to
+a published file is picked up on the next send (the file is stat-ed per render
+and reparsed only when mtime, size, or inode changed); an update that does not
+validate is logged as a structured error and the last valid version -- or the
+packaged default, when there was never a valid override -- keeps sending.
+
+Absent and unreadable are deliberately different at both ends. A namespace
+directory nobody created is a normal install, and deleting a file is how a key
+reverts to its packaged default. A directory that exists but cannot be listed
+refuses the start instead, and a file that cannot be read leaves the retained
+version sending -- reverting published wording because of a permission change or
+a transient I/O error is a change nobody asked for.
+
+That retained version lives in each process's memory, so **replicas can disagree
+until the file is fixed**: a replica that never read the broken version keeps
+sending the old one, and a replica that restarts during the bad window will not
+start at all. Publish atomically (write a sibling file in the same directory,
+then rename it into place) and mount the same directory, read-only, into every
+replica. Per-container edits are not supported. The directory is host state:
+keep it in Git for review, history, and rollback, and note that
+`scripts/backup_noca.sh` archives `email_overrides` when it is present.
+
+Use `scripts/validate_email_templates.py` to list keys and their placeholder
+contracts, export the packaged defaults as a starting point, validate a tree
+before publishing it, and preview a key with its sample values. **The module and
+the root come first, before any option** -- `--export` and `--preview` take an
+optional list of keys, so an option placed ahead of the positionals consumes
+them:
+
+```bash
+uv run python scripts/validate_email_templates.py arena /srv/noca/email_overrides --list
+uv run python scripts/validate_email_templates.py arena /srv/noca/email_overrides --export reset_password
+uv run python scripts/validate_email_templates.py arena /srv/noca/email_overrides --export  # every key
+uv run python scripts/validate_email_templates.py arena /srv/noca/email_overrides
+uv run python scripts/validate_email_templates.py arena /srv/noca/email_overrides --preview reset_password
+```
+
+An override may record the default it was written from as `based_on = "<digest>"`
+(the `--export` output fills this in). Nothing enforces it, but validation warns
+when the packaged default has since changed, which is how a deployment finds the
+templates that silently stopped tracking upstream wording.
+
 ### Geolocation key
 
 | Variable | Default | Description |
@@ -685,7 +746,7 @@ Arena admin dashboard or pause UI.
 | `NOCA_ARENA_HOST` | `0.0.0.0` | Bind address for the arena HTTP server. Container deployments must leave this at `0.0.0.0`: Caddy reaches the service over the container network. A narrower bind is only for direct `uv run noca-arena` execution on a host. |
 | `NOCA_ARENA_PORT` | `8001` | TCP port for the arena HTTP server (1–65535). In the compose stack this same variable drives the Caddy upstream (`containers/Caddyfile`), so overriding it stays consistent end to end. The `EXPOSE` line in `containers/arena/Dockerfile` is documentary and does not follow it. |
 | `NOCA_ARENA_APP_NAME` | `noca-arena` | Arena application name used as the JWT issuer claim and to derive the reverse-geocoder User-Agent. Must differ from `NOCA_WEB_APP_NAME` so tokens issued by each server are not mutually valid. UI naming uses `NOCA_ARENA_BRAND_NAME` instead. |
-| `NOCA_ARENA_BRAND_NAME` | `NOCA Arena` | Public brand name shown in the UI (page titles, footer, nav), the 2FA/TOTP issuer, and email subjects/bodies. Injected into templates as the `brand_name` global and into Arena emails by `arena/services/email_rendering.py`. |
+| `NOCA_ARENA_BRAND_NAME` | `NOCA Arena` | Public brand name shown in the UI (page titles, footer, nav), the 2FA/TOTP issuer, and email subjects/bodies. Injected into HTML templates as the `brand_name` global and into Arena's constrained email renderer as the shared `{brand_name}` placeholder. |
 | `NOCA_ARENA_URL_BASE` | *(empty)* | Public base URL used to build absolute links in Arena emails (e.g. `https://arena.example.com`). Must include scheme and host; trailing slash is stripped. When not set, links are derived from the incoming HTTP request — this may produce incorrect URLs behind a reverse proxy that does not forward `X-Forwarded-*` headers. |
 | `NOCA_ARENA_PASSWORD_MAX_AGE` | `0` | Maximum password age in days before a warning flash is shown at Arena login. `0` disables the check. Does not block login or enforce a password change. |
 
@@ -1070,7 +1131,7 @@ keys for display.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_RATING_INTERVAL` | `86400` | Seconds between Arena rating recomputation cycles. Valid range: 900 (15 min) – 604800 (1 week). Problem difficulty, user scores, and affiliation ratings are all recomputed each cycle. |
-| `NOCA_RATING_COMPUTE_ON_STARTUP` | `false` | When `true`, the problem, user, and affiliation rating cycles, the problem-statistics cycle, and the badge-assignment cycle run immediately at startup instead of waiting for their first interval to elapse. |
+| `NOCA_RATING_COMPUTE_ON_STARTUP` | `false` | When `true`, the problem, user, and affiliation rating cycles, the problem-statistics cycle, and the badge-assignment cycle run immediately at startup instead of waiting for their first interval to elapse. That startup badge cycle is a full reconciliation, so a deploy re-derives the whole ledger instead of waiting up to `NOCA_RATING_BADGE_RECONCILE_INTERVAL`. |
 | `NOCA_RATING_BADGE_INTERVAL` | `900` | Seconds between Arena gamification badge-assignment cycles. Valid range: 900 (15 min) – 604800 (1 week). Runs on its own timer in the rating worker, independent of `NOCA_RATING_INTERVAL`. Each cycle awards badges from newly Accepted submissions. |
 | `NOCA_RATING_BADGE_LOOKBACK_SECONDS` | `600` | Overlap subtracted from the badge incremental watermark so judgments committed slightly late or out of order are re-seen and deduplicated by idempotency. Valid range: 0 – 86400. |
 | `NOCA_RATING_BADGE_RECONCILE_INTERVAL` | `86400` | Minimum seconds between full badge reconciliation passes that ignore the watermark and re-evaluate all Accepted history (keeps CLEAN_CODE dynamic and repairs missed late data). Valid range: 900 – 604800. A full reconcile also runs on the first cycle after startup. |

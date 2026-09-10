@@ -18,6 +18,11 @@ convention here is the submission that crossed the threshold -- the AC that
 completed the streak, that reached the Nth distinct problem, that finished the
 set -- and each rule below identifies it explicitly rather than picking any
 member of the qualifying set.
+
+Every rule returns the badges it derives as a :data:`BadgeAwards` mapping and
+writes nothing. A threshold reached with no derivable anchor yields no badge:
+the ledger has no row that names nothing, so "awarded without provenance" is not
+a state these rules can produce.
 """
 
 from __future__ import annotations
@@ -35,14 +40,12 @@ from shared.db_schema.arena import arena_users as _users
 from shared.enumerations import ArenaBadge
 from shared.services.arena_badge_data import (
     AcEvent,
-    OwnedBadges,
     ac_join,
     as_utc,
-    award_badge,
-    is_anchored,
     load_first_ac_submissions,
     timezone_name,
 )
+from shared.services.arena_badge_writer import BadgeAwards
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 _STRIKE_THRESHOLDS: tuple[tuple[int, ArenaBadge], ...] = (
@@ -101,13 +104,15 @@ def streak_crossing_days(days: list[date], thresholds: tuple[int, ...]) -> dict[
     return crossings
 
 
-async def award_streaks(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Recompute per-user solve streaks and award STRIKE badges (historical max).
+async def award_streaks(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Recompute per-user solve streaks and derive the STRIKE badges they hold.
 
     Each badge is anchored to the user's earliest AC on the day their longest run
-    first reached that length: the submission that completed the streak.
+    first reached that length: the submission that completed the streak. The
+    ``arena_users`` streak columns are refreshed as a side effect, since the same
+    per-day walk produces both.
     """
-    awarded = 0
+    awards: BadgeAwards = {}
     by_user: dict[str, AcEvent] = {e.user_id: e for e in events}
     active = active_arena_judgment_subquery()
     for user_id, sample in by_user.items():
@@ -140,20 +145,18 @@ async def award_streaks(session: AsyncSession, events: list[AcEvent]) -> int:
         )
         crossings = streak_crossing_days(days, tuple(threshold for threshold, _ in _STRIKE_THRESHOLDS))
         for threshold, badge in _STRIKE_THRESHOLDS:
-            if longest < threshold:
-                continue
             crossing_day = crossings.get(threshold)
-            anchor = first_of_day[crossing_day][1] if crossing_day is not None else None
-            if await award_badge(session, user_id, badge, anchor):
-                awarded += 1
-    return awarded
+            if longest < threshold or crossing_day is None:
+                continue
+            awards[(user_id, badge)] = first_of_day[crossing_day][1]
+    return awards
 
 
-async def award_problem_counts(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award N-distinct-problems badges from the user's solved-problem counts.
+async def award_problem_counts(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive the N-distinct-problems badges from the users' solved-problem counts.
 
     Reads ``arena_problem_solvers`` (one row per ``(user_id, problem_id)``) in
-    solve order and awards every crossed threshold. Only users in the current
+    solve order and returns every crossed threshold. Only users in the current
     batch are counted: a user can cross a threshold only by a new AC, which
     produces an event; the periodic full reconcile re-evaluates all AC history.
 
@@ -161,10 +164,12 @@ async def award_problem_counts(session: AsyncSession, events: list[AcEvent]) -> 
     anchored to the submission that crossed its threshold: the user's first AC on
     the Nth distinct problem they solved. ``arena_problem_solvers`` records only
     ``solved_at``, so the anchoring submissions are resolved in one batch query.
+    A solver row whose ACs are all gone -- rejudged away, say -- resolves to no
+    anchor, and the threshold it would have crossed yields no badge.
     """
     user_ids = {e.user_id for e in events}
     if not user_ids:
-        return 0
+        return {}
     solved: dict[str, list[str]] = defaultdict(list)
     for user_id, problem_id in (
         await session.execute(
@@ -187,19 +192,19 @@ async def award_problem_counts(session: AsyncSession, events: list[AcEvent]) -> 
     }
     anchors = await load_first_ac_submissions(session, crossing_pairs)
 
-    awarded = 0
+    awards: BadgeAwards = {}
     for user_id, problems in solved.items():
         for threshold, badge in _PROBLEM_COUNT_THRESHOLDS:
             if len(problems) < threshold:
                 continue
             anchor = anchors.get((user_id, problems[threshold - 1]))
-            if await award_badge(session, user_id, badge, anchor):
-                awarded += 1
-    return awarded
+            if anchor is not None:
+                awards[(user_id, badge)] = anchor
+    return awards
 
 
-async def award_full_clear(session: AsyncSession, events: list[AcEvent], owned: OwnedBadges) -> int:
-    """Award FULL_CLEAR for fully-solved problem sets using precomputed membership.
+async def award_full_clear(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive FULL_CLEAR for fully-solved problem sets using precomputed membership.
 
     Three batch queries replace the per-submission lookups: problem→sets,
     set→problems, and the affected users' solved problems. Membership is then
@@ -216,11 +221,14 @@ async def award_full_clear(session: AsyncSession, events: list[AcEvent], owned: 
     qualifying sets need share no problem, so an answer settled from one event's
     problem could not see the other set at all.
 
-    A user who already holds the badge *with* an anchor is skipped; one holding
-    it unanchored is still evaluated so the pass can fill it in.
+    Every user in the batch is evaluated, holder or not. The result is the
+    complete desired FULL_CLEAR state for these users, so skipping the ones who
+    already hold it would read as "no longer earned" and revoke them.
     """
     problem_ids = {e.problem_id for e in events}
     user_ids = {e.user_id for e in events}
+    if not user_ids:
+        return {}
     problem_sets: dict[str, set[str]] = defaultdict(set)
     for set_id, problem_id in (
         await session.execute(
@@ -263,8 +271,6 @@ async def award_full_clear(session: AsyncSession, events: list[AcEvent], owned: 
     # the user may well have completed first.
     candidate_sets: dict[str, set[str]] = defaultdict(set)
     for event in events:
-        if is_anchored(owned, event.user_id, ArenaBadge.FULL_CLEAR):
-            continue
         candidate_sets[event.user_id] |= problem_sets.get(event.problem_id, set())
 
     completing: dict[str, str] = {}
@@ -278,10 +284,8 @@ async def award_full_clear(session: AsyncSession, events: list[AcEvent], owned: 
         completing[user_id] = max(set_problems[best_set], key=lambda p: (solved[p], p))
 
     anchors = await load_first_ac_submissions(session, set(completing.items()))
-    awarded = 0
-    for user_id, problem_id in completing.items():
-        anchor = anchors.get((user_id, problem_id))
-        if await award_badge(session, user_id, ArenaBadge.FULL_CLEAR, anchor):
-            awarded += 1
-        owned.setdefault(user_id, {})[ArenaBadge.FULL_CLEAR] = anchor
-    return awarded
+    return {
+        (user_id, ArenaBadge.FULL_CLEAR): anchors[(user_id, problem_id)]
+        for user_id, problem_id in completing.items()
+        if (user_id, problem_id) in anchors
+    }

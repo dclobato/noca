@@ -4,7 +4,15 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Core table definition for Arena user gamification badges."""
+"""Core table definition for Arena user gamification badges.
+
+Every row names the submission that earned it: ``submission_id`` is ``NOT NULL``
+with ``ON DELETE CASCADE``, so the table cannot hold a claim with nothing behind
+it and a deleted submission takes its badges with it. The badge set is derived
+rather than accumulated -- the rating worker's full-reconcile pass rewrites it
+from live data every cycle -- which is why the column is indexed (the cascade
+would otherwise scan) and why the table carries per-table autovacuum tuning.
+"""
 
 from __future__ import annotations
 
@@ -44,13 +52,13 @@ arena_user_badges = Table(
     Column(
         "submission_id",
         String(36),
-        ForeignKey("arena_submissions.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("arena_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
         comment=(
-            "FK to arena_submissions. The submission that earned this badge, or NULL when "
-            "it has none (CLEAN_CODE), no anchor can be derived under today's data, or the "
-            "row predates the column and no reconcile has re-derived it yet. Deleting a "
-            "submission clears this rather than the badge; the next reconcile refills it."
+            "FK to arena_submissions. The submission that earned this badge. A badge that "
+            "cannot name its work is not awarded, so this is never NULL; deleting a "
+            "submission deletes the badges that named it."
         ),
     ),
     _created_at_column(),

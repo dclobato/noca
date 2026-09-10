@@ -64,6 +64,7 @@ from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from web.config import settings
 from web.database import create_engine, create_session_factory
 from web.dependencies import enforce_web_default_auth
+from web.email_templates import validate_email_template_overrides, web_email_templates
 from web.error_handlers import register_error_handlers
 from web.middleware.auth_token_refresh import AuthTokenRefreshMiddleware
 from web.routes.announcements import router as announcements_router
@@ -119,6 +120,7 @@ from web.routes.uberadmin_announcements import router as uberadmin_announcements
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_email_templates import router as uberadmin_email_templates_router
 from web.routes.uberadmin_lockouts import router as uberadmin_lockouts_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.routes.uberadmin_users import router as uberadmin_users_router
@@ -184,6 +186,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         logger.info("Public problem package caches disabled (NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH unset)")
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
+    # Fails closed, and before anything expensive: an override tree is the one
+    # thing every replica validates identically, so a typo in a published
+    # template stops the deploy instead of reaching only the replicas that
+    # happened to reread the file. Warming the registry here also moves a broken
+    # packaged default from the first send to startup.
+    if config.EMAIL_TEMPLATE_OVERRIDE_DIR is None:
+        logger.info("Email template overrides disabled (NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR unset)")
+    else:
+        logger.info("Email template override directory: %s", config.EMAIL_TEMPLATE_OVERRIDE_DIR / "web")
+    validate_email_template_overrides()
+    web_email_templates()
     await wait_for_db(settings.db_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     await wait_for_valkey(settings.valkey_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     engine = create_engine()
@@ -563,6 +576,7 @@ app.include_router(session_router)
 # ###################################################################
 # Dashboard routes
 app.include_router(uberadmin_dashboard_router)
+app.include_router(uberadmin_email_templates_router)
 app.include_router(uberadmin_announcements_router)
 app.include_router(uberadmin_contest_backup_router)
 app.include_router(uberadmin_contest_removal_router)

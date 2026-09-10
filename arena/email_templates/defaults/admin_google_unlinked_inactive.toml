@@ -1,0 +1,16 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "Your linked Google account was removed"
+body = """
+Hello {nome},
+
+An administrator of {brand_name} unlinked the Google account from your {brand_name} account. Signing in with Google is no longer possible for this account, and your existing sessions were signed out.
+
+This account is currently deactivated. Signing in is not possible until an administrator of {brand_name} reactivates it.
+
+If you did not expect this change, contact an administrator of {brand_name}.
+"""

@@ -55,9 +55,25 @@ cat .env.common.full .env.database.full .env.http.full .env.webarena.full \
 
 A container deployment keeps them separate instead and lists each service's stack
 in `env_file:`, as `docker-compose.yml.sample` does. The sample stack bind-mounts
-`problem_statements`, `problem_testcases`, and `email_log` directly below the
-project directory. Keep `NOCA_DATA_ROOT=.` so `scripts/backup_noca.sh` archives
-the live directories it expects.
+`problem_statements`, `problem_testcases`, `email_log`, and `email_overrides`
+directly below the project directory. Keep `NOCA_DATA_ROOT=.` so
+`scripts/backup_noca.sh` archives the live directories it expects.
+
+`email_overrides` is optional host state: it holds a deployment's own email
+subjects and bodies (`web/` and `arena/` namespaces), it is never seeded, and an
+empty directory changes nothing. Web and Arena mount it read-only and **refuse to
+start if a file in their own namespace is invalid**, so validate a tree before
+publishing it:
+
+```bash
+# The module and the root are positional and come first; options follow them.
+uv run python scripts/validate_email_templates.py arena email_overrides --export
+uv run python scripts/validate_email_templates.py arena email_overrides
+```
+
+Keep the directory in Git for review and rollback, publish each file with an
+atomic same-directory rename, and mount the same tree into every replica. See
+[CONFIG.md](CONFIG.md) for the full contract.
 
 Set the required database, Valkey, and storage variables in `.env`, plus the
 public URL variables needed by your environment. Also set
@@ -564,6 +580,9 @@ Operational consequence:
 - schema migration is serialized by a PostgreSQL advisory lock, so any runtime
   container may request `alembic upgrade head` safely during startup
 - the web container can also seed languages and bootstrap the first UberAdmin
+- with `NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR` set, `noca-web` validates every file in
+  the mount's `web/` namespace before it serves traffic and exits on any error,
+  naming the file and the reason. Arena does the same for `arena/`
 
 ### Arena container bootstrap
 

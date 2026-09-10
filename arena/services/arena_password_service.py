@@ -17,8 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.email_templates import render_email
 from arena.models.arena_users import ArenaUser
-from arena.services.email_rendering import render_email as _render_email_template
 from arena.services.token_service import ArenaTokenAction, JWTService
 from arena.services.user_service import UserOperationStatus, UserServiceResult
 from shared.services.email_providers import EmailProviderError
@@ -73,7 +73,7 @@ async def solicitar_reset_senha(
         expires_in=_RESET_PASSWORD_TIMEOUT,
     )
     url = f"{url_base.rstrip('/')}/auth/password-reset?token={token}"
-    body = _render_email_template("reset_password.jinja2", nome=usuario.nome, url=url)
+    email_content = render_email("reset_password", nome=usuario.nome, url=url)
     # Budgeted per *recipient*: N addresses cannot be made to flood one victim,
     # and the route's IP throttle already bounds one requester. Every failure --
     # a spent budget or a provider outage -- stays behind the same neutral
@@ -83,8 +83,8 @@ async def solicitar_reset_senha(
         await email_service.send_email(
             to_email=usuario.email_normalizado,
             to_name=usuario.nome,
-            subject="Reset your Arena password",
-            text_body=body,
+            subject=email_content.subject,
+            text_body=email_content.body,
             actor_key=f"recipient:{normalizado}",
         )
     except EmailProviderError as exc:

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
+from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -27,6 +28,7 @@ from web.routes.session import router as session_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_email_templates import router as uberadmin_email_templates_router
 from web.routes.uberadmin_lockouts import router as uberadmin_lockouts_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.services.authentication_service import AuthAction, AuthenticationService
@@ -78,6 +80,14 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     web_dir = Path(__file__).resolve().parents[2] / "web"
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
+    # Mirror `web/main.py`: pages include partials owned by `shared/template`, and a
+    # bare web-only loader turns that into a TemplateNotFound no production run has.
+    templates.env.loader = ChoiceLoader(
+        [
+            FileSystemLoader(str(web_dir / "template")),
+            FileSystemLoader(str(shared_dir / "template")),
+        ]
+    )
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
     # `_base.html` resolves the keepalive route on every authenticated page.
@@ -129,6 +139,9 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     app.include_router(auth_router)
     app.include_router(root_router)
     app.include_router(uberadmin_dashboard_router)
+    # The dashboard template links every card with `url_for`, so a card's router
+    # must be mounted here or rendering the dashboard raises `NoMatchFound`.
+    app.include_router(uberadmin_email_templates_router)
     app.include_router(uberadmin_contest_backup_router)
     app.include_router(uberadmin_contest_removal_router)
     app.include_router(uberadmin_security_router)

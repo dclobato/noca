@@ -1,0 +1,60 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  One effective email-template preview shared by the Web UberAdmin and Arena
+  admin pages. Required context: template (EmailTemplateVisibility).
+#}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h2 class="h5 mb-0">
+        <code>{{ template.key }}</code>
+    </h2>
+    {% if template.source == "override" %}
+        <span class="badge text-bg-primary">Override in use</span>
+        {% if template.baseline_status == "matches" %}
+            <span class="badge text-bg-success">Baseline matches</span>
+        {% elif template.baseline_status == "stale" %}
+            <span class="badge text-bg-warning">Baseline is stale</span>
+        {% else %}
+            <span class="badge text-bg-secondary">No baseline recorded</span>
+        {% endif %}
+    {% elif template.source == "unknown" %}
+        <span class="badge text-bg-secondary">Source unknown</span>
+    {% else %}
+        <span class="badge text-bg-secondary">Shipped default</span>
+    {% endif %}
+    {% if template.preview_error %}<span class="badge text-bg-danger">Cannot be rendered</span>{% endif %}
+</div>
+{% if template.preview_error %}
+    <div class="alert alert-danger mb-3" role="alert">
+        <strong>This template cannot be rendered.</strong> {{ template.preview_error }} Sending it would fail the same
+        way, so fix or remove the published override for this key.
+    </div>
+{% endif %}
+{% if template.error %}
+    <div class="alert alert-warning mb-3" role="alert">
+        <strong>Runtime override rejected.</strong> {{ template.error }} The preview continues to use
+        {% if template.source == "override" %}
+            the last valid override.
+        {% elif template.source == "default" %}
+            the shipped default.
+        {% else %}
+            whatever this process last accepted.
+        {% endif %}
+    </div>
+{% endif %}
+{% if not template.preview_error %}
+    <div class="row g-3">
+        <div class="col-12 col-xl-4">
+            <h3 class="h6 text-uppercase text-muted">Subject</h3>
+            <pre class="noca-email-template-preview mb-0">{{ template.subject }}</pre>
+        </div>
+        <div class="col-12 col-xl-8">
+            <h3 class="h6 text-uppercase text-muted">Plain-text body</h3>
+            <pre class="noca-email-template-preview mb-0">{{ template.body }}</pre>
+        </div>
+    </div>
+{% endif %}

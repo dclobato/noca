@@ -224,6 +224,22 @@ for path in problem_statements problem_testcases email_log; do
     cp -a -- "$EXTRACT_DIR/$path/." "$PROJECT_DIR/$path/"
 done
 
+# Email template overrides are optional host state (see scripts/backup_noca.sh),
+# and "the snapshot had none" is a state to restore, not a reason to skip the
+# directory: leaving the current overrides in place would keep sending wording
+# the restored deployment never had. The directory itself is kept when it exists,
+# because it may be a live bind mount.
+for path in email_overrides; do
+    if [[ -d "$EXTRACT_DIR/$path" ]]; then
+        mkdir -p -- "$PROJECT_DIR/$path"
+        find "$PROJECT_DIR/$path" -mindepth 1 -delete
+        cp -a -- "$EXTRACT_DIR/$path/." "$PROJECT_DIR/$path/"
+    elif [[ -d "$PROJECT_DIR/$path" ]]; then
+        log "Backup carries no $path; clearing the live directory to match"
+        find "$PROJECT_DIR/$path" -mindepth 1 -delete
+    fi
+done
+
 log "Starting PostgreSQL"
 "${COMPOSE[@]}" up -d --wait postgres
 

@@ -11,10 +11,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from jinja2 import UndefinedError
 
 from arena.services.arena_class_email_service import (
-    _render,
     send_class_membership_added_email,
     send_class_membership_removed_email,
     send_class_registration_approved_email,
@@ -26,36 +24,6 @@ from arena.services.arena_class_email_service import (
 def _mock_email_service(*, success: bool = True) -> MagicMock:
     """Return a mock EmailService that reports the given send result."""
     return MagicMock(send_email=AsyncMock(return_value=MagicMock(success=success)))
-
-
-# ---------------------------------------------------------------------------
-# Template rendering — StrictUndefined
-# ---------------------------------------------------------------------------
-
-
-def test_registration_request_template_raises_on_missing_context() -> None:
-    with pytest.raises(UndefinedError):
-        _render("class_registration_request.jinja2", teacher_name="T")
-
-
-def test_registration_approved_template_raises_on_missing_context() -> None:
-    with pytest.raises(UndefinedError):
-        _render("class_registration_approved.jinja2", student_name="S")
-
-
-def test_registration_denied_template_raises_on_missing_context() -> None:
-    with pytest.raises(UndefinedError):
-        _render("class_registration_denied.jinja2", student_name="S", class_name="C")
-
-
-def test_membership_added_template_raises_on_missing_context() -> None:
-    with pytest.raises(UndefinedError):
-        _render("class_membership_added.jinja2", student_name="S")
-
-
-def test_membership_removed_template_raises_on_missing_context() -> None:
-    with pytest.raises(UndefinedError):
-        _render("class_membership_removed.jinja2", student_name="S")
 
 
 # ---------------------------------------------------------------------------

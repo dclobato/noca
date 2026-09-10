@@ -1,0 +1,23 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "{brand_name} account suspended"
+body = """
+Hello,
+
+Parental consent for {nome}'s {brand_name} account has been withdrawn, and the
+account is now suspended. It can no longer be used to log in, and the name no longer
+appears on any public page.
+
+Nothing has been deleted. Submissions, results and history are all kept, and the account
+works again as soon as a parent or legal guardian gives consent once more. To do that, try
+to log in and follow the instructions shown on the page.
+
+If you believe this was a mistake, or you would rather the account and its data were
+deleted entirely, please contact us.
+
+{brand_name}
+"""

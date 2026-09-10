@@ -1,0 +1,16 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "Two-factor authentication enabled"
+body = """
+Hello {nome},
+
+Two-factor authentication (2FA) has been enabled on your {brand_name} account.
+
+If you made this change, no further action is needed. Your account is now protected by a second verification step on every login.
+
+If you did not enable 2FA, your account may be compromised. Please contact support immediately.
+"""

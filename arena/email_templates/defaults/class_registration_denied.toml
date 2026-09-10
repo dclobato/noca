@@ -1,0 +1,13 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = 'Registration denied: "{class_name}"'
+body = """
+Hello {student_name},
+Your request to join "{class_name}" has been denied.
+{denial_reason_line}
+If you have questions, please contact your teacher directly.
+"""

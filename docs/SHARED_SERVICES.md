@@ -579,7 +579,8 @@ Reused by:
   `arena/services/arena_batch_feedback_service.py`,
   `arena/services/arena_problem_set_report_service.py`,
   `shared/services/arena_problem_stats.py`, and the badge siblings
-  `shared/services/arena_badge_data.py`, `shared/services/arena_badge_rules.py`,
+  `shared/services/arena_badge_data.py`, `shared/services/arena_badge_writer.py`,
+  `shared/services/arena_badge_rules.py`,
   `shared/services/arena_badge_rules_catalogue.py`,
   `shared/services/arena_badge_rules_sets.py`,
   `shared/services/arena_badge_rules_sequences.py`, and
@@ -591,22 +592,24 @@ Reused by:
 ## `arena_badges.py`
 
 Purpose:
-- award Arena gamification badges (`ArenaBadge`) into the mostly append-only
-  `arena_user_badges` set from submission and catalogue state
+- reconcile the Arena gamification badge set (`ArenaBadge`) in `arena_user_badges`
+  against submission and catalogue state
 - the periodic loop that drives this lives in the `rating/` worker module
   (`rating.loops.run_badge_assignment_loop`), on its own `BADGE_INTERVAL` timer
 
 Canonical location:
 - `shared/services/arena_badges.py` — public API and the per-submission evaluator
 - `shared/services/arena_badge_data.py` — sibling: state/cursor access, the Accepted and
-  non-AC batch queries, per-(user, problem) history, the all-AC metrics query, the first-AC
-  anchor lookup, and the badge insert/revoke helpers
+  non-AC batch queries, per-(user, problem) history, the all-AC metrics query, and the first-AC
+  anchor lookup. It writes nothing to `arena_user_badges`.
+- `shared/services/arena_badge_writer.py` — sibling: the only writer. Turns a desired
+  `BadgeAwards` mapping into the minimum set of statements that makes the table match it
 - `shared/services/arena_badge_rules.py` — sibling: aggregate rules (streaks, FULL_CLEAR,
   distinct-problem-count tiers)
 - `shared/services/arena_badge_rules_cleancode.py` — sibling: the dynamic CLEAN_CODE rule
-  (top-5% ranking, minimum solver count, and revocation)
+  (top-5% ranking, minimum solver count, and the representative-submission choice)
 - `shared/services/arena_badge_rules_rock_cracker.py` — sibling: the dynamic
-  ROCK_CRACKER rule (live participant solve rate, incremental awards, and full revocation)
+  ROCK_CRACKER rule (live participant solve rate)
 - `shared/services/arena_badge_rules_catalogue.py` — sibling: catalogue aggregate rules
   (distinct-language tiers and FIRST_SOLVER)
 - `shared/services/arena_badge_rules_sets.py` — sibling: problem-set scoped rules
@@ -616,49 +619,55 @@ Canonical location:
 
 Main entrypoints:
 - `compute_badge_awards(session, *, full_reconcile=None, reconcile_interval_seconds=86400,
-  lookback_seconds=600, now=None) -> int` — evaluates the relevant Accepted submissions and
-  returns the number of badge rows newly inserted. When `full_reconcile` is `None` the mode is
-  derived from the persisted `arena_badge_cycle_state.last_reconciled_at` so a process restart
-  does not force a reconciliation. Does not commit; the caller owns the transaction.
-- `award_badge(session, user_id, badge, submission_id=None) -> bool` — inserts one badge with
-  `ON CONFLICT (user_id, badge) DO NOTHING`; returns whether a new row was written. When the
-  user already holds the badge and its `submission_id` is still `NULL`, the call fills that
-  column in and still returns `False`. An anchor that is already set is never rewritten.
+  lookback_seconds=600, now=None) -> int` — evaluates the relevant submissions, asks every rule
+  family which badges are currently earned, applies the result, and returns the number of badge
+  rows newly inserted. When `full_reconcile` is `None` the mode is derived from the persisted
+  `arena_badge_cycle_state.last_reconciled_at` so a process restart does not force a
+  reconciliation. Does not commit; the caller owns the transaction.
+- `apply_badge_awards(session, desired, *, full_reconcile) -> BadgeWriteCounts` — the only
+  writer. `desired` is a `BadgeAwards` mapping (`(user_id, ArenaBadge) -> submission_id`). A full
+  pass inserts what is missing, re-anchors a surviving row whose submission changed, and deletes
+  every row the mapping does not name; an incremental pass only inserts. Current rows are loaded
+  once and compared in memory, and the re-anchor statement carries an `IS DISTINCT FROM` guard,
+  so a pass over an unchanged database issues no INSERT, UPDATE or DELETE.
 
 Model:
 - two passes share one implementation: an **incremental** pass each cycle processes active AC
   judgments and active non-AC DONE judgments with `finished_at >= watermark − lookback`
   (best-effort, bounded by the singleton `arena_badge_cycle_state` watermark), and a periodic
   **full reconciliation** pass (`full_reconcile=True`) re-evaluates all relevant history.
-  Correctness rests on the reconcile pass; every operation is idempotent (unique
-  `(user_id, badge)`, advance-only/award-only logic, order-independent streak recompute), so
-  reprocessing an event is harmless. Most badge rows are append-only; full reconciliation may
-  revoke CLEAN_CODE and ROCK_CRACKER. The watermark advances from the maximum `finished_at`
-  seen in either the AC or non-AC batch.
-- every badge records the submission that earned it in `arena_user_badges.submission_id`, a
-  nullable FK with `ON DELETE SET NULL` so deleting a submission clears the anchor rather than
-  the badge. An event badge stores its qualifying AC. An aggregate badge stores the submission
-  that *crossed* the threshold — the AC that completed the streak, that reached the Nth distinct
-  problem, that finished the set — which is a documented convention rather than a fact, since a
-  set of submissions earned it. CLEAN_CODE stores `NULL`: it records a rank held across several
-  problems and its qualifying set is rewritten on every reconcile, so any single anchor would be
-  wrong by the next pass. `load_first_ac_submissions()` resolves the anchor for the rules that
-  read `arena_problem_solvers` (problem-count tiers, FIRST_SOLVER, ROCK_CRACKER), which stores
-  only `solved_at`.
-  A surviving ROCK_CRACKER row keeps its non-`NULL` anchor even when a different problem now
-  supplies eligibility. A revoked and re-awarded row gets a fresh timestamp and an anchor from
-  the current qualifying problems.
-- rows written before the column existed need no data migration or one-off script. The
-  full-reconcile pass re-derives every badge from all AC history, `award_badge()` fills a `NULL`
-  anchor, and the `owned` short-circuits in `_award_per_ac` and `award_full_clear` skip a badge
-  only when it is held **and** anchored — so an unanchored row is still evaluated. Existing rows
-  therefore acquire anchors within one reconcile interval, and once every row is filled the
-  short-circuits revert to their original cheap behavior. That backfill is best-effort: it yields
-  the earliest submission that would award the badge under *today's* data, which diverges from
-  the historical one after a rejudge, after a problem set is deleted (`problem_set_id` is
-  `ON DELETE SET NULL`, so FIRST_TO_HAND_IN, ALMOST_LATE and FULL_CLEAR correctly stay `NULL`),
-  or after set membership or deadlines move. `awarded_at` is never rewritten, so a filled row can
-  point at a submission whose timestamp disagrees with its award timestamp; that skew is accepted.
+  Correctness rests on the reconcile pass. The incremental pass may only **insert**: it sees a
+  subset of history, so revoking or re-anchoring from it would act on the gap. The full pass owns
+  revocation and re-anchoring, and every family runs on it even when the event batch is empty —
+  an empty desired state is exactly what revokes the last remaining rows. The watermark advances
+  from the maximum `finished_at` seen in either batch.
+- every badge names the submission that earned it in `arena_user_badges.submission_id`, a
+  `NOT NULL` FK with `ON DELETE CASCADE`: a rule that cannot derive an anchor awards nothing, and
+  deleting a submission deletes the badges that named it. An event badge names its qualifying AC.
+  An aggregate badge names the submission that *crossed* the threshold — the AC that completed
+  the streak, that reached the Nth distinct problem, that finished the set — which is a documented
+  convention rather than a fact. CLEAN_CODE names a **representative**: among the holder's ACs on
+  a qualifying problem, the one minimising `(wall_time, memory, created_at, id)`, and the same
+  comparison across several qualifying problems; a qualifier with no AC carrying both metrics gets
+  no badge. ROCK_CRACKER names current evidence — the first AC on the earliest-solved problem that
+  qualifies now — so a surviving holder is re-anchored when the qualifying problem changes.
+  `load_first_ac_submissions()` resolves the anchor for the rules that read
+  `arena_problem_solvers` (problem-count tiers, FIRST_SOLVER, ROCK_CRACKER), which stores only
+  `solved_at`.
+- where several submissions could witness the same badge, the choice is deterministic so a
+  reconciliation re-derives it rather than shuffling rows: the **earliest** qualifying submission
+  by `(created_at, id)` for event, aggregate, FIRST_TO_HAND_IN and ALMOST_LATE badges, the
+  earliest first solve by `(solved_at, problem_id)` for FIRST_SOLVER, and the cleanest for
+  CLEAN_CODE.
+- a re-anchored row keeps its identity and `awarded_at`, since eligibility was never interrupted;
+  a revoked badge earned again is a new row with a fresh timestamp.
+- revocation triggers are exactly: the criterion no longer holds under live data, the awarding
+  submission was deleted (which cascades), or a rejudge moved it off Accepted with no other
+  submission earning the badge. A **disabled problem revokes nothing** — no rule filters on
+  `problem.enabled`, because disabling is routinely temporary and would strip and restore badges
+  on an administrative act. The public profile still declines to *link* a disabled problem.
+- because the table is rewritten rather than appended to, it carries per-table autovacuum storage
+  parameters and an index on `submission_id` (migration `202609100002`).
 - badge eligibility uses **only** the active-judgment selection
   (`active_arena_judgment_subquery`); it does **not** apply
   `counts_toward_problem_rating` by default. Rule-specific filters still apply,
@@ -667,28 +676,30 @@ Model:
 - event ordering is canonical `(submission.created_at, submission.id)`; per-submission badges use
   the AC's `created_at` in the submitter's timezone (via `user_timezone.py`), while the watermark
   cursor is the judgment `finished_at`.
-- CLEAN_CODE is **revocable** and runs on the **full-reconcile pass only**
+- CLEAN_CODE runs on the **full-reconcile pass only**
   (`arena_badge_rules_cleancode.py`). It records a rank rather than an event, so a holder falls
   out of it as faster solvers arrive. Each pass re-derives the whole holder set from all AC
-  history and both inserts and deletes: a problem needs at least 20 distinct solvers to rank
-  anyone, a qualifying user's best AC sits in the top 5% by wall time **and** by memory, and
+  history: a problem needs at least 20 distinct solvers to rank
+  anyone, a qualifying user's best time and best memory both sit in the top 5% (taken per axis, so
+  they may come from different submissions — hence the representative anchor), and
   ranking is ties-inclusive but never overflows the band, so a tied block wider than
   `floor(0.05 * solvers)` qualifies nobody (which is what keeps quantized memory readings from
   sweeping in half the field). The incremental pass skips it: it loads only the cycle's touched
   problems, so it can neither rank a full population nor revoke on a partial view.
-- ROCK_CRACKER is also **revocable**. It computes attempted users from distinct raw submitters
+- ROCK_CRACKER computes attempted users from distinct raw submitters
   without a judgment join and solved users from current `arena_problem_solvers`; both
   aggregates exclude the problem owner with `counts_toward_problem_rating`. The integer
   comparison `solved_users * 5 < attempted_users` makes the 20% boundary exact. An incremental
   cycle evaluates the complete populations of problems touched by either AC or non-AC events
-  and only awards. A full cycle uses one set of grouped whole-catalogue aggregates and revokes
-  outside the complete qualifying set. It reads no `arena_problem_ratings` counters. Anchor
-  lookup is limited to new holders and holders whose anchor is `NULL`.
+  and only awards. A full cycle uses one set of grouped whole-catalogue aggregates and derives the
+  complete qualifying set, so users outside it are revoked. It reads no `arena_problem_ratings`
+  counters.
 - STRIKE badges use the user's **historical maximum**
   consecutive solve-day run (recomputed into `arena_users.current_streak` / `longest_streak` /
   `last_ac_date`). The distinct-problem-count tiers (PROBLEMS_10 / PROBLEMS_25 / PROBLEMS_100 /
-  PROBLEMS_500) are award-only: each user in the batch is awarded every threshold their distinct
-  solved-problem count (from `arena_problem_solvers`) has crossed.
+  PROBLEMS_500) award every threshold a user's distinct solved-problem count (from
+  `arena_problem_solvers`) has crossed, and a threshold whose crossing solve resolves to no live
+  AC yields no badge.
 - FIRST_SOLVER joins `arena_problem_solvers` to `arena_problems` to find each affected problem's
   earliest solver who is not the problem owner. Eligibility is gated by ownership, not role: the
   owner is excluded and any other user is eligible regardless of role.
@@ -2097,6 +2108,134 @@ Notes:
 - used by `rating` (`NOCA_RATING_HEARTBEAT_*`) and `aiassistant` (`NOCA_AI_HEARTBEAT_*`);
   the autojudge predates it and keeps its own equivalent in `autojudge/heartbeat.py`
   (`NOCA_JUDGE_HEARTBEAT_*`)
+
+---
+
+## `email_templates/`
+
+This package defines the shared rendering boundary while Web and Arena retain
+ownership of their email wording and placeholder values.
+
+Purpose:
+
+- define the single constrained rendering pipeline for every Web and Arena
+  outbound email
+- load subject/body units from TOML and validate them against module-owned
+  catalogue contracts
+- provide a backend-independent lookup boundary for optional override sources
+- implement one such source: a host-managed directory a deployment can change
+  without a rebuild
+
+Canonical location:
+
+- `shared/services/email_templates/`, split by responsibility: `grammar.py`
+  owns the placeholder format, its substitution, and the subject/body limits;
+  `catalogue.py` owns the module-facing declaration types and the override
+  lookup contract; `loader.py` owns TOML loading and contract validation;
+  `registry.py` binds a module catalogue to rendering; `overrides.py` implements
+  the filesystem override source; `visibility.py` combines a registry's
+  sample-rendered output with its already-held runtime state for read-only admin
+  pages, per key so one unrenderable template cannot hide the rest; `module_registry.py` wires a module's catalogue to the deployment's
+  configuration. `__init__.py` is the façade every importer uses, so the split
+  stays internal to the package
+- `web/email_templates/` and `arena/email_templates/` own their catalogue
+  entries and packaged defaults; shared code never imports either module
+
+Main types:
+
+- `EmailTemplateDefinition` declares a stable key, separate subject and body
+  placeholder sets, required placeholders, sample values, and a packaged TOML
+  path
+- `EmailTemplate` holds one parsed subject/body unit
+- `RenderedEmail` holds the complete message content passed to `EmailService`
+- `EmailTemplateOverrideLookup` is the optional backend contract; returning
+  `None` selects the packaged default
+- `EmailTemplateRegistry` validates a catalogue and renders by stable key
+- `FilesystemOverrideSource` implements that contract over
+  `<root>/<namespace>/<key>.toml`
+- `OverrideState` reports, per key, whether an override is active, the error
+  retained from a rejected file, its active override's `based_on` digest, and
+  whether that digest has drifted
+- `OverrideProblem` is one filename-and-reason pair from a tree validation
+- `EmailTemplateVisibility` is one effective sample preview plus its source,
+  baseline state, any retained runtime error, and a `preview_error` for a
+  template that cannot be rendered at all
+- `DescribesOverrides` is the structural contract a backend satisfies by
+  offering `describe()`; a lookup that does not is reported as source
+  `unknown` rather than assumed to be serving the packaged default
+
+Main entrypoints:
+
+- `load_email_template(path) -> EmailTemplate`
+- `validate_email_template(template, definition) -> None`
+- `EmailTemplateRegistry.render(key, *, brand_name, context) -> RenderedEmail`
+- `EmailTemplateRegistry.render_samples(*, brand_name) -> Mapping[...]`
+- `build_module_registry(definitions, *, namespace, override_root) -> EmailTemplateRegistry`
+- `ensure_valid_override_tree(definitions, *, namespace, override_root) -> None`
+- `validate_override_tree(root, namespace, definitions) -> tuple[OverrideProblem, ...]`
+- `default_digest(definition) -> str`
+- `FilesystemOverrideSource.describe() -> tuple[OverrideState, ...]`
+- `inspect_email_templates(registry, *, brand_name) -> tuple[EmailTemplateVisibility, ...]`
+  -- renders each key on its own, so a template that fails to render (the size
+  limits are enforced *after* substitution, which validation cannot anticipate)
+  becomes that key's `preview_error` instead of an error page
+
+Rendering contract:
+
+- the only accepted placeholder form is `{name}`, where names match
+  `[a-z][a-z0-9_]*`; every other opening or closing brace is invalid
+- rendering performs one substitution pass, so braces in supplied values stay
+  data and are never evaluated
+- `brand_name` is globally allowed in every subject and body and is injected by
+  the module renderer; all other placeholders belong to a module definition
+- URL, token, and credential placeholders are required by the relevant
+  definition, so removing one from a template fails validation by name
+- subjects contain no carriage return or newline and contain at most 200
+  characters; bodies contain at most 16 KiB of UTF-8, with both limits checked
+  on the template and on rendered output
+- each packaged TOML file stores its subject and plain-text body as one unit;
+  Web and Arena fully render that unit before handing it to `EmailService`, so
+  the mailer remains unaware of templates
+
+Filesystem overrides (`NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR`):
+
+- a deployment publishes `<root>/web/<key>.toml` and `<root>/arena/<key>.toml`;
+  a key with no file renders from the packaged default, and the directory is
+  never seeded, so it holds exactly what that deployment changed
+- each module reads only its own namespace, and a file whose stem is not a
+  catalogue key is an error rather than an ignored file -- a misspelled filename
+  is a template that would never have taken effect
+- **startup fails closed**: every file in the namespace is validated before the
+  process serves traffic, and the error names each filename and reason. That is
+  the one check every replica performs identically against the same tree
+- **runtime fails soft**: the source stats each file per render (mtime, size,
+  inode) and reparses only on a change; an update that does not validate is
+  logged as a structured error and the last valid version -- or the packaged
+  default, when there was never a valid override -- keeps sending
+- absent and unreadable are deliberately different at both ends: an absent
+  namespace directory is a normal install and an absent file reverts one key to
+  its default, while a directory that cannot be listed refuses the start and a
+  file that cannot be stat-ed leaves the retained version sending
+- the retained version is in-memory and per process, so **replicas can disagree
+  until the file is fixed**. Publication is therefore an atomic same-directory
+  rename, the same tree is mounted read-only into every replica, and per-container
+  edits are unsupported
+- an override may record `based_on`, the digest of the default it was written
+  from (`default_digest`, over the default's subject and body rather than its raw
+  bytes). Drift never refuses an override; it is reported by `describe()` and by
+  the CLI so a deployment can find wording that stopped tracking upstream
+- `scripts/validate_email_templates.py <web|arena> <root>` runs the startup
+  check offline and adds what only an author needs: `--list` (keys and their
+  placeholder contracts), `--export` (packaged defaults, digest-stamped),
+  `--preview` (sample-value render, naming override or default), `--force`
+- the mailer receives rendered messages and needs no override mount; the setting
+  therefore lives in the `webarena` env layer, not in `email`
+- `inspect_email_templates()` is read-only visibility for Web UberAdmins and
+  Arena admins. It first performs the registry's normal sample render, then
+  reads `FilesystemOverrideSource.describe()` from that same process. It never
+  loads or validates override files independently. Its diagnostics therefore
+  describe the replica that served the request; another replica can retain a
+  different last valid override until the invalid file is fixed
 
 ---
 

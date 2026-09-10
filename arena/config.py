@@ -178,6 +178,18 @@ class Settings(BaseSettings):
         ge=0,
         description="Emails one admin actor may trigger per window; 0 disables that tier.",
     )
+    # Templates are rendered where the email is composed, so this belongs to the
+    # `webarena` layer rather than to `email`: the mailer receives finished
+    # messages and has no use for an override mount.
+    EMAIL_TEMPLATE_OVERRIDE_DIR: DirectoryPath | None = Field(
+        default=None,
+        description=(
+            "Optional host-managed directory of email template overrides, read from its "
+            "'arena/' subdirectory. Empty disables overrides and every email renders from "
+            "the packaged defaults. Every file in the namespace is validated at startup and "
+            "Arena refuses to start on any error."
+        ),
+    )
     CLASS_REGISTRATION_RETRY_SECONDS: int = Field(
         default=86400,
         ge=0,
@@ -875,6 +887,20 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS cannot be empty.")
         return normalized
+
+    @field_validator("EMAIL_TEMPLATE_OVERRIDE_DIR", mode="before")
+    @classmethod
+    def blank_email_template_override_dir_disables(cls, v: object) -> object:
+        """Read an empty template value as "overrides disabled", not as the cwd.
+
+        The layered templates ship every variable present and empty, and an empty
+        string would otherwise validate as ``Path(".")`` -- a directory that
+        exists, so nothing would complain while the working directory silently
+        became the override root.
+        """
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("PUBLIC_PROBLEM_PACK_PATH", mode="after")
     @classmethod

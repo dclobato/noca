@@ -103,6 +103,10 @@ services:
       NOCA_WEB_PROBLEM_STATEMENT_DIR: /data/problem_statements
       NOCA_PROBLEM_TESTCASE_DIR: /data/problem_test_cases
       NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH: /data/problem_packs
+      # Must match the read-only mount below. Overrides are opt-in per file: an
+      # empty directory changes nothing, and Web refuses to start if a file in
+      # `web/` is invalid.
+      NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR: /data/email_overrides
       NOCA_SEED_LANGUAGES: ${NOCA_SEED_LANGUAGES:-false}
     depends_on:
       postgres:
@@ -121,11 +125,16 @@ services:
       start_period: 20s
     volumes:
       # Host directory names are the backup script's contract: it archives
-      # problem_statements, problem_testcases, and email_log relative to the
-      # project directory. See scripts/backup_noca.sh.
+      # problem_statements, problem_testcases, email_log, and email_overrides
+      # (when present) relative to the project directory. See
+      # scripts/backup_noca.sh.
       - ${NOCA_DATA_ROOT:-.}/problem_statements:/data/problem_statements
       - ${NOCA_DATA_ROOT:-.}/problem_testcases:/data/problem_test_cases
       - ${NOCA_DATA_ROOT:-.}/problem_packs_web:/data/problem_packs
+      # Read-only, and the same host directory on every replica: a process holds
+      # the last valid version it read in memory, so replicas that mount
+      # different trees send different wording. See docs/CONFIG.md.
+      - ${NOCA_DATA_ROOT:-.}/email_overrides:/data/email_overrides:ro
     networks:
       - noca-network
     restart: unless-stopped
@@ -162,6 +171,10 @@ services:
       NOCA_CRYPTO_ENV_FILE: /app/.env.crypto
       NOCA_PROBLEM_TESTCASE_DIR: /data/problem_test_cases
       NOCA_ARENA_PUBLIC_PROBLEM_PACK_PATH: /data/problem_packs
+      # Must match the read-only mount below. Overrides are opt-in per file: an
+      # empty directory changes nothing, and Arena refuses to start if a file in
+      # `arena/` is invalid.
+      NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR: /data/email_overrides
       NOCA_SEED_LANGUAGES: ${NOCA_SEED_LANGUAGES:-false}
     depends_on:
       postgres:
@@ -185,6 +198,9 @@ services:
       # setting is a DirectoryPath: without the mount Arena refuses to start.
       - ${NOCA_DATA_ROOT:-.}/problem_testcases:/data/problem_test_cases
       - ${NOCA_DATA_ROOT:-.}/problem_packs_arena:/data/problem_packs
+      # Read-only, and the same host directory Web mounts: each module reads only
+      # its own namespace under it. See docs/CONFIG.md.
+      - ${NOCA_DATA_ROOT:-.}/email_overrides:/data/email_overrides:ro
     networks:
       - noca-network
     restart: unless-stopped

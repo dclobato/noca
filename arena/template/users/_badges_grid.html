@@ -21,14 +21,14 @@
             <h2 class="arena-badge-name">{{ metadata.label }}</h2>
         {% endif %}
         <p class="arena-badge-description">{{ metadata.description }}</p>
-        {% if user_badge.submission %}
-            {% if audience in ["owner", "admin"] %}
-                <a href="{{ request.url_for('arena_submission_detail', submission_id=user_badge.submission.id) }}"
-                   class="arena-badge-provenance">View awarding submission</a>
-            {% elif audience == "public" and user_badge.submission.problem.enabled %}
-                <a href="{{ request.url_for('arena_problem_detail', arena_number=user_badge.submission.problem.arena_number) }}"
-                   class="arena-badge-provenance">View problem {{ user_badge.submission.problem.arena_number }}: {{ user_badge.submission.problem.title }}</a>
-            {% endif %}
+        {# submission_id is NOT NULL, so an earned badge always has one to link. The only
+           badge without a provenance link is a public view of a disabled problem. #}
+        {% if audience in ["owner", "admin"] %}
+            <a href="{{ request.url_for('arena_submission_detail', submission_id=user_badge.submission.id) }}"
+               class="arena-badge-provenance">View awarding submission</a>
+        {% elif audience == "public" and user_badge.submission.problem.enabled %}
+            <a href="{{ request.url_for('arena_problem_detail', arena_number=user_badge.submission.problem.arena_number) }}"
+               class="arena-badge-provenance">View problem {{ user_badge.submission.problem.arena_number }}: {{ user_badge.submission.problem.title }}</a>
         {% endif %}
     </article>
 {% endmacro %}

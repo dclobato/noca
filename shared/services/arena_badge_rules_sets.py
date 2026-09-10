@@ -4,7 +4,18 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Problem-set scoped Arena badge rules."""
+"""Problem-set scoped Arena badge rules.
+
+Both rules rank concrete submissions, so each badge names the very submission
+that won its ``(problem_set, problem)`` pair -- no convention is involved. Both
+return the badges they derive rather than writing them, and both derive from the
+*live* Accepted set, so a rejudge that moves the winning submission off Accepted
+moves the badge to the next-ranked solver on the following full pass rather than
+leaving a pair with two holders.
+
+A user can win several pairs and a badge row can name only one submission. The
+canonical anchor is the earliest winning submission by ``(created_at, id)``.
+"""
 
 from __future__ import annotations
 
@@ -18,48 +29,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.db_schema.arena import arena_problem_set_problems, arena_problem_sets
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.enumerations import ArenaBadge
-from shared.services.arena_badge_data import AcEvent, ac_join, as_utc, award_badge
+from shared.services.arena_badge_data import AcEvent, ac_join, as_utc
+from shared.services.arena_badge_writer import BadgeAwards
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 
-async def award_first_to_hand_in(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award FIRST_TO_HAND_IN for affected opted-in problem-set submissions.
-
-    Both this rule and :func:`award_almost_late` already rank concrete
-    submissions, so each badge is anchored to the very submission that won its
-    ``(problem_set, problem)`` pair -- no convention is involved.
+async def award_first_to_hand_in(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive FIRST_TO_HAND_IN for affected opted-in problem-set submissions.
 
     The winner is the earliest Accepted submission for each
-    ``(problem_set, problem)`` pair, taken from the *live* AC set: ``ac_join``
-    reads each submission's latest judgment. A rejudge that flips the winning
-    submission off Accepted therefore drops it from the ranking, and the next
-    cycle awards the badge to the next-earliest solver while the original holder
-    keeps theirs, leaving the pair with more than one holder.
-
-    That is accepted, not overlooked: a rejudge is nearly always caused by a
-    problem-side defect, and the badge is an honor for what the student did at
-    the time, so it is never taken back. Do not add a revoke here. See
-    ``docs/ARENA_BADGES.md``.
+    ``(problem_set, problem)`` pair, taken from the live AC set: ``ac_join``
+    reads each submission's latest judgment, so a rejudged winner drops out of
+    the ranking and the next-earliest solver takes the pair.
     """
     pairs = _event_set_pairs(events)
     if not pairs:
-        return 0
+        return {}
 
     pairs = await _mapped_pairs(session, pairs)
     if not pairs:
-        return 0
+        return {}
 
     rows = await _load_set_ac_rows(session, {pair[0] for pair in pairs}, {pair[1] for pair in pairs})
-    awarded = 0
+    winners: list[tuple[str, datetime, str]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
         pair = (row.problem_set_id, row.problem_id)
         if pair not in pairs or pair in seen:
             continue
         seen.add(pair)
-        if await award_badge(session, row.user_id, ArenaBadge.FIRST_TO_HAND_IN, row.submission_id):
-            awarded += 1
-    return awarded
+        winners.append((row.user_id, as_utc(row.created_at), row.submission_id))
+    return _earliest_per_user(winners, ArenaBadge.FIRST_TO_HAND_IN)
 
 
 async def award_almost_late(
@@ -68,17 +68,16 @@ async def award_almost_late(
     *,
     now: datetime,
     full_reconcile: bool,
-) -> int:
-    """Award ALMOST_LATE to the latest on-time solver after set deadlines pass.
+) -> BadgeAwards:
+    """Derive ALMOST_LATE for the latest on-time solver after set deadlines pass.
 
-    Mirrors :func:`award_first_to_hand_in` and shares its append-only property:
-    the winner comes from the live AC set, so a rejudge can leave a pair with an
-    extra holder rather than moving the badge. That is deliberate — see that
-    function's docstring and ``docs/ARENA_BADGES.md``.
+    Mirrors :func:`award_first_to_hand_in`, including its live-AC ranking: the
+    winner is whoever is last on time among the submissions that are Accepted
+    now, so a rejudge moves the badge rather than duplicating it.
     """
     pairs = await _deadline_pairs(session, events, now=now, full_reconcile=full_reconcile)
     if not pairs:
-        return 0
+        return {}
 
     rows = await _load_set_ac_rows(session, {pair[0] for pair in pairs}, {pair[1] for pair in pairs})
     deadlines = dict(pairs)
@@ -92,11 +91,20 @@ async def award_almost_late(
         if pair not in latest or key > (latest[pair][0], latest[pair][1]):
             latest[pair] = (key[0], key[1], row.user_id)
 
-    awarded = 0
-    for _, submission_id, user_id in latest.values():
-        if await award_badge(session, user_id, ArenaBadge.ALMOST_LATE, submission_id):
-            awarded += 1
-    return awarded
+    return _earliest_per_user(
+        [(user_id, created_at, submission_id) for created_at, submission_id, user_id in latest.values()],
+        ArenaBadge.ALMOST_LATE,
+    )
+
+
+def _earliest_per_user(winners: list[tuple[str, datetime, str]], badge: ArenaBadge) -> BadgeAwards:
+    """Keep each user's earliest winning submission, by ``(created_at, id)``."""
+    best: dict[str, tuple[datetime, str]] = {}
+    for user_id, created_at, submission_id in winners:
+        key = (created_at, submission_id)
+        if user_id not in best or key < best[user_id]:
+            best[user_id] = key
+    return {(user_id, badge): submission_id for user_id, (_, submission_id) in best.items()}
 
 
 async def _deadline_pairs(

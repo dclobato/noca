@@ -70,6 +70,7 @@ with a degraded payload when either required backend is unavailable.
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /uberadmin/` | `uberadmin_dashboard` | — | `uberadmin_dashboard.py` |
+| `GET /uberadmin/email-templates` | `uberadmin_email_templates` | none; read-only effective template previews and local runtime diagnostics | `uberadmin_email_templates.py` |
 | `GET /uberadmin/security-events` | `uberadmin_security_events` | `event_type=`, `per_page=`, `page=` | `uberadmin_security.py` |
 | `GET /uberadmin/security-events.csv` | `uberadmin_security_events_csv` | none | `uberadmin_security.py` |
 | `GET /uberadmin/lockouts` | `uberadmin_lockouts` | `ip=`, `identifier=`, `identifier_hash=` (prefill + live status) | `uberadmin_lockouts.py` |

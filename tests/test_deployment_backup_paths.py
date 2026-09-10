@@ -7,7 +7,8 @@
 """The sample stack's host data directories are the backup script's contract.
 
 ``scripts/backup_noca.sh`` archives a fixed list of directory names relative to
-the project directory, and ``scripts/restore_noca.sh`` puts them back. Nothing
+the project directory -- the required ones always, the optional ones when the
+install has them -- and ``scripts/restore_noca.sh`` puts them back. Nothing
 connects that list to the bind mounts in ``docker-compose.yml.sample`` except
 these checks: rename a mount and the backup keeps succeeding, archiving a
 directory nothing writes to, and the loss only surfaces on the day someone
@@ -36,12 +37,22 @@ RESTORE_SCRIPT = REPO_ROOT / "scripts" / "restore_noca.sh"
 BIND_MOUNT = re.compile(r"^\$\{NOCA_DATA_ROOT:-(?P<default>[^}]*)\}/(?P<host>[^:]+):")
 
 
-def _archived_data_paths() -> list[str]:
-    """The directory names ``backup_noca.sh`` tars, in declaration order."""
+def _declared_paths(variable: str) -> list[str]:
+    """The literal directory names one backup-script array declares."""
     text = BACKUP_SCRIPT.read_text(encoding="utf-8")
-    declaration = re.search(r"FILESYSTEM_DATA_PATHS=\((?P<names>[^)]*)\)", text)
-    assert declaration is not None, "backup script no longer declares FILESYSTEM_DATA_PATHS"
+    declaration = re.search(rf"{variable}=\((?P<names>[^)]*)\)", text)
+    assert declaration is not None, f"backup script no longer declares {variable}"
     return declaration.group("names").split()
+
+
+def _archived_data_paths() -> list[str]:
+    """Every directory name ``backup_noca.sh`` may tar.
+
+    The script archives the required directories always and the optional ones
+    when they exist, so both lists are held to the same contract: a name in
+    either must be a real mount and must come back on restore.
+    """
+    return _declared_paths("REQUIRED_DATA_PATHS") + _declared_paths("OPTIONAL_DATA_PATHS")
 
 
 def _data_root_mounts(compose: dict[str, Any]) -> dict[str, str]:
@@ -104,3 +115,20 @@ def test_restore_puts_the_same_directories_back() -> None:
     missing = [name for name in _archived_data_paths() if name not in restore]
 
     assert missing == [], f"restore_noca.sh never mentions {missing}"
+
+
+def test_restore_matches_the_snapshot_for_optional_directories() -> None:
+    """ "The snapshot had none" is a state to restore, not a directory to skip.
+
+    A required directory is always in the archive, so copying it over is enough.
+    An optional one may be absent because the deployment it came from had no
+    overrides -- and leaving the current files in place would keep sending
+    wording the restored deployment never had. The restore must therefore clear
+    it as well as fill it, which is what these two branches are.
+    """
+    restore = RESTORE_SCRIPT.read_text(encoding="utf-8")
+
+    for name in _declared_paths("OPTIONAL_DATA_PATHS"):
+        assert 'if [[ -d "$EXTRACT_DIR/$path" ]]' in restore, name
+        assert 'elif [[ -d "$PROJECT_DIR/$path" ]]' in restore, name
+        assert f"for path in {name}; do" in restore

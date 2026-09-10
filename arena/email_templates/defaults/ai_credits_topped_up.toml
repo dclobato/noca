@@ -1,0 +1,16 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "AI review credits added to your account"
+body = """
+Hello {nome},
+
+{quantity} AI review {quantity_credit_noun} have been added to your {brand_name} account. Your new balance is {balance} {balance_credit_noun}.
+
+AI review credits can be used to request automated code reviews on your submissions.
+
+If you have any questions, please contact support.
+"""

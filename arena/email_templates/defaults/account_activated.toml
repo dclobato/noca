@@ -1,0 +1,16 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "Your account has been created"
+body = """
+Hello {nome},
+
+Your account has been created at {brand_name} and your email address is confirmed.
+
+You can now log in and start using the platform.
+
+Welcome aboard!
+"""

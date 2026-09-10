@@ -1,0 +1,16 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "A backup code was used to access your account"
+body = """
+Hello {nome},
+
+A backup code was used to access your {brand_name} account. You have {remaining} backup code(s) remaining.
+
+If this was you, no further action is needed. Consider regenerating your backup codes from your profile if you are running low.
+
+If you did not use a backup code to log in, your account may be compromised. Please contact support immediately and change your password.
+"""

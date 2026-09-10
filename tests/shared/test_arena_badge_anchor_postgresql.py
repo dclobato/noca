@@ -6,10 +6,12 @@
 
 """PostgreSQL coverage for the ``arena_user_badges.submission_id`` foreign key.
 
-The `ON DELETE SET NULL` action is what keeps a deleted submission from taking
-the badge it earned with it. SQLite does not enforce foreign-key actions unless
-`PRAGMA foreign_keys` is on, which the suite's default session does not set, so
-this behavior can only be observed against a real PostgreSQL database.
+A badge names the submission that earned it or it does not exist: the column is
+``NOT NULL`` and its foreign key is ``ON DELETE CASCADE``, so deleting a
+submission deletes the badges that named it. SQLite does not enforce foreign-key
+actions unless `PRAGMA foreign_keys` is on, which the suite's default session
+does not set, so the cascade can only be observed against a real PostgreSQL
+database.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import NullPool
 
@@ -35,7 +37,7 @@ from shared.db_schema.arena import (
     arena_users,
 )
 from shared.enumerations import ArenaBadge, JudgmentStatus, ProblemValidatorType, Verdict
-from shared.services.arena_badge_data import award_badge
+from shared.services.arena_badge_writer import apply_badge_awards
 from tests.conftest import skip_unless_schema_at_head
 
 _WHEN = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
@@ -142,13 +144,17 @@ async def _seed_ac(session: AsyncSession) -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_deleting_the_awarding_submission_clears_the_anchor_but_keeps_the_badge(
+async def test_deleting_the_awarding_submission_deletes_the_badge(
     postgres_badge_session: AsyncSession,
 ) -> None:
-    """``ON DELETE SET NULL`` must never take the badge away with the submission."""
+    """``ON DELETE CASCADE``: a badge cannot outlive the work it names."""
     session = postgres_badge_session
     user_id, submission_id = await _seed_ac(session)
-    await award_badge(session, user_id, ArenaBadge.HELLO_WORLD, submission_id)
+    await apply_badge_awards(
+        session,
+        {(user_id, ArenaBadge.HELLO_WORLD): submission_id},
+        full_reconcile=False,
+    )
     await session.flush()
 
     await session.execute(
@@ -157,12 +163,27 @@ async def test_deleting_the_awarding_submission_clears_the_anchor_but_keeps_the_
     await session.execute(delete(arena_submissions).where(arena_submissions.c.id == submission_id))
     await session.flush()
 
-    row = (
+    rows = (
+        await session.execute(select(arena_user_badges.c.badge).where(arena_user_badges.c.user_id == user_id))
+    ).all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_badge_without_an_awarding_submission_is_rejected(
+    postgres_badge_session: AsyncSession,
+) -> None:
+    """The invariant is the database's, not the award code's."""
+    session = postgres_badge_session
+    user_id, _ = await _seed_ac(session)
+
+    with pytest.raises(exc.IntegrityError):
         await session.execute(
-            select(arena_user_badges.c.badge, arena_user_badges.c.submission_id).where(
-                arena_user_badges.c.user_id == user_id
+            arena_user_badges.insert().values(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                badge=ArenaBadge.CLEAN_CODE.value,
+                awarded_at=_WHEN,
+                submission_id=None,
             )
         )
-    ).one()
-    assert row.badge == ArenaBadge.HELLO_WORLD.value
-    assert row.submission_id is None

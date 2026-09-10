@@ -25,8 +25,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
+from arena.email_templates import render_email
 from arena.models.arena_users import ArenaUser
-from arena.services.email_rendering import render_email as _render_email_template
 from arena.services.token_service import ArenaTokenAction, JWTService
 from arena.services.user_service import (
     UserOperationStatus,
@@ -155,12 +155,12 @@ async def _enviar_email_confirmacao(
         ``True`` when the email was dispatched successfully.
     """
     url = f"{url_base.rstrip('/')}/auth/activate?token={token}"
-    body = _render_email_template("confirm_your_email.jinja2", nome=usuario.nome, url=url)
+    email_content = render_email("confirm_your_email", nome=usuario.nome, url=url)
     result = await email_service.send_email(
         to_email=usuario.email_normalizado,
         to_name=usuario.nome,
-        subject="Confirm your email to activate your account",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success
@@ -178,16 +178,16 @@ async def _enviar_email_consentimento_responsavel_interno(
     if not usuario.email_responsavel_legal:
         return False
     url = f"{url_base.rstrip('/')}/auth/parental-consent?token={token}"
-    body = _render_email_template(
-        "parental_consent.jinja2",
+    email_content = render_email(
+        "parental_consent",
         nome=usuario.nome,
         url=url,
     )
     result = await email_service.send_email(
         to_email=usuario.email_responsavel_legal,
         to_name="Parent or legal guardian",
-        subject=f"Consent required for {settings.BRAND_NAME} account",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success
@@ -209,12 +209,12 @@ async def _enviar_email_conta_criada_confirmada(
     Returns:
         ``True`` when the email was dispatched successfully.
     """
-    body = _render_email_template("account_activated.jinja2", nome=usuario.nome)
+    email_content = render_email("account_activated", nome=usuario.nome)
     result = await email_service.send_email(
         to_email=usuario.email_normalizado,
         to_name=usuario.nome,
-        subject="Your account has been created",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success
@@ -244,16 +244,16 @@ async def enviar_email_conta_existente(
         ``True`` when the email was dispatched successfully.
     """
     base = url_base.rstrip("/")
-    body = _render_email_template(
-        "account_already_exists.jinja2",
+    email_content = render_email(
+        "account_already_exists",
         login_url=f"{base}/auth/login",
         reset_url=f"{base}/auth/password-reset",
     )
     result = await email_service.send_email(
         to_email=email,
         to_name=f"{settings.BRAND_NAME} user",
-        subject=f"You already have a {settings.BRAND_NAME} account",
-        text_body=body,
+        subject=email_content.subject,
+        text_body=email_content.body,
         actor_key=actor_key,
     )
     return result.success

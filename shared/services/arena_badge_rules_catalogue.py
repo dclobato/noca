@@ -13,11 +13,15 @@ Each badge is anchored to the submission that earned it. FIRST_SOLVER reads
 ``arena_problem_solvers``, which stores only ``solved_at``, so it resolves the
 anchor with :func:`load_first_ac_submissions`; the language badges identify the
 AC that first reached each distinct-language threshold.
+
+Both rules return the badges they derive rather than writing them; a first solve
+whose ACs have all gone away resolves to no anchor and therefore to no badge.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.db_schema.arena import arena_problem_solvers, arena_problems
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.enumerations import ArenaBadge
-from shared.services.arena_badge_data import AcEvent, ac_join, award_badge, load_first_ac_submissions
+from shared.services.arena_badge_data import AcEvent, ac_join, as_utc, load_first_ac_submissions
+from shared.services.arena_badge_writer import BadgeAwards
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 _LANGUAGE_THRESHOLDS: tuple[tuple[int, ArenaBadge], ...] = (
@@ -35,8 +40,8 @@ _LANGUAGE_THRESHOLDS: tuple[tuple[int, ArenaBadge], ...] = (
 )
 
 
-async def award_languages(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award distinct-language badges for affected ``(user, problem)`` pairs.
+async def award_languages(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive the distinct-language badges for affected ``(user, problem)`` pairs.
 
     The submissions are walked in ``(created_at, id)`` order rather than counted
     in SQL, so each badge can be anchored to the AC that first brought the pair's
@@ -44,7 +49,7 @@ async def award_languages(session: AsyncSession, events: list[AcEvent]) -> int:
     """
     pairs = {(e.user_id, e.problem_id) for e in events}
     if not pairs:
-        return 0
+        return {}
 
     user_ids = {user_id for user_id, _ in pairs}
     problem_ids = {problem_id for _, problem_id in pairs}
@@ -64,8 +69,10 @@ async def award_languages(session: AsyncSession, events: list[AcEvent]) -> int:
     ).all()
 
     seen_languages: dict[tuple[str, str], set[str]] = defaultdict(set)
-    # (user, badge) -> the submission that first reached the threshold.
-    crossings: dict[tuple[str, ArenaBadge], str] = {}
+    # (user, badge) -> the submission that first reached the threshold. A user
+    # who crosses the same threshold on two problems keeps the earlier crossing,
+    # since the rows arrive in canonical (created_at, id) order.
+    crossings: BadgeAwards = {}
     for row in rows:
         pair = (row.user_id, row.problem_id)
         if pair not in pairs:
@@ -74,25 +81,25 @@ async def award_languages(session: AsyncSession, events: list[AcEvent]) -> int:
         for threshold, badge in _LANGUAGE_THRESHOLDS:
             if len(seen_languages[pair]) == threshold:
                 crossings.setdefault((row.user_id, badge), row.id)
-
-    awarded = 0
-    for (user_id, badge), submission_id in crossings.items():
-        if await award_badge(session, user_id, badge, submission_id):
-            awarded += 1
-    return awarded
+    return crossings
 
 
-async def award_first_solver(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award FIRST_SOLVER to each affected problem's earliest non-owner solver.
+async def award_first_solver(session: AsyncSession, events: list[AcEvent]) -> BadgeAwards:
+    """Derive FIRST_SOLVER for each affected problem's earliest non-owner solver.
 
     Eligibility is gated by problem ownership, not role: any user (regardless of
     role) who is the first to solve a problem they do not own earns the badge.
     The problem owner is excluded because their own AC solutions (e.g. while
     authoring or testing) are not eligible.
+
+    A user can be the first solver of several problems, and the badge row can
+    name only one submission. The canonical anchor is the earliest of those
+    first solves, by ``(solved_at, problem_id)``, so it re-derives identically
+    every pass.
     """
     problem_ids = {e.problem_id for e in events}
     if not problem_ids:
-        return 0
+        return {}
 
     rows = (
         await session.execute(
@@ -116,17 +123,23 @@ async def award_first_solver(session: AsyncSession, events: list[AcEvent]) -> in
         )
     ).all()
 
-    winners: list[tuple[str, str]] = []
+    winners: list[tuple[str, str, datetime]] = []
     seen: set[str] = set()
     for row in rows:
         if row.problem_id in seen:
             continue
         seen.add(row.problem_id)
-        winners.append((row.user_id, row.problem_id))
+        winners.append((row.user_id, row.problem_id, as_utc(row.solved_at)))
 
-    anchors = await load_first_ac_submissions(session, set(winners))
-    awarded = 0
-    for user_id, problem_id in winners:
-        if await award_badge(session, user_id, ArenaBadge.FIRST_SOLVER, anchors.get((user_id, problem_id))):
-            awarded += 1
-    return awarded
+    anchors = await load_first_ac_submissions(session, {(user_id, problem_id) for user_id, problem_id, _ in winners})
+    earliest: dict[str, tuple[datetime, str]] = {}
+    for user_id, problem_id, solved_at in winners:
+        if (user_id, problem_id) not in anchors:
+            continue
+        key = (solved_at, problem_id)
+        if user_id not in earliest or key < earliest[user_id]:
+            earliest[user_id] = key
+    return {
+        (user_id, ArenaBadge.FIRST_SOLVER): anchors[(user_id, problem_id)]
+        for user_id, (_, problem_id) in earliest.items()
+    }

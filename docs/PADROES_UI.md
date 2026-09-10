@@ -2184,9 +2184,11 @@ Os links textuais da Arena usam um contrato único em
 ### Marca (`brand_name`)
 
 O nome público da marca vem de `NOCA_WEB_BRAND_NAME` / `NOCA_ARENA_BRAND_NAME`
-(ver `docs/CONFIG.md`), injetado nos templates como o global `brand_name` e nos
-e-mails do Arena por `arena/services/email_rendering.py`. Use `{{ brand_name }}`
-em vez de escrever "NOCA Arena"/"NOCA Contest" literalmente.
+(ver `docs/CONFIG.md`), injetado nos templates HTML como o global `brand_name`.
+Use `{{ brand_name }}` em HTML em vez de escrever "NOCA Arena"/"NOCA Contest"
+literalmente. Os catálogos de e-mail em `web/email_templates/` e
+`arena/email_templates/` usam o placeholder restrito `{brand_name}` do
+renderizador compartilhado, não Jinja.
 
 ---
 

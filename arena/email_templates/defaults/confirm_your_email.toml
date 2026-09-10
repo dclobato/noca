@@ -1,0 +1,18 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "Confirm your email to activate your account"
+body = """
+Hello {nome},
+
+Please confirm your email at {brand_name} by visiting the link below:
+
+{url}
+
+This link expires in 24 hours.
+
+If you did not create an account, you can safely ignore this message.
+"""

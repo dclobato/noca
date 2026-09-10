@@ -1,0 +1,23 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+subject = "New Arena signup: {nome}"
+body = """
+A new user has signed up on {brand_name}.
+
+Name:  {nome}
+Email: {email}
+User ID: {user_id}
+Signup IP: {signup_ip}
+
+IP reputation
+{ip_reputation_section}
+
+Email reputation
+{email_reputation_section}
+
+You can review this user in the Arena admin at /admin/users.
+"""

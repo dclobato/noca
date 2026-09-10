@@ -79,8 +79,12 @@ Arena HTTP process owns user-facing display and read state.
 
 Outbound email crosses the same boundary, and the `mailer` worker is the only
 process in NOCA that talks to a mail provider. The Web and Arena HTTP processes
-hold no SMTP settings at all: every email is rendered in the process that
-decided to send it and handed, fully formed, to the shared `EmailService`,
+hold no SMTP settings at all. Each producer owns a catalogue under its
+`email_templates/` package, while `shared/services/email_templates/` owns the
+constrained `{name}` grammar, TOML loading, validation, and one-pass
+substitution. Subjects and plain-text bodies are packaged together, and the
+producer resolves all branching and placeholders before handing the fully
+formed message to the shared `EmailService`,
 which charges the acting user's per-actor budget and pushes a `MailJob` onto the
 Valkey mail queue (`mail:queue:*`, `mail:job:{id}` with a TTL). The worker
 delivers it at the deployment's own pace, with retries -- or, with sending
@@ -94,6 +98,27 @@ start until a mailer has published its presence (`wait_for_mailer`, bounded by
 never checks mailer liveness, so a mailer restart refuses no request. See
 [SHARED_SERVICES.md](SHARED_SERVICES.md) for the contract and the budget's
 fail-open rule.
+
+That wording is deployment-changeable without a rebuild. Web and Arena read
+optional TOML overrides from `NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR`, one namespace
+per module, mounted read-only into those two processes only -- the mailer
+receives messages that are already rendered and needs no such mount. The
+asymmetry that matters is between start and run: the tree is validated before a
+process serves traffic and any error refuses the start, because that is the one
+check every replica performs identically on the same tree, while an edit
+published under a running process that does not validate is logged and the last
+valid version keeps sending. That retained version is per process, so replicas
+can disagree until the file is fixed -- which is why publication is an atomic
+rename and every replica mounts the same directory. See
+[SHARED_SERVICES.md](SHARED_SERVICES.md).
+
+Web UberAdmins and Arena admins can inspect that process-local effective state
+through read-only email-template pages. Each page renders the existing module
+registry with only catalogue-declared sample values, then reports the source,
+baseline metadata, and retained runtime diagnostic the serving process already
+holds. These pages never parse, validate, or write the host-managed directory,
+so deployment operators remain responsible for publishing overrides and the
+mailer's boundary remains unchanged.
 
 User online-presence (the green dot on avatars) lives entirely on the Valkey
 side of the boundary: the shared `user_presence` service writes a short-TTL live

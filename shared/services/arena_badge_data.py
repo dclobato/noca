@@ -7,10 +7,13 @@
 """Data access for the Arena badge-assignment loop.
 
 Holds the cursor/state row access, the Accepted-submission batch query, the
-per-(user, problem) history loader, and the badge insert/revoke helpers. Kept
-separate
-from the rule evaluators (``arena_badge_rules``) and the orchestration
-(``arena_badges``) so each module stays small and focused.
+per-(user, problem) history loader, and the anchor-resolution helpers. Kept
+separate from the rule evaluators (``arena_badge_rules``), the desired-state
+writer (``arena_badge_writer``), and the orchestration (``arena_badges``) so
+each module stays small and focused.
+
+Nothing here writes to ``arena_user_badges``: the rules return the badges they
+derive and ``arena_badge_writer`` owns every statement against the ledger.
 """
 
 from __future__ import annotations
@@ -18,29 +21,25 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
-from sqlalchemy import CursorResult, Join, Row, and_, delete, select, update
+from sqlalchemy import Join, Row, and_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
-from shared.db_schema._base import _new_uuid, _utcnow
-from shared.db_schema.arena import arena_badge_cycle_state, arena_user_badges
+from shared.db_schema.arena import arena_badge_cycle_state
 from shared.db_schema.arena import arena_submission_judgments as _judgments
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.db_schema.arena import arena_users as _users
 from shared.db_schema.arena.arena_badge_cycle_state import BADGE_CYCLE_STATE_ID
-from shared.enumerations import ArenaBadge, JudgmentStatus, Verdict
+from shared.enumerations import JudgmentStatus, Verdict
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 from shared.services.user_timezone import timezone_name_for_country
 
 # One row of a user's submission history: (created_at, submission_id, final_verdict).
 PairHistory = dict[tuple[str, str], list[tuple[datetime, str, str | None]]]
-
-# Badges a user already holds, mapped to the submission each is anchored to (or None).
-OwnedBadges = dict[str, dict[ArenaBadge, str | None]]
 
 
 @dataclass(frozen=True)
@@ -98,101 +97,14 @@ def ac_join(active: Subquery) -> Join:
     )
 
 
-async def award_badge(
-    session: AsyncSession,
-    user_id: str,
-    badge: ArenaBadge,
-    submission_id: str | None = None,
-) -> bool:
-    """Insert one badge for a user, or fill in the submission it was earned on.
-
-    A first award stores ``submission_id`` with the row. A repeat award never
-    rewrites it: an existing anchor wins over any later re-derivation, since the
-    live award saw the history as it actually was, while a re-derivation only
-    sees today's data. A row still carrying NULL -- one written before the
-    column existed, or by a rule that had no submission at the time -- is filled
-    in instead. That fill is what backfills the ledger: the periodic
-    full-reconcile pass re-derives every badge from all Accepted history, so the
-    rows predating this column acquire their anchors within one reconcile
-    interval without a migration or a one-off script.
-
-    ``submission_id`` is ``None`` for CLEAN_CODE, which records a rank held
-    across several problems rather than a single event; that row stays NULL by
-    design and is never filled.
-
-    Args:
-        session: Active async session (transaction owned by the caller).
-        user_id: Recipient Arena user id.
-        badge: Badge to award.
-        submission_id: Submission the rule fired on, when the badge has one.
-
-    Returns:
-        True when a new row was inserted, False when the user already held it,
-        including when this call only filled in its submission id.
-    """
-    insert = sqlite_insert if _dialect_name(session) == "sqlite" else pg_insert
-    stmt = (
-        insert(arena_user_badges)
-        .values(
-            id=_new_uuid(),
-            user_id=user_id,
-            badge=badge.value,
-            awarded_at=_utcnow(),
-            submission_id=submission_id,
-        )
-        .on_conflict_do_nothing(index_elements=["user_id", "badge"])
-        .returning(arena_user_badges.c.id)
-    )
-    if (await session.execute(stmt)).first() is not None:
-        return True
-    await _fill_submission(session, user_id, badge, submission_id)
-    return False
-
-
-async def _fill_submission(session: AsyncSession, user_id: str, badge: ArenaBadge, submission_id: str | None) -> None:
-    """Anchor a held badge to ``submission_id``, only while the row carries NULL."""
-    if submission_id is None:
-        return
-    await session.execute(
-        update(arena_user_badges)
-        .where(
-            arena_user_badges.c.user_id == user_id,
-            arena_user_badges.c.badge == badge.value,
-            arena_user_badges.c.submission_id.is_(None),
-        )
-        .values(submission_id=submission_id)
-    )
-
-
-async def revoke_badge_except(session: AsyncSession, badge: ArenaBadge, keep_user_ids: set[str]) -> int:
-    """Delete every holder of ``badge`` outside ``keep_user_ids``. Caller commits.
-
-    Only a dynamic badge — one whose criterion a user can stop satisfying as the
-    catalogue grows — may be revoked, and only from a full-reconcile pass that
-    evaluated the entire history: an incremental pass sees a subset of the
-    problems and would revoke everyone it did not look at.
-
-    Args:
-        session: Active async session (transaction owned by the caller).
-        badge: Badge to reconcile.
-        keep_user_ids: Users that still satisfy the criterion.
-
-    Returns:
-        Number of badge rows deleted.
-    """
-    stmt = delete(arena_user_badges).where(arena_user_badges.c.badge == badge.value)
-    if keep_user_ids:
-        stmt = stmt.where(arena_user_badges.c.user_id.notin_(keep_user_ids))
-    result = cast(CursorResult[Any], await session.execute(stmt))
-    return int(result.rowcount or 0)
-
-
 async def fetch_all_ac_metrics(session: AsyncSession) -> list[Row[Any]]:
-    """Return (problem_id, user_id, max_wall_time_ms, max_memory_kb) for every AC.
+    """Return every AC with its problem, submitter, metrics, and identity.
 
     One query over all Accepted history, grouped by the caller. Used by the
     CLEAN_CODE reconciliation, which must rank each problem's whole solver
-    population rather than only the users touched this cycle.
+    population rather than only the users touched this cycle -- and then pick a
+    representative submission per qualifier, which is why the rows carry
+    ``submission_id`` and ``created_at`` rather than the metrics alone.
     """
     active = active_arena_judgment_subquery()
     return list(
@@ -201,6 +113,8 @@ async def fetch_all_ac_metrics(session: AsyncSession) -> list[Row[Any]]:
                 select(
                     _submissions.c.problem_id,
                     _submissions.c.user_id,
+                    _submissions.c.id.label("submission_id"),
+                    _submissions.c.created_at,
                     _judgments.c.max_wall_time_ms,
                     _judgments.c.max_memory_kb,
                 ).select_from(ac_join(active))
@@ -333,35 +247,6 @@ async def load_pair_history(session: AsyncSession, events: list[AcEvent]) -> Pai
         if key in pairs:
             history[key].append((as_utc(row.created_at), row.id, row.final_verdict))
     return history
-
-
-async def load_owned_badges(session: AsyncSession, user_ids: set[str]) -> OwnedBadges:
-    """Load each affected user's held badges and the submission each is anchored to.
-
-    The submission id is part of the answer because it is what the callers'
-    short-circuits key off: a badge already held *and* anchored needs no further
-    work, while one held with a NULL anchor must still be evaluated so the pass
-    can fill it in. Once the backfill has run every row is anchored and the
-    short-circuits revert to their original cheap behavior.
-    """
-    owned: OwnedBadges = defaultdict(dict)
-    rows = (
-        await session.execute(
-            select(
-                arena_user_badges.c.user_id,
-                arena_user_badges.c.badge,
-                arena_user_badges.c.submission_id,
-            ).where(arena_user_badges.c.user_id.in_(user_ids))
-        )
-    ).all()
-    for user_id, badge, submission_id in rows:
-        owned[user_id][ArenaBadge(badge)] = submission_id
-    return owned
-
-
-def is_anchored(owned: OwnedBadges, user_id: str, badge: ArenaBadge) -> bool:
-    """Return whether ``user_id`` already holds ``badge`` *with* a submission id."""
-    return owned.get(user_id, {}).get(badge) is not None
 
 
 async def load_first_ac_submissions(session: AsyncSession, pairs: set[tuple[str, str]]) -> dict[tuple[str, str], str]:

@@ -9,37 +9,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
-
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from shared.services.email_providers import EmailBudgetExceeded
 from shared.services.email_service import QUEUE_PROVIDER_NAME, EmailService
 from web.config import settings
+from web.email_templates import render_email
 from web.models.users import UberAdmin, User
-
-_EMAIL_TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "template" / "email"
-
-
-@lru_cache(maxsize=1)
-def _email_template_environment() -> Environment:
-    """Return cached Jinja environment for plain-text email templates."""
-    return Environment(
-        loader=FileSystemLoader(str(_EMAIL_TEMPLATE_DIR)),
-        autoescape=False,
-        trim_blocks=False,
-        lstrip_blocks=False,
-        undefined=StrictUndefined,
-    )
-
-
-def _render_template(template_name: str, **context: str) -> str:
-    """Render a named email template with ``brand_name`` always injected."""
-    render_context: dict[str, str] = {"brand_name": settings.BRAND_NAME}
-    render_context.update(context)
-    template = _email_template_environment().get_template(template_name)
-    return template.render(**render_context).rstrip()
 
 
 @dataclass(frozen=True)
@@ -89,18 +64,16 @@ def build_animator_credential_email_content(
     Returns:
         A ready-to-send content object.
     """
-    return CredentialEmailContent(
-        subject=f"Animator credential for contest {contest_name}",
-        text_body=_render_template(
-            "animator_credential.jinja2",
-            fullname=fullname,
-            contest_name=contest_name,
-            label=label,
-            scope_label=scope_label,
-            token=token,
-            sender_name=settings.BRAND_NAME,
-        ),
+    email = render_email(
+        "animator_credential",
+        fullname=fullname,
+        contest_name=contest_name,
+        label=label,
+        scope_label=scope_label,
+        token=token,
+        sender_name=settings.BRAND_NAME,
     )
+    return CredentialEmailContent(subject=email.subject, text_body=email.body)
 
 
 def build_user_credentials_email_content(
@@ -125,18 +98,16 @@ def build_user_credentials_email_content(
     Returns:
         A ready-to-send content object.
     """
-    return CredentialEmailContent(
-        subject=f"Your credentials for contest {contest_name}",
-        text_body=_render_template(
-            "send_credentials.jinja2",
-            fullname=fullname,
-            contest_name=contest_name,
-            contest_login_url=contest_login_url,
-            username=username,
-            password=password,
-            sender_name=sender_name,
-        ),
+    email = render_email(
+        "send_credentials",
+        fullname=fullname,
+        contest_name=contest_name,
+        contest_login_url=contest_login_url,
+        username=username,
+        password=password,
+        sender_name=sender_name,
     )
+    return CredentialEmailContent(subject=email.subject, text_body=email.body)
 
 
 def build_uberadmin_credentials_email_content(
@@ -159,17 +130,15 @@ def build_uberadmin_credentials_email_content(
     Returns:
         A ready-to-send content object.
     """
-    return CredentialEmailContent(
-        subject=f"Your {settings.BRAND_NAME} global administrator credentials",
-        text_body=_render_template(
-            "send_uberadmin_credentials.jinja2",
-            fullname=fullname,
-            login_url=login_url,
-            username=username,
-            password=password,
-            sender_name=sender_name,
-        ),
+    email = render_email(
+        "send_uberadmin_credentials",
+        fullname=fullname,
+        login_url=login_url,
+        username=username,
+        password=password,
+        sender_name=sender_name,
     )
+    return CredentialEmailContent(subject=email.subject, text_body=email.body)
 
 
 async def send_credentials_email(

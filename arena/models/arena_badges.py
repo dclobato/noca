@@ -30,13 +30,11 @@ class ArenaUserBadge(ArenaBase):
         user_id: FK to arena_users.
         badge: The earned badge identifier.
         awarded_at: Timestamp when the badge was awarded.
-        submission_id: FK to the submission that earned the badge, or None when
-            the badge has no single awarding submission (CLEAN_CODE), no anchor
-            can be derived under today's data, or the row predates the column and
-            no reconcile has re-derived it yet.
+        submission_id: FK to the submission that earned the badge. Never None:
+            a badge that cannot name its work is not awarded.
         created_at: Record creation timestamp.
         user: Back-reference to the owning ArenaUser.
-        submission: The awarding submission, when one is recorded.
+        submission: The awarding submission.
     """
 
     __table__ = arena_user_badges_table
@@ -45,7 +43,7 @@ class ArenaUserBadge(ArenaBase):
     user_id: Mapped[str]
     badge: Mapped[ArenaBadge]
     awarded_at: Mapped[datetime]
-    submission_id: Mapped[str | None]
+    submission_id: Mapped[str]
     created_at: Mapped[datetime]
 
     user: Mapped[ArenaUser] = relationship(
@@ -53,7 +51,7 @@ class ArenaUserBadge(ArenaBase):
         back_populates="badges",
         foreign_keys=[arena_user_badges_table.c.user_id],
     )
-    submission: Mapped[ArenaSubmission | None] = relationship(
+    submission: Mapped[ArenaSubmission] = relationship(
         "ArenaSubmission",
         foreign_keys=[arena_user_badges_table.c.submission_id],
         lazy="select",

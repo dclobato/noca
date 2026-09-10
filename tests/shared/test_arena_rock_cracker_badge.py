@@ -227,13 +227,19 @@ async def test_full_reconcile_with_empty_event_batches_revokes_stale_row(
     session: AsyncSession,
 ) -> None:
     """Full reconciliation runs even when no submission event exists."""
+    owner = await _new_user(session)
     user_id = await _new_user(session)
+    # A solve on a problem nobody struggles with: the badge below is anchored to
+    # real work, and that work simply does not qualify.
+    easy_problem = await _new_problem(session, owner)
+    submission_id = await _submit(session, user_id, easy_problem, _START, Verdict.AC)
     await session.execute(
         arena_user_badges.insert().values(
             id=str(uuid.uuid4()),
             user_id=user_id,
             badge=ArenaBadge.ROCK_CRACKER.value,
             awarded_at=_START,
+            submission_id=submission_id,
         )
     )
 
@@ -242,14 +248,22 @@ async def test_full_reconcile_with_empty_event_batches_revokes_stale_row(
     assert await _rock_row(session, user_id) is None
 
 
-async def test_surviving_holder_keeps_original_anchor(session: AsyncSession) -> None:
-    """Another qualifying problem preserves the row and its historical anchor."""
+async def test_surviving_holder_is_reanchored_to_a_problem_that_still_qualifies(
+    session: AsyncSession,
+) -> None:
+    """The row survives on another qualifying problem and moves to name it.
+
+    The anchor is evidence, not history: when the problem that awarded the badge
+    stops qualifying, the row must point at the solve that keeps the holder
+    eligible now. ``awarded_at`` and the row identity stay put, because
+    eligibility was never interrupted.
+    """
     owner = await _new_user(session)
     holder = await _new_user(session)
     first_problem = await _new_problem(session, owner)
     second_problem = await _new_problem(session, owner)
     first_submission = await _submit(session, holder, first_problem, _START, Verdict.AC)
-    await _submit(session, holder, second_problem, _START + timedelta(minutes=1), Verdict.AC)
+    second_submission = await _submit(session, holder, second_problem, _START + timedelta(minutes=1), Verdict.AC)
     await _add_attempts(session, first_problem, 5, start=_START + timedelta(minutes=2))
     await _add_attempts(session, second_problem, 5, start=_START + timedelta(minutes=3))
     await compute_badge_awards(session, full_reconcile=True)
@@ -269,33 +283,8 @@ async def test_surviving_holder_keeps_original_anchor(session: AsyncSession) -> 
     after = await _rock_row(session, holder)
     assert after is not None
     assert after.id == before.id
-    assert after.submission_id == first_submission
-
-
-async def test_null_anchor_is_filled_without_replacing_badge_row(session: AsyncSession) -> None:
-    """An existing unanchored holder participates in the #126 backfill contract."""
-    owner = await _new_user(session)
-    holder = await _new_user(session)
-    problem = await _new_problem(session, owner)
-    submission_id = await _submit(session, holder, problem, _START, Verdict.AC)
-    await _add_attempts(session, problem, 5, start=_START + timedelta(minutes=1))
-    badge_id = str(uuid.uuid4())
-    await session.execute(
-        arena_user_badges.insert().values(
-            id=badge_id,
-            user_id=holder,
-            badge=ArenaBadge.ROCK_CRACKER.value,
-            awarded_at=_START,
-            submission_id=None,
-        )
-    )
-
-    await compute_badge_awards(session, full_reconcile=True)
-
-    row = await _rock_row(session, holder)
-    assert row is not None
-    assert row.id == badge_id
-    assert row.submission_id == submission_id
+    assert after.awarded_at == before.awarded_at
+    assert after.submission_id == second_submission
 
 
 async def test_revoked_badge_is_reawarded_with_fresh_row_and_anchor(

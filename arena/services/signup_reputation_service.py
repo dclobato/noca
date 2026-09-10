@@ -23,9 +23,9 @@ import anyio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.email_templates import render_email
 from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
-from arena.services.email_rendering import render_email
 from shared.enumerations import ArenaRole
 from shared.services.email_reputation import EmailReputation, EmailReputationService
 from shared.services.email_service import EmailService
@@ -69,23 +69,62 @@ async def _persist_reputation(
     await session.commit()
 
 
+def _yes_no(value: bool) -> str:
+    """Return the report's display value for a boolean reputation signal."""
+    return "yes" if value else "no"
+
+
+def _render_ip_reputation_section(ip_rep: IPReputation | None) -> str:
+    """Build the display-ready IP reputation section."""
+    if ip_rep is None:
+        return "  Not available."
+    return "\n".join(
+        (
+            f"  Fraud score:  {ip_rep.fraud_score}/100",
+            f"  Proxy:        {_yes_no(ip_rep.proxy)}",
+            f"  VPN:          {_yes_no(ip_rep.vpn)} (active: {_yes_no(ip_rep.active_vpn)})",
+            f"  Tor:          {_yes_no(ip_rep.tor)} (active: {_yes_no(ip_rep.active_tor)})",
+            f"  Recent abuse: {_yes_no(ip_rep.recent_abuse)}",
+            f"  Crawler:      {_yes_no(ip_rep.is_crawler)}",
+            f"  Mobile:       {_yes_no(ip_rep.mobile)}",
+        )
+    )
+
+
+def _render_email_reputation_section(email_rep: EmailReputation | None) -> str:
+    """Build the display-ready email reputation section."""
+    if email_rep is None:
+        return "  Not available."
+    return "\n".join(
+        (
+            f"  Fraud score:   {email_rep.fraud_score}/100",
+            f"  Overall score: {email_rep.overall_score}/4",
+            f"  Valid:         {_yes_no(email_rep.valid)}",
+            f"  Disposable:    {_yes_no(email_rep.disposable)}",
+            f"  Suspect:       {_yes_no(email_rep.suspect)}",
+            f"  Common:        {_yes_no(email_rep.common)}",
+        )
+    )
+
+
 def _render_admin_email(
     *,
     user: ArenaUser,
     signup_ip: str | None,
     ip_rep: IPReputation | None,
     email_rep: EmailReputation | None,
-) -> str:
-    """Render the plain-text admin notification body for a new signup."""
-    return render_email(
-        "new_user_reputation.jinja2",
+) -> tuple[str, str]:
+    """Render the subject and plain-text body for a new-signup notification."""
+    email_content = render_email(
+        "new_user_reputation",
         nome=user.nome,
         email=user.email_normalizado,
         user_id=user.id,
-        signup_ip=signup_ip,
-        ip=ip_rep,
-        email_rep=email_rep,
+        signup_ip=signup_ip or "unknown",
+        ip_reputation_section=_render_ip_reputation_section(ip_rep),
+        email_reputation_section=_render_email_reputation_section(email_rep),
     )
+    return email_content.subject, email_content.body
 
 
 async def _notify_admins(
@@ -101,8 +140,7 @@ async def _notify_admins(
     admins = (await session.scalars(select(ArenaUser).where(ArenaUser.role == ArenaRole.ARENA_ADMIN))).all()
     if not admins:
         return
-    body = _render_admin_email(user=user, signup_ip=signup_ip, ip_rep=ip_rep, email_rep=email_rep)
-    subject = f"New Arena signup: {user.nome}"
+    subject, body = _render_admin_email(user=user, signup_ip=signup_ip, ip_rep=ip_rep, email_rep=email_rep)
     # System-originated fan-out: no actor to budget, so ``actor_key`` stays None.
     for admin in admins:
         try:

@@ -44,6 +44,10 @@ os.environ.setdefault("NOCA_IMAGE_MAX_HEIGHT", "2048")
 os.environ.setdefault("NOCA_JWT_REFRESH_MAX_SESSION_SECONDS", "0")
 os.environ.setdefault("NOCA_ARENA_PRESENCE_ENABLED", "true")
 os.environ.setdefault("NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS", "30")
+# A developer who is testing email overrides locally must not silently give
+# every test in the suite their own subjects and bodies. Tests that want an
+# override tree set the setting themselves and clear the registry cache.
+os.environ["NOCA_EMAIL_TEMPLATE_OVERRIDE_DIR"] = ""
 if _xdist_worker:
     # The controller's environment is inherited by every xdist worker. Override
     # shared application paths inside each worker so parallel tests cannot see or

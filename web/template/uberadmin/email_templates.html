@@ -1,0 +1,34 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}— Email Templates{% endblock %}
+{% block content %}
+    <div class="container-fluid px-4 py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Email templates</h1>
+                <p class="text-muted mb-0">Effective Web email wording, rendered with declared sample values.</p>
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">
+                {{ render_icon(icon="arrow_back") }}
+                Back to dashboard
+            </a>
+        </div>
+        <div class="alert alert-info" role="note">
+            These previews never use recipient data, credentials, or live tokens. Override diagnostics are from this
+            replica; a different replica can retain a different last valid version until an invalid file is fixed.
+        </div>
+        {% for template in email_templates %}
+            <article class="card shadow-sm mb-4">
+                <div class="card-body">{% include "_partials/email_template_preview.html" %}</div>
+            </article>
+        {% endfor %}
+    </div>
+{% endblock %}
